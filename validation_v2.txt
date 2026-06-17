@@ -1,0 +1,86 @@
+﻿python.exe : ticket_to_code.agents.localization_agent WARNING: Neo4j 
+initialization failed (non-fatal): Neo4j support requires the neo4j driver. 
+Install with: pip install "aviator-platform[neo4j]"
+At line:1 char:191
++ ... ator-dev" ; & "aviator-plugin-sample\.venv\Scripts\python.exe" valida ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (ticket_to_code....latform[neo4j]" 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+aviator.vector_store.adapters.pgvector ERROR: Error setting up PGVector store 
+-> (psycopg.OperationalError) failed to resolve host 'pgvector_db': [Errno 
+11001] getaddrinfo failed
+(Background on this error at: https://sqlalche.me/e/20/e3q8)

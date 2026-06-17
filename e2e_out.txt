@@ -1,0 +1,26 @@
+Checking backend health...
+  {'status': 'healthy', 'projects': 1, 'knowledge_bases': 0, 'active_workflows': 0, 'websocket_connections': 2}
+
+====================================================================
+SUBMITTING: Ticket A -- UX Alignment
+  UX alignment isn't proper for deliverable add reviewer and reviewers p
+====================================================================
+  Workflow ID: 366a0e56-ca18-4e74-8c7c-7bca60020286
+  Final status: completed
+  Trace dir: ux_alignment_isn_t_proper_for_deliverabl__20260609_152659
+  No ranking trace file found; check trace dir manually
+
+====================================================================
+SUBMITTING: Ticket B -- Deliverable Count
+  Deliverable count beside 'Name' column displays incorrect value when f
+====================================================================
+  Workflow ID: df185681-5851-43df-9fda-ddc3856da569
+  Final status: failed
+  Trace dir: deliverable_count_beside_name_column_dis__20260609_152855
+  No ranking trace file found; check trace dir manually
+
+====================================================================
+SUMMARY
+====================================================================
+Ticket A status: completed
+Ticket B status: failed

@@ -1,0 +1,24 @@
+=== TICKET B: Deliverable Count Filter ===
+Concept keywords from summary (11): ['deliverable', 'count', 'beside', 'name', 'column', 'displays', 'incorrect', 'value', 'when', 'filter', 'applied']
+
+=== TOP 20 (POST-FIX) ===
+  # 1 0.836  fs=1.00 sql=1.00 sym=1.00 path=0.100 own=0.37  area/domain/engineering/service/impl/DeliverablesServiceImpl.java
+  # 2 0.705  fs=1.00 sql=0.39 sym=1.00 path=0.100 own=0.36  a/domain/engineering/service/impl/DeliverableListServiceImpl.java
+  # 3 0.693  fs=1.00 sql=0.43 sym=1.00 path=0.100 own=0.32  a/domain/engineering/service/impl/DeliverableItemServiceImpl.java
+  # 4 0.665  fs=1.00 sql=0.33 sym=1.00 path=0.100 own=0.30  main/engineering/service/DeliverableAtomicTransactionService.java
+  # 5 0.620  fs=1.00 sql=0.18 sym=1.00 path=0.100 own=0.27  /engineering/service/DeliverableAtomicTransactionServiceTest.java
+  # 6 0.617  fs=1.00 sql=0.10 sym=1.00 path=0.100 own=0.30  g/service/DeliverableAtomicTransactionServiceIntegrationTest.java
+  # 7 0.419  fs=1.00 sql=0.39 sym=0.00 path=0.100 own=0.14  /domain/engineering/service/impl/DeliverablesServiceImplTest.java
+  # 8 0.385  fs=0.75 sql=0.00 sym=1.00 path=0.125 own=0.34  va/com/opentext/solutions/services/area/entity/PropertyValue.java
+  # 9 0.348  fs=0.75 sql=0.12 sym=0.00 path=0.111 own=0.19  lutions/services/area/saga/handler/AddDeliverableHandlerTest.java
+  #10 0.337  fs=0.75 sql=0.19 sym=0.00 path=0.111 own=0.11  t/solutions/services/area/saga/handler/AddDeliverableHandler.java
+  #11 0.319  fs=0.75 sql=0.13 sym=0.00 path=0.100 own=0.09  main/engineering/service/impl/DeliverableItemServiceImplTest.java
+  #12 0.316  fs=0.75 sql=0.07 sym=0.00 path=0.111 own=0.11  services/area/saga/handler/ChangeDeliverableStateHandlerTest.java
+  #13 0.302  fs=1.00 sql=0.50 sym=0.00 path=0.100 own=0.24  services/area/domain/engineering/service/DeliverablesService.java
+  #14 0.273  fs=0.50 sql=0.06 sym=0.00 path=0.100 own=0.12  in/engineering/service/impl/DeliverableItemGetterServiceImpl.java
+  #15 0.209  fs=1.00 sql=0.03 sym=0.00 path=0.100 own=0.19  area/domain/engineering/api/model/FilterDeliverableListInput.java
+  #16 0.201  fs=1.00 sql=0.06 sym=0.00 path=0.100 own=0.12  ces/area/domain/engineering/api/model/FilterDeliverableInput.java
+  #17 0.195  fs=0.75 sql=0.17 sym=0.00 path=0.100 own=0.23  vices/area/domain/engineering/service/DeliverableListService.java
+  #18 0.193  fs=0.75 sql=0.01 sym=0.00 path=0.250 own=0.17  text/bim/gatewayservice/UpdateCookieNameGatewayFilterFactory.java
+  #19 0.188  fs=0.75 sql=0.17 sym=0.00 path=0.100 own=0.19  vices/area/domain/engineering/service/DeliverableItemService.java
+  #20 0.185  fs=0.75 sql=0.06 sym=0.00 path=0.143 own=0.23  text/solutions/services/area/dto/DeliverableHistoryReportDTO.java

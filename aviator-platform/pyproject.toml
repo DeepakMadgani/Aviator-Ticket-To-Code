@@ -1,0 +1,32 @@
+[project]
+name = "aviator-platform"
+version = "0.1.0"
+description = "Repository Intelligence Core for Java projects (AST-first, patch-first)."
+requires-python = ">=3.11"
+authors = [{ name = "Aviator Platform" }]
+
+dependencies = [
+    # AST parsing for Java (Python bindings, no JVM required).
+    "tree-sitter>=0.23.0",
+    "tree-sitter-java>=0.23.0",
+    # Models / CLI / output.
+    "pydantic>=2.7",
+    "typer>=0.12",
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+neo4j = ["neo4j>=5.20"]
+qdrant = ["qdrant-client>=1.9", "sentence-transformers>=3.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+
+[project.scripts]
+aviator = "aviator_core.cli:app"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aviator_core*"]

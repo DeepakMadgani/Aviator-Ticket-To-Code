@@ -1,0 +1,19 @@
+Metadata-Version: 2.4
+Name: aviator-platform
+Version: 0.1.0
+Summary: Repository Intelligence Core for Java projects (AST-first, patch-first).
+Author: Aviator Platform
+Requires-Python: >=3.11
+Requires-Dist: tree-sitter>=0.23.0
+Requires-Dist: tree-sitter-java>=0.23.0
+Requires-Dist: pydantic>=2.7
+Requires-Dist: typer>=0.12
+Requires-Dist: rich>=13.7
+Provides-Extra: neo4j
+Requires-Dist: neo4j>=5.20; extra == "neo4j"
+Provides-Extra: qdrant
+Requires-Dist: qdrant-client>=1.9; extra == "qdrant"
+Requires-Dist: sentence-transformers>=3.0; extra == "qdrant"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: pytest-cov>=5.0; extra == "dev"

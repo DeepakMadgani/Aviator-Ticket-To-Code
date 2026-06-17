@@ -1,0 +1,266 @@
+﻿
+======================================================================
+  Phase 3A Validation ΓÇö Live Repository Search Layer
+  Ticket: 'Update CC4E version from 26.2 to 26.3'
+======================================================================
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  PHASE 0 ΓÇö WHY run-job.sh WAS PREVIOUSLY MISSED
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+  Indexing discovery functions and their patterns:
+    discover_java_files()      ΓåÆ *.java only
+    discover_typescript_files()ΓåÆ *.ts, *.tsx only (excludes .d.ts)
+    discover_template_files()  ΓåÆ *.html, *.scss, *.css only
+    scan_pom_xml()             ΓåÆ pom.xml only
+    scan_application_yml()     ΓåÆ application.yml, application.properties only
+
+  NO discover_shell_files() exists. Extension .sh is not in any pattern.
+
+  Target file  : C:\CC4E\project-service\helm\static\run-job.sh
+  File exists  : Γ£à (found on disk)
+  Extension    : .sh
+  Crawled pre-3A : Γ¥î NO ΓÇö .sh is excluded from all discover_* functions
+  In SQLite    : Γ¥î NO ΓÇö never crawled ΓåÆ never stored
+  In Neo4j     : Γ¥î NO ΓÇö same prerequisite
+  Embedded     : Γ¥î NO ΓÇö same prerequisite
+  Searchable   : Γ¥î NO ΓÇö all retrieval paths require prior indexing
+
+  Evidence Collection Loop (pre-3A) sources 1ΓÇô9:
+    Source 1 (Semantic)      ΓåÆ pgvector ΓÇö .sh never embedded ΓåÆ MISS
+    Source 2 (SQLite FTS)    ΓåÆ symbols_fts ΓÇö .sh not in symbols ΓåÆ MISS
+    Source 3 (SQLite Symbol) ΓåÆ symbols table ΓÇö .sh not in symbols ΓåÆ MISS
+    Source 4 (Neo4j)         ΓåÆ Symbol nodes ΓÇö .sh never crawled ΓåÆ MISS
+    Source 5 (TS chains)     ΓåÆ TS structural edges ΓÇö not a .ts file ΓåÆ MISS
+    Source 6 (Java chains)   ΓåÆ Java layer edges ΓÇö not a .java file ΓåÆ MISS
+    Source 7 (CSS chains)    ΓåÆ style_of edges ΓÇö not a .css/.scss ΓåÆ MISS
+    Source 8 (Config chains) ΓåÆ .properties/.yml/.xml only ΓÇö .sh excluded ΓåÆ MISS
+    Source 9 (Layout chains) ΓåÆ SCSS sibling search ΓÇö not SCSS ΓåÆ MISS
+
+  Γ¢ö RESULT: run-job.sh is invisible to all 9 pre-3A evidence sources
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  PHASE 1 ΓÇö LITERAL EXTRACTION FROM TICKET
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+  Ticket  : Update CC4E version from 26.2 to 26.3
+  Desc    : CC4E application version must be updated from 26.2.0 to 26.3.0. All files containing the version str...
+
+  Generated 2 hypothesis(es):
+
+  [H1] Version constant '26.2' / '260200' must be updated to '26.3' / '260300' in all source files
+    Literals  : ['26.2', '26.3', '260200', '260300', '26.2.0', '26.3.0']
+    Symbols   : ['GHS_VERSION', 'ghsHelpVersion', 'helpVersion', 'APP_VERSION', 'VERSION', 'GenericConstants']
+    Queries   : ['application version constant 26.2', 'version update helm chart', 'CC4E version configuration']
+
+  [H2] Helm chart deployment scripts embed version number and need updating
+    Literals  : ['26.2', '260200', 'run-job', 'helm']
+    Symbols   : ['run-job', 'helm', 'values.yaml', 'deployment']
+    Queries   : ['helm chart version', 'kubernetes deployment version']
+
+  Unique literals extracted : ['26.2', '26.2.0', '26.3', '26.3.0', '260200', '260300', 'helm', 'run-job']
+  Unique symbols extracted  : ['APP_VERSION', 'GHS_VERSION', 'GenericConstants', 'VERSION', 'deployment', 'ghsHelpVersion', 'helm', 'helpVersion', 'run-job', 'values.yaml']
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  PHASE 2 ΓÇö LIVE REPOSITORY SEARCH EXECUTION (Phase 3A)
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+  Workspace : C:\CC4E
+  Extensions searched: .bat, .css, .env, .html, .java, .json, .properties, .ps1, .scss, .sh, .ts, .tsx, .xml, .yaml, .yml
+
+  ΓöÇΓöÇ Hypothesis H1: Version constant '26.2' / '260200' must be updated to '26.3'ΓÇª
+    [literal] '26.2' ΓåÆ 3 file(s)
+             xchange-ui/package-lock.json  (line 2565: "@babel/code-frame": "^7.26.2",)
+             xchange-ui/src/app/modules/deliverables/content-list/content-list.component.scss  (line 14: width: 26.25rem;)
+             xchange-ui/src/jato/header/jheader.component.spec.ts  (line 17: // The version string '260200' corresponds to '26.2'.)
+    [literal] '26.3' ΓåÆ 2 file(s)
+             xchange-ui/package-lock.json  (line 4265: "@babel/plugin-transform-exponentiation-operator": "^7.26.3")
+             xchange-ui/src/jato/header/jheader.component.spec.ts  (line 18: // Update it to '260300' to represent '26.3'.)
+    [literal] '260200' ΓåÆ 3 file(s)
+             project-service/helm/static/run-job.sh  (line 14: helpVersion=260200 \)
+             xchange-ui/src/app/app.component.ts  (line 54: ghsHelpVersion = '260200'; // Application version for help t)
+             xchange-ui/src/jato/header/jheader.component.spec.ts  (line 17: // The version string '260200' corresponds to '26.2'.)
+    [literal] '260300' ΓåÆ 2 file(s)
+             xchange-ui/src/jato/header/jheader.component.spec.ts  (line 18: // Update it to '260300' to represent '26.3'.)
+             xchange-ui/src/jato/header/jheader.component.ts  (line 31: ghsHelpVersion = '260300'; // Application version for help t)
+    [filename] 'version' ΓåÆ 5 file(s)
+               area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterVersionsController.java
+               xchange-ui/src/app/modules/viewer/deliverable-item-version/deliverable-item-version.component.html
+               xchange-ui/src/app/modules/viewer/deliverable-item-version/deliverable-item-version.component.scss
+               xchange-ui/src/app/modules/viewer/deliverable-item-version/deliverable-item-version.component.spec.ts
+               xchange-ui/src/app/modules/viewer/deliverable-item-version/deliverable-item-version.component.ts
+    [filename] 'genericconstants' ΓåÆ 1 file(s)
+               se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/GenericConstants.java
+
+  ΓöÇΓöÇ Hypothesis H2: Helm chart deployment scripts embed version number and need ΓÇª
+    [literal] '26.2' ΓåÆ 3 file(s)
+             xchange-ui/package-lock.json  (line 2565: "@babel/code-frame": "^7.26.2",)
+             xchange-ui/src/app/modules/deliverables/content-list/content-list.component.scss  (line 14: width: 26.25rem;)
+             xchange-ui/src/jato/header/jheader.component.spec.ts  (line 17: // The version string '260200' corresponds to '26.2'.)
+    [literal] '260200' ΓåÆ 3 file(s)
+             project-service/helm/static/run-job.sh  (line 14: helpVersion=260200 \)
+             xchange-ui/src/app/app.component.ts  (line 54: ghsHelpVersion = '260200'; // Application version for help t)
+             xchange-ui/src/jato/header/jheader.component.spec.ts  (line 17: // The version string '260200' corresponds to '26.2'.)
+    [literal] 'run-job' ΓåÆ 2 file(s)
+             project-service/helm/templates/configmap.yaml  (line 12: run-job.sh: |-)
+             project-service/helm/templates/ets-enrollment-job.yaml  (line 2: #run-job or enrollmentparamters.json)
+    [literal] 'helm' ΓåÆ 24 file(s)
+             area-service/helm/Chart.yaml  (line 3: description: A Helm chart for Kubernetes)
+             area-service/helm/templates/hpa.yaml  (line 1: # Source: area-service/helm/templates/hpa.yaml)
+             area-service/helm/templates/poddisruptionbudget.yaml  (line 1: # Source: area-service/helm/templates/poddisruptionbudget.ya)
+             bim-gateway/helm/Chart.yaml  (line 3: description: A Helm chart for Kubernetes)
+             bim-gateway/helm/templates/hpa.yaml  (line 1: # Source: gateway-service/helm/templates/hpa.yaml)
+    [filename] 'run-job' ΓåÆ 1 file(s)
+               project-service/helm/static/run-job.sh
+    [filename] 'helm' ΓåÆ 20 file(s)
+               area-service/helm/Chart.yaml
+               area-service/helm/values.yaml
+               area-service/helm/templates/deployment.yaml
+               area-service/helm/templates/hpa.yaml
+               area-service/helm/templates/poddisruptionbudget.yaml
+    [filename] 'values.yaml' ΓåÆ 8 file(s)
+               area-service/helm/values.yaml
+               bim-gateway/helm/values.yaml
+               ene-load-service/helm/values.yaml
+               issues-service/helm/values.yaml
+               project-service/helm/values.yaml
+    [filename] 'deployment' ΓåÆ 9 file(s)
+               area-service/helm/templates/deployment.yaml
+               bim-gateway/helm/templates/deployment.yaml
+               ene-load-service/helm/templates/deployment.yaml
+               issues-service/helm/templates/deployment.yaml
+               project-service/helm/templates/Bundles-deployment-job.yaml
+
+  Total searches executed  : 20
+  Unique files discovered  : 60
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  PHASE 3 ΓÇö EVIDENCE COLLECTION INTEGRATION
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+  Evidence items from repository_search source: 65
+  Unique files in evidence               : 60
+
+  Files by extension:
+    .html              1 file(s)
+    .java              2 file(s)
+    .json              2 file(s) ΓåÉ NEW (not in SQLite)
+    .scss              3 file(s)
+    .sh                2 file(s) ΓåÉ NEW (not in SQLite)
+    .ts                7 file(s)
+    .yaml             46 file(s)
+    .yml               2 file(s)
+
+  Γ£à app.component.ts in evidence
+             ΓåÆ xchange-ui/src/app/app.component.ts
+               score=0.85, [literal:'260200'] line 54: ghsHelpVersion = '260200'; // Application version fo
+             ΓåÆ xchange-ui/src/app/app.component.ts
+               score=0.85, [literal:'260200'] line 54: ghsHelpVersion = '260200'; // Application version fo
+
+  Γ£à run-job.sh in evidence
+             ΓåÆ project-service/helm/static/run-job.sh
+               score=0.82, source=repository_search
+               snippet: [literal:'260200'] line 14: helpVersion=260200 \
+             ΓåÆ project-service/helm/static/run-job.sh
+               score=0.82, source=repository_search
+               snippet: [literal:'260200'] line 14: helpVersion=260200 \
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  PHASE 4 ΓÇö GROUNDED UNDERSTANDING SYNTHESIS
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+  Evidence items (repository_search only): 65
+  High-confidence (score >= 0.70):          64
+
+  change_group (60 files):
+    se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/GenericConstants.java
+    xchange-ui/package-lock.json
+    xchange-ui/src/app/modules/deliverables/content-list/content-list.component.scss
+    xchange-ui/src/jato/header/jheader.component.spec.ts
+    project-service/helm/static/run-job.sh  ΓåÉ Phase 3A discovery
+    xchange-ui/src/app/app.component.ts
+    xchange-ui/src/jato/header/jheader.component.ts
+    area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterVersionsController.java
+    xchange-ui/src/app/modules/viewer/deliverable-item-version/deliverable-item-version.component.html
+    xchange-ui/src/app/modules/viewer/deliverable-item-version/deliverable-item-version.component.scss
+    xchange-ui/src/app/modules/viewer/deliverable-item-version/deliverable-item-version.component.spec.ts
+    xchange-ui/src/app/modules/viewer/deliverable-item-version/deliverable-item-version.component.ts
+    project-service/helm/templates/configmap.yaml
+    project-service/helm/templates/ets-enrollment-job.yaml
+    area-service/helm/Chart.yaml
+    area-service/helm/templates/hpa.yaml
+    area-service/helm/templates/poddisruptionbudget.yaml
+    bim-gateway/helm/Chart.yaml
+    bim-gateway/helm/templates/hpa.yaml
+    bim-gateway/helm/templates/poddisruptionbudget.yaml
+    ... and 40 more
+
+  Γ£à run-job.sh in change_group
+  Γ£à app.component.ts in change_group
+
+  run-job.sh evidence:
+    source          : repository_search
+    evidence_type   : usage
+    relevance_score : 0.82
+    hypothesis_id   : H1
+    content_snippet : [literal:'260200'] line 14: helpVersion=260200 \
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  PHASE 5 ΓÇö TRACE FILE VERIFICATION
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+  Expected trace file: C:\CC4E\.aviator\repository_search.json
+  Γ£à Trace file exists: 774 records
+
+  Trace record schema:
+    query          : str = '26.2'
+    query_type     : str = 'literal'
+    file_path      : str = 'xchange-ui/package-lock.json'
+    line_number    : int = 2565
+    matched_text   : str = '"@babel/code-frame": "^7.26.2",'
+    confidence     : float = 0.75
+
+  Γ£à run-job.sh in trace (27 record(s))
+    query='260200' type=literal line=14
+    matched: helpVersion=260200 \
+    query='260200' type=literal line=14
+    matched: helpVersion=260200 \
+    query='run-job' type=filename line=0
+    matched: project-service/helm/static/run-job.sh
+  Γ£à app.component.ts in trace (18 record(s))
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  FINAL SUMMARY
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+  Ticket        : Update CC4E version from 26.2 to 26.3
+
+  Discovery Results:
+    Γ£à app.component.ts discovered by repo search
+    Γ£à run-job.sh discovered by repo search
+
+  Evidence Integration:
+    Γ£à app.component.ts in evidence items (source=repository_search)
+    Γ£à run-job.sh in evidence items (source=repository_search)
+
+  Root Cause ΓÇö Why run-job.sh was PREVIOUSLY MISSED:
+    Γ¢ö Extension .sh is NOT in any discover_*() function
+    Γ¢ö File was never crawled ΓåÆ never in SQLite, Neo4j, or pgvector
+    Γ¢ö All 9 pre-3A evidence sources require prior indexing ΓåÆ file invisible
+
+  Root Cause ΓÇö Why run-job.sh is NOW DISCOVERABLE:
+    Γ£à RepositorySearchEngine searches all 14 extension types
+    Γ£à No dependency on SQLite / Neo4j / embeddings
+    Γ£à literal '26.2' searched across .sh files ΓåÆ line match in run-job.sh
+    Γ£à EvidenceItem(source='repository_search') produced
+    Γ£à relevance_score=0.82 >= 0.70 threshold
+    Γ£à 'repository_search' Γêê _CODE_SOURCES in grounded_understanding_node
+    Γ£à run-job.sh enters high_conf_evidence ΓåÆ enters change_group
+
+  Architecture Change Summary:
+    + RepositorySearchEngine  (new file: agents/repository_search_engine.py)
+    ~ EvidenceCollectionLoop  (Source 10 added; max_sources=10)
+    ~ WorkflowAgents          (self.repo_search; passed to EvidenceCollectionLoop)
+    ~ grounded_understanding_node  ('repository_search' in _CODE_SOURCES)
+    + repository_search.json  (trace file at <workspace>/.aviator/)
+

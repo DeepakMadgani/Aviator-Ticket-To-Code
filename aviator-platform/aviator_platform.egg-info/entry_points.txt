@@ -1,0 +1,2 @@
+[console_scripts]
+aviator = aviator_core.cli:app

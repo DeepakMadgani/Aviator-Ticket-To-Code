@@ -1,0 +1,98 @@
+﻿python.exe : \u26a0\ufe0f Neo4j not configured
+At line:1 char:1
++ & $py "C:\Users\dmadgani\Desktop\My_Aviator\validate_phase1_reviewer. ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (\u26a0\ufe0f Neo4j not configured 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+======================================================================
+STEP 1 -- KEYWORDS EXTRACTED FROM TICKET
+======================================================================
+['alignment', 'proper', 'deliverable', 'reviewer', 'reviewers', 'pages', 'steps', 'reproduce', 'login', 'cc4e', 'navigate', 'project', 'tpr1', 'contract', 'click', 'info', 'icon', 'select', 'beside', 'observed', 'cancel', 'buttons', 'appear', 'slightly', 'superimposed', 'blank', 'space', 'exists', 'below', 'footer', 'area', 'layout', 'appears', 'static', 'larger', 'screens', 'responsiveness', 'issue', 'suspected']
+Total: 39 keywords
+
+======================================================================
+STEP 2+3 -- TOP 20 CANDIDATES (full signal breakdown)
+======================================================================
+  #   score  s_path  s_sym  s_own   s_fs  s_sql   s_gr  path
+--------------------------------------------------------------------------------------------------------------------------------------------
+  1   0.780   0.625    1.0   0.36   1.00   1.00   0.00  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.ts
+  2   0.588   0.300    0.0   0.18   1.00   1.00   0.70  area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/DeliverablesServiceImpl.java
+  3   0.463   0.300    1.0   0.40   0.67   0.14   0.00  area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/entity/Deliverable.java
+  4   0.460   0.375    1.0   0.51   0.50   0.03   0.00  area-service/src/main/java/com/opentext/solutions/services/area/dto/customfields/PropertyDefinitionsRequest.java
+  5   0.415   0.375    0.0   0.16   0.67   0.28   0.70  area-service/src/main/java/com/opentext/solutions/services/area/service/impl/PropertyValueServiceImpl.java
+  6   0.391   0.333    0.0   0.16   0.67   0.19   0.70  area-service/src/main/java/com/opentext/solutions/services/area/saga/handler/LoadDeliverableHandler.java
+  7   0.388   0.556    0.0   0.38   1.00   0.12   0.00  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.spec.ts
+  8   0.336   0.556    0.0   0.07   1.00   0.00   0.00  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.html
+  9   0.316   0.300    0.0   0.17   1.00   0.40   0.00  area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/DeliverableListServiceImpl.java
+ 10   0.298   0.375    0.0   0.47   0.83   0.02   0.00  area-service/src/main/java/com/opentext/solutions/services/area/exception/CustomPropertyAlreadyExistsException.java
+ 11   0.290   0.300    0.0   0.25   0.67   0.48   0.00  area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/DeliverablesService.java
+ 12   0.264   0.375    0.0   0.43   0.67   0.06   0.00  area-service/src/main/java/com/opentext/solutions/services/area/repositories/PropertyDefinitionsRepository.java
+ 13   0.260   0.300    0.0   0.15   0.67   0.44   0.00  area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/DeliverableItemServiceImpl.java
+ 14   0.243   0.300    0.0   0.14   0.67   0.36   0.00  area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/DeliverableAtomicTransactionService.java
+ 15   0.243   0.375    0.0   0.27   0.67   0.11   0.00  area-service/src/main/java/com/opentext/solutions/services/area/service/PropertyValueService.java
+ 16   0.236   0.556    0.0   0.00   0.50   0.00   0.00  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.scss
+ 17   0.235   0.375    0.0   0.26   0.67   0.08   0.00  area-service/src/main/java/com/opentext/solutions/services/area/service/PropertyDefinitionsService.java
+ 18   0.235   0.375    0.0   0.21   0.67   0.13   0.00  area-service/src/main/java/com/opentext/solutions/services/area/service/impl/PropertyDefinitionsServiceImpl.java
+ 19   0.226   0.375    0.0   0.27   0.67   0.01   0.00  area-service/src/main/java/com/opentext/solutions/services/area/exception/DeliverableInfoNotValidException.java
+ 20   0.226   0.375    0.0   0.48   0.50   0.01   0.00  area-service/src/main/java/com/opentext/solutions/services/area/exception/CustomPropertyNotFoundException.java
+
+======================================================================
+STEP 4 -- ANGULAR COMPONENT FAMILY ANALYSIS
+======================================================================
+
+*.component.ts (1 in top 20):
+  Rank # 1  score=0.780  s_path=0.62  s_sym=1.0  s_own=0.36  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.ts
+
+*.component.html (1 in top 20):
+  Rank # 8  score=0.336  s_path=0.56  s_sym=0.0  s_own=0.07  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.html
+
+*.component.scss (1 in top 20):
+  Rank #16  score=0.236  s_path=0.56  s_sym=0.0  s_own=0.00  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.scss
+
+*.component.spec.ts (1 in top 20):
+  Rank # 7  score=0.388  s_path=0.56  s_sym=0.0  s_own=0.38  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.spec.ts
+
+services (0 in top 20):
+
+======================================================================
+STEP 5 -- LOCALIZATION ANALYSIS
+======================================================================
+Selected file (Rank #1):  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.ts
+  score=0.780  s_path=0.625  s_sym=1.0  s_own=0.356
+  signals: ['keyword_path', 'keyword_content', 'sqlite_symbol', 'sym_match', 'path_own:0.62', 'ownership:0.36', 'cluster:primary', 'verified:PRIMARY_OWNER']
+
+Alternatives:
+  Rank #2  0.588  area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/DeliverablesServiceImpl.java
+  Rank #3  0.463  area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/entity/Deliverable.java
+  Rank #4  0.460  area-service/src/main/java/com/opentext/solutions/services/area/dto/customfields/PropertyDefinitionsRequest.java
+  Rank #5  0.415  area-service/src/main/java/com/opentext/solutions/services/area/service/impl/PropertyValueServiceImpl.java
+
+======================================================================
+STEP 7 -- REVIEWER / REVIEWERS FILE SEARCH
+======================================================================
+  Rank # 1  score=0.780  s_path=0.62  s_sym=1.0  s_own=0.36
+           xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.ts
+  Rank # 7  score=0.388  s_path=0.56  s_sym=0.0  s_own=0.38
+           xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.spec.ts
+  Rank # 8  score=0.336  s_path=0.56  s_sym=0.0  s_own=0.07
+           xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.html
+  Rank #16  score=0.236  s_path=0.56  s_sym=0.0  s_own=0.00
+           xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.scss
+
+======================================================================
+STEP 6 -- BACKEND DOMINANCE CHECK
+======================================================================
+Java files in top 5: 4
+  Rank #2  0.588  area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/DeliverablesServiceImpl.java
+  Rank #3  0.463  area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/entity/Deliverable.java
+  Rank #4  0.460  area-service/src/main/java/com/opentext/solutions/services/area/dto/customfields/PropertyDefinitionsRequest.java
+  Rank #5  0.415  area-service/src/main/java/com/opentext/solutions/services/area/service/impl/PropertyValueServiceImpl.java
+Frontend files (.ts/.html/.scss) in top 5: 1
+  Rank #1  0.780  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.ts
+
+======================================================================
+STEP 8 -- GO / NO-GO
+======================================================================
+NO-GO -- Java files dominate top 5

@@ -1,0 +1,37 @@
+=== TICKET A: UX Alignment ===
+Ticket summary (first paragraph): UX alignment isn't proper for deliverable add reviewer and reviewers pages.
+Concept keywords from summary (6): ['alignment', 'proper', 'deliverable', 'reviewer', 'reviewers', 'pages']
+
+Running discovery (top_n=20)...
+
+=== TOP 20 UNIFIED SCORES (POST-FIX) ===
+  # 1 0.780  fs=1.00 sql=1.00 sym=1.00 path=0.625 gr=0.00 own=0.36  les/deliverable-reviewers/deliverable-reviewers.component.ts <<< ANGULAR
+  # 2 0.714  fs=1.00 sql=0.67 sym=1.00 path=0.625 gr=0.00 own=0.36  s/deliverable-properties/deliverable-properties.component.ts
+  # 3 0.599  fs=0.67 sql=0.58 sym=1.00 path=0.500 gr=0.00 own=0.37  custom-properties/deliverable-custom-properties.component.ts
+  # 4 0.498  fs=0.83 sql=1.00 sym=0.00 path=0.100 gr=0.70 own=0.14  domain/engineering/service/impl/DeliverablesServiceImpl.java
+  # 5 0.392  fs=0.83 sql=0.40 sym=0.00 path=0.100 gr=0.70 own=0.14  ain/engineering/service/impl/DeliverableListServiceImpl.java
+  # 6 0.388  fs=1.00 sql=0.12 sym=0.00 path=0.556 gr=0.00 own=0.38  eliverable-reviewers/deliverable-reviewers.component.spec.ts <<< ANGULAR
+  # 7 0.360  fs=0.50 sql=0.14 sym=1.00 path=0.100 gr=0.00 own=0.35  ons/services/area/domain/engineering/entity/Deliverable.java
+  # 8 0.334  fs=1.00 sql=0.00 sym=0.00 path=0.556 gr=0.00 own=0.06  s/deliverable-reviewers/deliverable-reviewers.component.html <<< ANGULAR
+  # 9 0.307  fs=0.67 sql=0.08 sym=0.00 path=0.556 gr=0.00 own=0.37  iverable-properties/deliverable-properties.component.spec.ts
+  #10 0.246  fs=0.67 sql=0.00 sym=0.00 path=0.455 gr=0.00 own=0.06  stom-properties/deliverable-custom-properties.component.html
+  #11 0.245  fs=0.50 sql=0.00 sym=0.00 path=0.556 gr=0.00 own=0.04  deliverable-properties/deliverable-properties.component.html
+  #12 0.236  fs=0.50 sql=0.00 sym=0.00 path=0.556 gr=0.00 own=0.00  s/deliverable-reviewers/deliverable-reviewers.component.scss <<< ANGULAR
+  #13 0.207  fs=0.33 sql=0.00 sym=0.00 path=0.556 gr=0.00 own=0.00  deliverable-properties/deliverable-properties.component.scss
+  #14 0.204  fs=0.50 sql=0.00 sym=0.00 path=0.455 gr=0.00 own=0.00  stom-properties/deliverable-custom-properties.component.scss
+  #15 0.202  fs=0.50 sql=0.48 sym=0.00 path=0.100 gr=0.00 own=0.21  ces/area/domain/engineering/service/DeliverablesService.java
+  #16 0.180  fs=0.50 sql=0.44 sym=0.00 path=0.100 gr=0.00 own=0.11  ain/engineering/service/impl/DeliverableItemServiceImpl.java
+  #17 0.176  fs=0.67 sql=0.03 sym=0.00 path=0.222 gr=0.00 own=0.18  s/services/xchangev2/deliverable/model/RegisterProperty.java
+  #18 0.163  fs=0.50 sql=0.28 sym=0.00 path=0.125 gr=0.00 own=0.15  ons/services/area/service/impl/PropertyValueServiceImpl.java
+  #19 0.163  fs=0.50 sql=0.36 sym=0.00 path=0.100 gr=0.00 own=0.10  engineering/service/DeliverableAtomicTransactionService.java
+  #20 0.151  fs=0.50 sql=0.02 sym=0.00 path=0.125 gr=0.00 own=0.47  ces/area/exception/CustomPropertyAlreadyExistsException.java
+
+=== DELIVERABLE-REVIEWER FILES POSITION ===
+  # 1 0.780  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.ts
+       fs=1.000 sql=1.000 sym=1.000 path=0.625 gr=0.000 own=0.356
+  # 6 0.388  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.spec.ts
+       fs=1.000 sql=0.125 sym=0.000 path=0.556 gr=0.000 own=0.385
+  # 8 0.334  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.html
+       fs=1.000 sql=0.000 sym=0.000 path=0.556 gr=0.000 own=0.064
+  #12 0.236  xchange-ui/src/app/modules/deliverables/deliverable-reviewers/deliverable-reviewers.component.scss
+       fs=0.500 sql=0.000 sym=0.000 path=0.556 gr=0.000 own=0.000

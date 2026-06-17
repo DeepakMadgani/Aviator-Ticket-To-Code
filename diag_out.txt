@@ -1,0 +1,40 @@
+=== Ticket text (first 200 chars) ===
+UX alignment isn't proper for deliverable add reviewer and reviewers pages.
+
+Steps to reproduce:
+
+Lo UX alignment isn't proper for deliverable add reviewer and reviewers pages.
+
+Steps to reproduce:
+
+L
+
+=== Keywords (58 total) ===
+['alignment', 'proper', 'deliverable', 'reviewer', 'reviewers', 'pages', 'steps', 'reproduce', 'login', 'cc4e', 'https', 'bimgatewayservice', 'nitro', 'paas', 'otxlab', 'subscription', 'name', 'blue', 'credential', 'abhimanyuk'] ...
+
+=== Running full discovery ===
+
+=== TOP 20 UNIFIED SCORES (full discovery) ===
+  # 1 unified=0.651  fs=0.57 sql=0.18 sym=1.00 path=0.400 gr=0.70 own=0.35  /engineering/service/DeliverableAtomicTransactionServiceTest.java
+  # 2 unified=0.631  fs=0.57 sql=0.10 sym=1.00 path=0.400 gr=0.70 own=0.34  g/service/DeliverableAtomicTransactionServiceIntegrationTest.java
+  # 3 unified=0.625  fs=1.00 sql=1.00 sym=0.00 path=0.400 gr=0.70 own=0.20  area/domain/engineering/service/impl/DeliverablesServiceImpl.java
+  # 4 unified=0.517  fs=1.00 sql=0.40 sym=0.00 path=0.400 gr=0.70 own=0.20  a/domain/engineering/service/impl/DeliverableListServiceImpl.java
+  # 5 unified=0.514  fs=0.57 sql=0.03 sym=1.00 path=0.500 gr=0.00 own=0.51  ns/services/area/dto/customfields/PropertyDefinitionsRequest.java
+  # 6 unified=0.512  fs=0.71 sql=0.48 sym=0.00 path=0.400 gr=0.70 own=0.28  services/area/domain/engineering/service/DeliverablesService.java
+  # 7 unified=0.511  fs=0.71 sql=0.14 sym=1.00 path=0.400 gr=0.00 own=0.42  olutions/services/area/domain/engineering/entity/Deliverable.java
+  # 8 unified=0.493  fs=0.57 sql=0.06 sym=1.00 path=0.500 gr=0.00 own=0.43  /opentext/solutions/services/area/entity/PropertyDefinitions.java
+  # 9 unified=0.476  fs=0.57 sql=0.02 sym=1.00 path=0.500 gr=0.00 own=0.41  om/opentext/solutions/services/areaconfig/entity/PropertySet.java
+  #10 unified=0.463  fs=0.57 sql=0.02 sym=1.00 path=0.500 gr=0.00 own=0.37  va/com/opentext/solutions/services/area/entity/PropertyValue.java
+  #11 unified=0.463  fs=0.57 sql=0.03 sym=1.00 path=0.500 gr=0.00 own=0.36  text/solutions/services/areaconfig/entity/PropertyDefinition.java
+  #12 unified=0.456  fs=0.71 sql=0.44 sym=0.00 path=0.400 gr=0.70 own=0.16  a/domain/engineering/service/impl/DeliverableItemServiceImpl.java
+  #13 unified=0.431  fs=0.71 sql=0.36 sym=0.00 path=0.400 gr=0.70 own=0.13  main/engineering/service/DeliverableAtomicTransactionService.java
+  #14 unified=0.425  fs=0.71 sql=0.19 sym=0.00 path=0.444 gr=0.70 own=0.16  /solutions/services/area/saga/handler/LoadDeliverableHandler.java
+  #15 unified=0.422  fs=0.71 sql=0.20 sym=0.00 path=0.444 gr=0.70 own=0.15  t/solutions/services/area/saga/handler/AddDeliverableHandler.java
+  #16 unified=0.396  fs=0.71 sql=0.06 sym=0.00 path=0.400 gr=0.70 own=0.18  in/engineering/service/impl/DeliverableItemGetterServiceImpl.java
+  #17 unified=0.384  fs=0.43 sql=0.00 sym=0.00 path=0.571 gr=0.70 own=0.20  ain/java/com/opentext/solutions/services/area/utils/PageUtil.java
+  #18 unified=0.376  fs=0.57 sql=0.08 sym=0.00 path=0.444 gr=0.70 own=0.15  ions/services/area/saga/handler/UpdateDeliverableListHandler.java
+  #19 unified=0.357  fs=0.43 sql=0.00 sym=0.00 path=0.500 gr=0.70 own=0.17  a/com/opentext/ene/transmittals/services/ContractServiceTest.java
+  #20 unified=0.310  fs=0.71 sql=0.06 sym=0.00 path=0.500 gr=0.00 own=0.43  ons/services/area/repositories/PropertyDefinitionsRepository.java
+
+=== Angular deliverable-reviewers position ===
+  NOT IN TOP 30 — below discovery cutoff!
