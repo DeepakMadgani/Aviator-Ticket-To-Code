@@ -1,0 +1,177 @@
+apiVersion: skaffold/v4beta8
+kind: Config
+requires:
+  - configs:
+      - xecm-db
+metadata:
+  name: xecm
+manifests:
+  helm:
+    releases:
+      - name: otxecm
+        namespace: "{{ .SKAFFOLD_NAMESPACE }}"
+        chartPath: otxecm
+        setValues:
+          global.otac.enabled: false
+          global.otac-db.enabled: false
+          global.otcs-db.enabled: true
+          global.otds.enabled: true
+          global.otiv.enabled: false
+          global.otxecmctrl.enabled: false
+          global.imageSource: artifactory.otxlab.net/docker-releases/
+          global.imageSourcePublic: artifactory.otxlab.net/ot2-paas-dev/
+          global.ingressAnnotations."cert-manager\.io/cluster-issuer": "letsencrypt"
+          global.ingressIncludeNamespace: true
+          global.masterPassword: &password Opentext1!
+          otcs.serviceType: ClusterIP
+          otcs.config.deployBusinessScenarios: false
+          otcs.config.documentStorage.type: database
+          otcs.loadLicense.enabled: true
+          otcs.loadLicense.filename: license.lic # file needs to be copied to otxecm/charts/otcs directory
+          otds.otdsws.cryptKey: 'K/y9vrLXdBSq1JA2PekhSQ=='
+          otds.otdsws.otdsdb.automaticDatabaseCreation.enabled: true
+          otds.otdsws.otdsdb.username: postgres
+          otds.otdsws.otdsdb.password: *password
+          otds.otdsws.otdsdb.automaticDatabaseCreation.dbName: otdsdb
+          otds.otdsws.pvc.enabled: true
+          otds.otdsws.pvc.storageClassName: trident-gcnv-standard
+          otds.otdsws.pvc.storage: 1Gi
+          otds.otdsws.image.tag: 25.2.2
+          # for CSAI
+          otcs.config.llm.enabled: true
+          otcs.config.llm.clientSecret: llmSecret
+          otcs.config.llm.clientID: LLM_Client
+        setValueTemplates:
+          global.ingressDomainName: "{{ .SKAFFOLD_NAMESPACE }}.cluster1.otl-cs-csai.otxlab.net"
+          global.otcsPublicUrl: "https://otcs-{{ .SKAFFOLD_NAMESPACE }}.cluster1.otl-cs-csai.otxlab.net"
+          global.otdsPublicUrl: "https://otds-{{ .SKAFFOLD_NAMESPACE }}.cluster1.otl-cs-csai.otxlab.net"
+          global.otacPublicUrl: "https://otac-{{ .SKAFFOLD_NAMESPACE }}.cluster1.otl-cs-csai.otxlab.net"
+          global.otaccPublicUrl: "https://otacc-{{ .SKAFFOLD_NAMESPACE }}.cluster1.otl-cs-csai.otxlab.net"
+          global.otpdPublicUrl: "https://otpd-{{ .SKAFFOLD_NAMESPACE }}.cluster1.otl-cs-csai.otxlab.net"
+          global.imagePullSecret: 
+        skipBuildDependencies: true
+deploy:
+  helm: {}
+  statusCheckDeadlineSeconds: 1500 # 25 minutes!
+  tolerateFailuresUntilDeadline: true
+profiles:
+  - name: business-scenarios
+    patches:
+      - op: replace
+        path: /manifests/helm/releases/0/setValues/global.otxecmctrl.enabled
+        value: true
+      - op: add
+        path: /manifests/helm/releases/0/setValues/otcs.config.deployBusinessScenarios
+        value: true
+      - op: add
+        path: /manifests/helm/releases/0/setValues/otcs.config.deployBusinessScenarios
+        value: *password
+      - op: add
+        path: /manifests/helm/releases/0/setValues/otcs.passwords.scenarioOwnerPassword
+        value: ScenarioOwner1!
+  - name: eks-us-west-2
+    activation:
+      - kubeContext: csai-cluster.us-west-2.eksctl.io
+    patches:
+      - op: replace
+        path: /manifests/helm/releases/0/setValues/global.imageSource
+        value: 028791545937.dkr.ecr.us-west-2.amazonaws.com/otxecm
+      - op: add
+        path: /manifests/helm/releases/0/setValues/otcs.source
+        value: 028791545937.dkr.ecr.us-west-2.amazonaws.com/otxecm
+      - op: replace
+        path: /manifests/helm/releases/0/setValues/global.imageSourcePublic
+        value: 028791545937.dkr.ecr.us-west-2.amazonaws.com/
+      - op: remove
+        path: /manifests/helm/releases/0/setValues/global.ingressAnnotations."cert-manager\.io~1cluster-issuer"
+      - op: add
+        path: /manifests/helm/releases/0/setValues/global.ingressAnnotations.alb\.ingress\.kubernetes\.io~1certificate-arn 
+        value: arn:aws:acm:us-west-2:028791545937:certificate/1ba992a5-f75e-4034-b73c-40f1ae1d417a
+      - op: replace
+        path: /manifests/helm/releases/0/setValues/otds.otdsws.pvc.storageClassName 
+        value: gp2
+      - op: replace
+        path: /manifests/helm/releases/0/setValueTemplates/global.otcsPublicUrl
+        value: https://otcs.csai.ot-xecm.com
+      - op: replace
+        path: /manifests/helm/releases/0/setValueTemplates/global.otdsPublicUrl 
+        value: https://otds.csai.ot-xecm.com
+      - op: replace
+        path: /manifests/helm/releases/0/setValueTemplates/global.ingressDomainName 
+        value: csai.ot-xecm.com
+      - op: add
+        path: /manifests/helm/releases/0/setValues/global.storageClassName
+        value: gp2
+      - op: add
+        path: /manifests/helm/releases/0/setValues/global.storageClassNameNFS
+        value: nfs
+      - op: add
+        path: /manifests/helm/releases/0/setValues/global.ingressClass
+        value: alb
+  - name: csai-cluster-azure
+    activation:
+      - kubeContext: csai-cluster-azure
+    patches:
+      - op: replace
+        path: /manifests/helm/releases/0/setValues/global.imageSource
+        value: mobilecsai-e4cshecqf8cph4a9.azurecr.io/otxecm
+      - op: add
+        path: /manifests/helm/releases/0/setValues/otcs.source
+        value: mobilecsai-e4cshecqf8cph4a9.azurecr.io/otxecm
+      - op: add
+        path: /manifests/helm/releases/0/setValues/otcs.image.tag
+        value: 25.3.0
+      - op: add
+        path: /manifests/helm/releases/0/setValues/otds.otdsws.image.tag
+        value: 25.2.2
+      - op: replace
+        path: /manifests/helm/releases/0/setValues/global.imageSourcePublic
+        value: mobilecsai-e4cshecqf8cph4a9.azurecr.io/
+      - op: replace
+        path: /manifests/helm/releases/0/setValueTemplates/global.otcsPublicUrl
+        value: https://otcs.csai-azure.ot-xecm.com
+      - op: replace
+        path: /manifests/helm/releases/0/setValueTemplates/global.otdsPublicUrl 
+        value: https://otds.csai-azure.ot-xecm.com
+      - op: replace
+        path: /manifests/helm/releases/0/setValueTemplates/global.ingressDomainName 
+        value: csai-azure.ot-xecm.com
+      - op: replace
+        path: /manifests/helm/releases/0/setValueTemplates/global.imagePullSecret 
+        value: azure-acr-credentials
+      - op: replace
+        path: /manifests/helm/releases/0/setValues/otds.otdsws.pvc.storageClassName
+        value: default
+      - op: add
+        path: /manifests/helm/releases/0/setValues/global.ingressClass
+        value: webapprouting.kubernetes.azure.com
+      
+---
+apiVersion: skaffold/v4beta8
+kind: Config
+metadata:
+  name: xecm-db
+manifests:
+  helm:
+    releases:
+      - name: otxecm-db
+        remoteChart: oci://registry-1.docker.io/bitnamicharts/postgresql
+        setValues:
+          # Same as above
+          global.postgresql.auth.postgresPassword: Opentext1!
+          image.registry: docker.io
+          image.repository: postgres
+          image.tag: "15"
+          fullnameOverride: otxecm-db
+          primary.containerSecurityContext.readOnlyRootFilesystem: "false"
+          primary.resourcesPreset: medium
+deploy:
+  helm: {}
+profiles:
+  - name: eks-us-west-2
+    activation:
+      - kubeContext: csai-cluster.us-west-2.eksctl.io
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/setValues/global.defaultStorageClass
+        value: gp2

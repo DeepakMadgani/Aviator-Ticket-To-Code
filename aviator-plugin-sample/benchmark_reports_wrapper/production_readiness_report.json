@@ -1,0 +1,125 @@
+{
+  "summary": {
+    "generated_at": "2026-07-22T15:43:29.185127Z",
+    "total_tickets": 2,
+    "terminal_outcomes": {
+      "solved_with_patch": 0,
+      "no_action_required": 0,
+      "needs_retry": 0,
+      "failed_closed": 0,
+      "failed": 2,
+      "other": 0
+    },
+    "success_rate_effect_achieved": 0.0,
+    "avg_latency_seconds": 479.3297137499994,
+    "p95_latency_seconds": 207.6705862000017,
+    "avg_prompt_tokens": 0,
+    "avg_completion_tokens": 0,
+    "avg_total_tokens": 0,
+    "localization_accuracy_mean": 0.0,
+    "owner_identification_rate": 0.0,
+    "verification_pass_rate": 0.5,
+    "human_acceptance_rate": null,
+    "human_acceptance_coverage": 0.0,
+    "failure_taxonomy": {
+      "none": 0,
+      "localization": 0,
+      "retrieval": 0,
+      "planning": 1,
+      "generation": 0,
+      "validation": 0,
+      "environment": 0,
+      "unknown": 1
+    },
+    "top_bottlenecks": [
+      {
+        "stage": "planning",
+        "count": 1
+      },
+      {
+        "stage": "unknown",
+        "count": 1
+      },
+      {
+        "stage": "localization",
+        "count": 0
+      },
+      {
+        "stage": "retrieval",
+        "count": 0
+      },
+      {
+        "stage": "generation",
+        "count": 0
+      }
+    ],
+    "by_category": {
+      "single_file_bug": {
+        "count": 1,
+        "solved_with_patch": 0,
+        "no_action_required": 0,
+        "needs_retry": 0,
+        "failed": 1,
+        "avg_latency_seconds": 207.6705862000017
+      },
+      "ui_responsive_or_layout": {
+        "count": 1,
+        "solved_with_patch": 0,
+        "no_action_required": 0,
+        "needs_retry": 0,
+        "failed": 1,
+        "avg_latency_seconds": 750.9888412999971
+      }
+    }
+  },
+  "tickets": [
+    {
+      "ticket_id": "TW-0001",
+      "category": "single_file_bug",
+      "complexity": "small",
+      "workspace_path": "C:/Users/dmadgani/Desktop/My_Aviator/aviator-plugin-sample/chatbot/frontend",
+      "status": "failed",
+      "terminal_bucket": "failed",
+      "latency_seconds": 207.671,
+      "changed_files_count": 0,
+      "changed_files": [],
+      "localization_accuracy": 0.0,
+      "owner_identified": false,
+      "expected_effect_achieved": false,
+      "verification_passed": true,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0,
+      "failure_stage": "planning",
+      "failure_reason": "failed plan produced 0 writable tasks ",
+      "human_acceptance": "unknown"
+    },
+    {
+      "ticket_id": "4162805",
+      "category": "ui_responsive_or_layout",
+      "complexity": "medium",
+      "workspace_path": "C:/Users/dmadgani/Desktop/My_Aviator/aviator-plugin-sample/chatbot/frontend",
+      "status": "failed",
+      "terminal_bucket": "failed",
+      "latency_seconds": 750.989,
+      "changed_files_count": 0,
+      "changed_files": [],
+      "localization_accuracy": 0.0,
+      "owner_identified": false,
+      "expected_effect_achieved": false,
+      "verification_passed": false,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0,
+      "failure_stage": "unknown",
+      "failure_reason": "failed 'dict' object has no attribute 'file_path' 'dict' object has no attribute 'file_path'",
+      "human_acceptance": "unknown"
+    }
+  ],
+  "run_config": {
+    "execution_mode": "contract",
+    "experience_enabled": true,
+    "technology": null,
+    "max_fix_attempts_override": null
+  }
+}

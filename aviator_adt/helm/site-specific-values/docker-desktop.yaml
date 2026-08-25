@@ -1,0 +1,109 @@
+global:
+  imageSource: artifactory.otxlab.net/cs-csai-docker-dev
+
+image:
+  repository: artifactory.otxlab.net/cs-csai-docker-dev
+  tag: latest
+  pullPolicy: IfNotPresent
+
+worker:
+  replicaCount: 2
+  image:
+    repository: artifactory.otxlab.net/cs-csai-docker-dev
+    tag: latest
+    pullPolicy: IfNotPresent
+  probes:
+    startup:
+      enabled: false
+    liveness:
+      enabled: false
+
+# Summary worker for document summarization tasks.
+# Disabled by default for local development to save resources.
+# Enable if testing summary migration or summary-related features.
+summaryWorker:
+  # enabled: false
+  # Uncomment below to enable with minimal configuration:
+  enabled: true
+  probes:
+    startup:
+      enabled: false
+    liveness:
+      enabled: false
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+pod:
+  tolerations: []
+
+serviceAccount:
+  enabled: true
+
+config:
+  BROKER_USER : "user"
+
+secrets:
+  keys:
+    create: true
+    name: aviator-keys
+    items:
+      BROKER_PASSWORD: "secretpassword"
+      POSTGRES_PASSWORD: "1-TERRIBLE-password!"
+  files:
+    create: false
+    name: aviator-files
+    # The aviator-files secret must be created manually before deployment:
+    #   kubectl create secret generic aviator-files --from-file=gsa=./otl-cs-csai.json
+    # See docs/dev/deployments.md for full instructions.
+
+migration:
+  enabled: false    
+  config:
+    MIGRATION_BATCH_SIZE: "1000"
+    MIGRATION_SOURCE_HOST: "127.0.0.1"
+    MIGRATION_SOURCE_USER: "postgres"
+    MIGRATION_SOURCE_PASSWORD: "1-TERRIBLE-password!"
+    MIGRATION_DROP_INDEXES_BEFORE_MIGRATION: "true"
+    MIGRATION_DEFER_INDEXES: "true"
+    MIGRATION_SOURCE_TABLE: "test1"
+    MIGRATION_SOURCE_PORT: "5432"
+    MIGRATION_SOURCE_DATABASE: "postgres"
+
+# Summary migration job for backfilling document summaries.
+# Runs after chunk migration completes (waitForMigration=true waits for csai_to_adt completion).
+summaryMigration:
+  enabled: false
+  # Disable waiting for chunk migration for faster local testing (set to true in production)
+  waitForMigration: false
+  config:
+    # Uses same source DB as chunk migration
+    MIGRATION_SUMMARY_BATCH_SIZE: "10"
+    MIGRATION_SOURCE_HOST: "127.0.0.1"
+    MIGRATION_SOURCE_USER: "postgres"
+    MIGRATION_SOURCE_PASSWORD: "1-TERRIBLE-password!"
+    MIGRATION_DROP_INDEXES_BEFORE_MIGRATION: "true"
+    MIGRATION_DEFER_INDEXES: "true"
+    MIGRATION_SOURCE_TABLE: "test1"
+    MIGRATION_SOURCE_PORT: "5432"
+    MIGRATION_SOURCE_DATABASE: "postgres"
+
+initContainers: 
+  # Shared volume configuration for plugins
+  pluginVolume:
+    name: plugin-volume
+    mountPath: /plugins
+    readOnly: true  # ReadOnly for main container
+  # List of initContainers (executed in order)
+  containers: 
+    # Example configuration:
+    - name: aviator-plugin-sample
+      image:
+          repository: artifactory.otxlab.net/cs-csai-docker-dev
+          name: aviator-plugin-sample
+          tag: latest
+          pullPolicy: IfNotPresent

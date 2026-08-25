@@ -1,0 +1,165 @@
+{{- if .Values.summaryWorker.enabled }}
+{{- $root := . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aviator.name" . }}-summary-worker
+spec:
+  replicas: {{ .Values.summaryWorker.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "aviator.name" . }}-summary-worker
+  template:
+    metadata:
+      labels:
+        app: {{ include "aviator.name" . }}-summary-worker
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.pod.terminationGracePeriodSeconds }}
+{{- if .Values.serviceAccount.enabled }}
+      serviceAccountName: {{ .Values.serviceAccount.worker.name }}
+{{- end }}
+{{- if .Values.pod.securityContext.enabled }}
+      securityContext:
+        runAsUser: {{ .Values.pod.securityContext.runAsUser }}
+        runAsGroup: {{ .Values.pod.securityContext.runAsGroup }}
+        fsGroup: {{ .Values.pod.securityContext.fsGroup }}
+{{- end }}
+{{- if (gt (len .Values.initContainers.containers) 0) }}
+      initContainers:
+{{- range $container := .Values.initContainers.containers }}
+        - name: {{ $container.name }}
+          image: "{{ $container.image.repository }}/{{ $container.image.name }}:{{ $container.image.tag }}"
+          imagePullPolicy: {{ $container.image.pullPolicy | default "Always" }}
+          volumeMounts:
+            - name: {{ $root.Values.initContainers.pluginVolume.name }}
+              mountPath: {{ $root.Values.initContainers.pluginVolume.mountPath }}
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+{{- end }}
+{{- end }}
+      containers:
+        {{- if .Values.cloudsqlproxy.enabled }}
+        - name: cloud-sql-proxy
+          {{- with .Values.cloudsqlproxy }}
+          image: {{ .image }}
+          command:
+            - /cloud-sql-proxy
+            {{- toYaml .arguments | nindent 12 }}
+            - {{ .instanceConnectionName }}
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+          {{- end }}
+        {{- end }}
+        - name: {{ include "aviator.name" . }}-summary-worker
+          image: "{{ .Values.summaryWorker.image.repository | default .Values.image.repository }}/{{ .Values.summaryWorker.image.name | default .Values.image.name }}:{{ .Values.summaryWorker.image.tag | default .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.summaryWorker.image.pullPolicy | default .Values.image.pullPolicy }}
+          {{- $summaryQueues := .Values.summaryWorker.queueName | default "aviator-summaries" }}
+          {{- if .Values.summaryMigration.enabled }}
+          {{- $summaryQueues = printf "%s,csai-adt-summary" $summaryQueues }}
+          {{- end }}
+          command: ["celery","-A","aviator.celery","worker","-l","info","-P","prefork","--autoscale={{ default 1 .Values.summaryWorker.threads }},0", "--without-mingle", "--without-gossip", "--without-heartbeat","--queues={{ $summaryQueues }}"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "aviator.name" . }}-config
+            - secretRef:
+                name: {{ .Values.secrets.keys.name }}
+          env:
+            - name: CELERY_WORKER_ROLE
+              value: "{{ .Values.summaryWorker.workerRole }}"
+            {{- if not .Values.gcp.workloadIdentity.enabled }}
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "{{ .Values.volumeMounts.gsa.mountPath }}/{{ .Values.volumeMounts.gsa.path }}"
+            {{- end }}
+
+          resources:
+            requests:
+              memory: "{{ .Values.summaryWorker.resources.requests.memory }}"
+              cpu: "{{ .Values.summaryWorker.resources.requests.cpu }}"
+            limits:
+              memory: "{{ .Values.summaryWorker.resources.limits.memory }}"
+              cpu: "{{ .Values.summaryWorker.resources.limits.cpu }}"
+          ports:
+            - name: http
+              containerPort: {{ .Values.summaryWorker.service.port }}
+          volumeMounts:
+            {{- if not .Values.gcp.workloadIdentity.enabled }}
+              {{- if .Values.secrets.files.create }}
+            - name: {{ .Values.secrets.files.name }}
+              mountPath: {{ .Values.volumeMounts.gsa.mountPath }}
+              {{- else }}
+            - name: gsa-credentials
+              mountPath: {{ .Values.volumeMounts.gsa.mountPath }}
+              {{- end }}
+            {{- end }}
+            {{- if (gt (len .Values.initContainers.containers) 0) }}
+            - name: {{ .Values.initContainers.pluginVolume.name }}
+              mountPath: {{ .Values.initContainers.pluginVolume.mountPath }}
+              readOnly: {{ .Values.initContainers.pluginVolume.readOnly }}
+            {{- end }}
+{{- if .Values.summaryWorker.probes.readiness.enabled }}
+          readinessProbe:
+            exec:
+              command:
+                - /probes/worker-readiness.py
+            initialDelaySeconds: {{ .Values.summaryWorker.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.summaryWorker.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.summaryWorker.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.summaryWorker.probes.readiness.failureThreshold }}
+{{- end }}
+{{- if .Values.summaryWorker.probes.liveness.enabled }}
+          livenessProbe:
+            exec:
+              command:
+                - /probes/worker-liveness.py
+            initialDelaySeconds: {{ .Values.summaryWorker.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.summaryWorker.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.summaryWorker.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.summaryWorker.probes.liveness.failureThreshold }}
+{{- end }}
+{{- if .Values.summaryWorker.probes.startup.enabled }}
+          startupProbe:
+            exec:
+              command:
+                - /probes/worker-liveness.py
+            initialDelaySeconds: {{ .Values.summaryWorker.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.summaryWorker.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.summaryWorker.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.summaryWorker.probes.startup.failureThreshold }}
+{{- end }}
+{{- if .Values.pod.tolerations }}
+      tolerations:
+{{ toYaml .Values.pod.tolerations | indent 8 }}
+{{- end }}
+{{- if .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.nodeSelector | indent 8 }}
+{{- end }}
+      imagePullSecrets:
+{{ toYaml .Values.imagePullSecrets | indent 8 }}
+      volumes:
+        {{- if not .Values.gcp.workloadIdentity.enabled }}
+          {{- if .Values.secrets.files.create }}
+        - name: {{ .Values.secrets.files.name }}
+          secret:
+            secretName: {{ .Values.secrets.files.name }}
+          {{- else }}
+        - name: gsa-credentials
+          secret:
+            secretName: {{ .Values.secrets.files.name }}
+            items:
+              - key: {{ .Values.volumeMounts.gsa.key }}
+                path: {{ .Values.volumeMounts.gsa.path }}
+          {{- end }}
+        {{- end }}
+        {{- if (gt (len .Values.initContainers.containers) 0) }}
+        - name: {{ .Values.initContainers.pluginVolume.name }}
+          emptyDir: {}
+        {{- end }}
+{{- end }}

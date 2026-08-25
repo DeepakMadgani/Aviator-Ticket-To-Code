@@ -1,0 +1,16 @@
+{{- if eq (default "" (printf "%v" (index .Values.config "BROKER_CONSISTENT_HASH_ENABLED"))) "true" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aviator.name" . }}-worker
+  labels:
+    app: {{ include "aviator.name" . }}-worker
+spec:
+  clusterIP: None
+  selector:
+    app: {{ include "aviator.name" . }}-worker
+  ports:
+    - name: http
+      port: {{ .Values.worker.service.port }}
+      targetPort: http
+{{- end }}

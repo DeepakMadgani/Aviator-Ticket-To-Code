@@ -1,0 +1,127 @@
+{{- if .Values.migration.enabled }}
+{{- $tag := .Values.migration.image.tag | default .Values.image.tag | default "latest" | trunc 8 | lower -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "aviator.name" . }}-migration-{{ $tag }}
+  labels:
+    app: {{ include "aviator.name" . }}-migration
+  annotations:
+    # Unique Job name per image tag avoids immutable spec.template conflicts
+    # when rendered manifests are applied via GitOps (kubectl apply / ArgoCD).
+    # Old completed Jobs are cleaned up by ttlSecondsAfterFinished.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded,hook-failed
+    "helm.sh/hook-weight": "10"
+spec:
+  backoffLimit: {{ .Values.migration.backoffLimit }}
+  {{- if .Values.migration.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ .Values.migration.ttlSecondsAfterFinished }}
+  {{- end }}
+  {{- if .Values.migration.activeDeadlineSeconds }}
+  activeDeadlineSeconds: {{ .Values.migration.activeDeadlineSeconds }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "aviator.name" . }}-migration
+      annotations:
+        sidecar.istio.io/inject: "false"
+    {{- if .Values.migration.annotations }}
+{{ toYaml .Values.migration.annotations | nindent 8 }}
+    {{- end }}
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: {{ .Values.pod.terminationGracePeriodSeconds }}
+{{- if .Values.serviceAccount.enabled }}
+      serviceAccountName: {{ .Values.serviceAccount.worker.name }}
+{{- end }}
+{{- if .Values.pod.securityContext.enabled }}
+      securityContext:
+        runAsUser: {{ .Values.pod.securityContext.runAsUser }}
+        runAsGroup: {{ .Values.pod.securityContext.runAsGroup }}
+        fsGroup: {{ .Values.pod.securityContext.fsGroup }}
+{{- end }}
+      containers:
+        {{- if .Values.cloudsqlproxy.enabled }}
+        - name: cloud-sql-proxy
+          {{- with .Values.cloudsqlproxy }}
+          image: {{ .image }}
+          command:
+            - /cloud-sql-proxy
+            {{- toYaml .arguments | nindent 12 }}
+            - --quitquitquit
+            - {{ .instanceConnectionName }}
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+          {{- end }}
+        {{- end }}
+        - name: {{ include "aviator.name" . }}-migration
+          image: "{{ .Values.migration.image.repository | default .Values.image.repository }}/{{ .Values.migration.image.name | default .Values.image.name }}:{{ .Values.migration.image.tag | default .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.migration.image.pullPolicy | default .Values.image.pullPolicy }}
+          {{- if .Values.cloudsqlproxy.enabled }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              /entrypoint.sh migration
+              exit_code=$?
+              # Signal Cloud SQL Proxy to shut down so the Job pod can terminate.
+              curl -s {{ .Values.cloudsqlproxy.quitquitUrl | quote }} || true
+              exit $exit_code
+          {{- else }}
+          args: [{{ .Values.migration.mode | default "migration" | quote }}]
+          {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "aviator.name" . }}-config
+            - secretRef:
+                name: {{ .Values.secrets.keys.name }}
+            {{- if .Values.migration.secrets.create }}
+            - secretRef:
+                name: {{ .Values.migration.secrets.name }}
+            {{- end }}
+          env:
+            {{- if not .Values.gcp.workloadIdentity.enabled }}
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "{{ .Values.volumeMounts.gsa.mountPath }}/{{ .Values.volumeMounts.gsa.path }}"
+            {{- end }}
+            {{- range $k, $v := .Values.migration.config }}
+            {{- if $v }}
+            - name: {{ $k }}
+              value: "{{ $v }}"
+            {{- end }}
+            {{- end }}
+          resources:
+{{ toYaml .Values.migration.resources | indent 12 }}
+          volumeMounts:
+            {{- if not .Values.gcp.workloadIdentity.enabled }}
+            - name: gsa-credentials
+              mountPath: {{ .Values.volumeMounts.gsa.mountPath }}
+            {{- end }}
+            {{- if and (not .Values.gcp.workloadIdentity.enabled) .Values.secrets.files.create }}
+            - name: {{ .Values.secrets.files.name }}
+              mountPath: "/secrets"
+            {{- end }}
+{{- if .Values.pod.tolerations }}
+      tolerations:
+{{ toYaml .Values.pod.tolerations | indent 8 }}
+{{- end }}
+      imagePullSecrets:
+{{ toYaml .Values.imagePullSecrets | indent 8 }}
+      volumes:
+        {{- if not .Values.gcp.workloadIdentity.enabled }}
+        - name: gsa-credentials
+          secret:
+            secretName: {{ .Values.secrets.files.name }}
+            items:
+              - key: {{ .Values.volumeMounts.gsa.key }}
+                path: {{ .Values.volumeMounts.gsa.path }}
+        {{- end }}
+        {{- if and (not .Values.gcp.workloadIdentity.enabled) .Values.secrets.files.create }}
+        - name: {{ .Values.secrets.files.name }}
+          secret:
+            secretName: {{ .Values.secrets.files.name }}
+        {{- end }}
+{{- end }}

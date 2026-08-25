@@ -1,0 +1,113 @@
+site_name: Content Aviator Agent Development Toolkit
+site_description: Documentation for the Content Aviator Agent Development Toolkit (ADT)
+
+site_url: https://csai.glpages.otxlab.net/aviator_adt/
+
+theme:
+  name: "material"
+  logo: assets/logo.png
+  icon:
+    repo: fontawesome/brands/gitlab
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/link
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/toggle-switch
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/toggle-switch-off
+        name: Switch to system preference
+  font:
+    text: Roboto
+    code: Roboto Mono
+  features:
+    - content.action.edit
+    - content.code.copy
+    - content.tabs.link
+    - content.tooltips
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          import:
+          - https://docs.pydantic.dev/latest/objects.inv
+  - swagger-ui-tag:
+      supportedSubmitMethods: []
+
+repo_url: https://gitlab.otxlab.net/csai/aviator_adt/
+repo_name: csai/aviator_adt
+edit_uri: edit/main/docs/
+
+markdown_extensions:
+  - attr_list
+  - pymdownx.snippets:
+      check_paths: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      # pygments_lang_class: true
+      
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+  - pymdownx.critic
+  - pymdownx.caret
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.tabbed:
+      alternate_style: true
+  - def_list
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - admonition
+  - pymdownx.details
+
+nav:
+  - Getting Started: index.md
+  - Settings: settings.md
+  - Helm Chart: helm.md
+  - Graph: graph.md
+  - API Docs: openapi.md
+  - Source Code:
+    - FastAPI: src/fastapi.md
+    - Models: src/models.md
+    - Celery: src/celery.md
+    - Exceptions: src/exceptions.md
+    - Plugins: src/plugins.md
+    - Vector Store: src/vector_store.md
+    - Tenant Service: src/tenant.md
+    - Usage Tracking: src/usage_tracking.md
+  - Development:
+    - Plugins: dev/plugins.md
+    - RAG Query Filtering: dev/filtering.md
+    - Multi-Tenancy: dev/multi_tenancy.md
+    - Usage Tracking: dev/usage_tracking.md
+    - Checkpoint Cleanup: dev/checkpoint_cleanup.md
+    - Message History Management: dev/message_history_management.md
+    - Secret Providers:
+      - Google Cloud Secret Manager: dev/google-secret-manager.md
+      - Vault Secrets: dev/vault-secrets.md
+      - Kubernetes Secrets: dev/kubernetes-secrets.md
+    - Deployments: dev/deployments.md
+    - Init Containers: dev/initContainers.md
+    - CSAI to ADT Migration: dev/migration.md
+    - MCP Integration: dev/mcp_integration.md
+    - A2A Communication: dev/a2a.md

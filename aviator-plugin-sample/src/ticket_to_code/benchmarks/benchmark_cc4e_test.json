@@ -1,0 +1,30 @@
+{
+    "dataset_name":  "cc4e_production_readiness_test",
+    "tickets":  [
+                    {
+                        "expected_changed_files":  [
+                                                       "src/app/modules/members/edit-member/edit-member.component.html"
+                                                   ],
+                        "ticket_id":  "CC4E-MEM-01",
+                        "description":  "In the Edit Member modal, the email value is sometimes truncated. Please add an ot-tooltip directive or title attribute to the user email element so users can see the full email when hovering.",
+                        "expected_owner_files":  [
+                                                     "src/app/modules/members/edit-member/edit-member.component.html"
+                                                 ],
+                        "category":  "ui_responsive_or_layout",
+                        "complexity":  "small",
+                        "technology":  "angular",
+                        "repo_scope":  "C:/CC4E/xchange-ui",
+                        "acceptance_criteria":  [
+                                                    "Hovering over the email value shows the full email text"
+                                                ],
+                        "title":  "Edit Member dialog email value needs a tooltip",
+                        "priority":  "medium",
+                        "labels":  [
+                                       "frontend",
+                                       "ui",
+                                       "bug"
+                                   ]
+                    }
+                ],
+    "version":  "1.0"
+}

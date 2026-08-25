@@ -1,0 +1,65 @@
+name: aviator_adt_debug
+
+services:
+  db:
+    extends:
+      file: docker-compose.yml
+      service: db
+
+  rabbitmq:
+    extends:
+      file: docker-compose.yml
+      service: rabbitmq
+
+  otds:
+    extends:
+      file: docker-compose.yml
+      service: otds
+    
+  adt-debug:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: debug
+    container_name: aviator-app-plugin-debug
+    command: ["python", "-Xfrozen_modules=off", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--wait-for-client", "-m", "aviator.main"]
+    ports:
+      - "3000:3000"
+      - "5678:5678"  # Debug port
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_CONNECTION: postgresql://postgres:postgres@db:5432/postgres
+      BROKER_URL: amqp://admin:admin_pass@rabbitmq:5672/
+      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/credentials.json
+      PYTHONPATH: /app
+      CONTENT_SYSTEM: sample
+      # Debug environment variables
+      PYTHONDONTWRITEBYTECODE: 1
+      PYTHONUNBUFFERED: 1
+      LOG_LEVEL: DEBUG
+      UVICORN_LOG_LEVEL: debug
+      # Uvicorn debug settings - disable reload and use single worker
+      UVICORN_RELOAD: false
+      UVICORN_WORKERS: 1
+      # Disable uvicorn auto-reload to prevent debugpy issues
+      RELOAD: false
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-./otl-cs-csai.json}:/app/credentials/credentials.json:ro
+      # Mount source code for live editing
+      - .:/app
+      - ./pyproject.toml:/app/pyproject.toml:ro
+    restart: "no"  # Don't auto-restart in debug mode
+    stdin_open: true
+    tty: true
+
+
+volumes:
+  pgdata:
+  rabbitmq_data:
+  otds_data:

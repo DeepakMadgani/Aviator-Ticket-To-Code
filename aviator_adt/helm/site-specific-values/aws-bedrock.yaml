@@ -1,0 +1,29 @@
+# AWS Bedrock configuration
+config:
+  AWS_BEDROCK_REGION: "us-west-2"
+  
+  # LLM Provider Configuration - using AWS Bedrock provider
+  LLM_PROVIDER: "aws_bedrock"
+  LLM_MODEL: "us.amazon.nova-lite-v1:0"
+
+  # Embeddings Configuration
+  EMBEDDINGS_MODEL: "amazon.titan-embed-text-v2:0"
+  
+  # Vector size for amazon.titan-embed-text-v2:0 embeddings (1024 dimensions)
+  VECTOR_SIZE: "1024"
+
+  VECTOR_SCORE_THRESHOLD: "0.1"
+
+  # Database and broker settings (update if different from defaults)
+  POSTGRES_HOST: "aviator-backend-pgvector"
+  BROKER_HOST: "aviator-backend-rabbitmq"
+
+secrets:
+  keys:
+    create: true
+    name: aviator-keys
+    items:
+      AWS_BEDROCK_ACCESS_KEY: "" # Update with actual AWS Bedrock access key
+      AWS_BEDROCK_SECRET_KEY: "" # Update with actual AWS Bedrock secret key
+      BROKER_PASSWORD: "secretpassword"  # Update with actual password
+      POSTGRES_PASSWORD: "1-TERRIBLE-password!"  # Update with actual password

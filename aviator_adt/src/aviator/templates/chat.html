@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Content Aviator ADT {{ version }}</title>
+
+    <link
+      rel="stylesheet"
+      href="img/lib/release/csui/themes/carbonfiber/init.css"
+    />
+    <link
+      rel="stylesheet"
+      href="img/lib/release/csui/themes/carbonfiber/theme.css"
+    />
+    <script
+      src="img/lib/release/nuc/bundles/nuc-loader.js"
+      data-csui-path="img/lib/release/nuc"
+    ></script>
+    <script src="img/lib/release/nuc/bundles/nuc-index.js"></script>
+    <script src="img/lib/release/smart/bundles/smart-index.js"></script>
+    <script src="img/lib/release/csui/bundles/csui-app-index.js"></script>
+    <script src="img/lib/release/viewx/bundles/viewx-index.js"></script>
+    <script src="img/lib/release/otvideo/bundles/otvideo-index.js"></script>
+    <script src="img/lib/release/aie/bundles/aie-index.js"></script>
+
+    <style data-csui-theme-overrides>
+      #chat {
+        background: linear-gradient(
+          rgba(255, 255, 255, 0),
+          rgba(255, 255, 255, 0.5)
+        ) !important;
+        margin-inline-start: auto;
+      }
+
+      #chat > .aie-wrapper {
+        height: calc(100vh - 16px);
+        margin-inline-end: 8px;
+        margin-block-start: 8px;
+
+        > .aie-chat {
+          width: calc(60vw);
+        }
+      }
+
+      #leftpanel {
+        height: calc(100vh - 16px);
+        width: 40%;
+        opacity: 0.8;
+        margin-inline-start: 8px;
+        margin-block-start: 8px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+        justify-content: center;
+      }
+
+      .container {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+      }
+
+      .background {
+        background: linear-gradient(
+            rgba(255, 255, 255, 0),
+            rgba(255, 255, 255, 0.5)
+          ),
+          url("img/bg.png") no-repeat !important;
+        background-size: cover !important;
+        background-position: center !important;
+        background-attachment: fixed !important;
+      }
+
+      .binf-widgets .content-dialog {
+        display: flex;
+        padding-left: 16px;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .binf-widgets .content-dialog > .binf-modal-dialog.binf-modal-dialog {
+        top: 0;
+        width: fit-content;
+      }
+
+      .binf-widgets .graph-image {
+        margin: 16px;
+      }
+    </style>
+
+    <script>
+      const connection = {
+        url: "{{ content_system_url }}/api/v1",
+        supportPath: "/cssupport",
+      };
+      const ticket = "{{ ticket }}";
+      let baseUrl = `${location.origin}${location.pathname}`;
+      if (baseUrl.endsWith("/")) {
+        baseUrl = baseUrl.slice(0, -1);
+      }
+      const chatUrl = `${baseUrl}/v1/chat`;
+      const feedbackUrl = `${baseUrl}/v1/feedback`;
+      const webSocketUrl = `${location.origin}/v1/chat/stream`;
+
+      // Configure the behaviour of this page by secret URL parameters.
+      const urlSearch = new URLSearchParams(location.search);
+      // Theme can be cf, light or dark.
+      const theme = urlSearch.get("theme") ?? "light";
+      // Zero or more node IDs of workspaces and documents can be specified.
+      const nodeIds = urlSearch.getAll("node");
+
+      csui.define(
+        "local-csai",
+        ["i18n", "aie/utils/network/network"],
+        function (i18n, networkUtils) {
+          "use strict";
+          class ChatServerAdapter {
+            #connector;
+
+            constructor({ connector }) {
+              this.#connector = connector;
+            }
+
+            getChatUrl() {
+              return chatUrl;
+            }
+
+            getFeedbackUrl() {
+              return feedbackUrl;
+            }
+
+            getWebSocketUrl() {
+              return webSocketUrl;
+            }
+
+            getWebSocketAuthentication() {
+              return {
+                user: { otcsticket: this.#connector.connection.session?.ticket },
+              };
+            }
+
+            detectFeedbackSupport() {
+              return false;
+            }
+
+            detectSSESupport() {
+              return true;
+            }
+          }
+          return ChatServerAdapter;
+        }
+      );
+
+      const authenticationEnabled = "{{ enable_authentication }}" === "true";
+      if (!authenticationEnabled) {
+        csui.require.config({
+          config: {
+            //FUNCTIONALITY_TOGGLE: Begin Interactive Authenticator
+            "csui/utils/authenticators/ticket.authenticator": {
+              rememberTicket: false,
+            },
+            "csui/utils/authenticators/core.authenticators": {
+              enableInteractiveAuthenticator: false,
+            },
+            //FUNCTIONALITY_TOGGLE: End Interactive Authenticator
+          },
+        });
+      }
+
+      csui.require.config(
+        {
+          paths: {
+            smart: "img/lib/release/smart",
+            csui: "img/lib/release/csui",
+            viewx: "img/lib/release/viewx",
+            otvideo: "img/lib/release/otvideo",
+            aie: "img/lib/release/aie",
+          },
+          map: {
+            "*": {
+              "aie/controllers/chat/chat.server.adapter": "local-csai",
+            },
+          },
+          config: {
+            i18n: {
+              locale: "en-us",
+              loadableLocales: {
+                root: true,
+              },
+            },
+            "smart/themes/theming": {
+              theme,
+            },
+            "csui/utils/contexts/factories/connector": {
+              connection,
+            },
+          },
+          deps: [
+            "require",
+            "nuc/lib/require.config!nuc/nuc-extensions.json",
+            "nuc/lib/require.config!smart/smart-extensions.json",
+            "nuc/lib/require.config!csui/csui-extensions.json",
+            "nuc/lib/require.config!viewx/viewx-extensions.json",
+            "nuc/lib/require.config!otvideo/otvideo-extensions.json",
+            "nuc/lib/require.config!aie/aie-extensions.json",
+          ],
+          callback: loadSmartUI,
+        },
+        (error) => alert(error)
+      );
+
+      function loadSmartUI(require) {
+        require([
+          "nuc/lib/marionette3",
+          "csui/utils/contexts/portal/portal.context",
+          "nuc/contexts/factories/connector",
+          "nuc/models/node/node.model",
+          "csui/controls/dialog/dialog.view",
+          "smart/dialogs/modal.alert/modal.alert",
+          "aie/controls/chat/chat.view",
+          "aie/controls/wrapper/wrapper.view",
+          "aie/controls/wrapper/chat.resizer",
+          "aie/controllers/extra.combined/extra.combined.controller",
+          "aie/controllers/extra.popover/extra.popover.controller",
+          "aie/controllers/extra.dialog/extra.dialog.controller",
+          "aie/models/many.nodes/many.nodes",
+          "aie/utils/network/network",
+          "aie/models/features/features",
+        ], function (
+          Marionette,
+          PortalContext,
+          ConnectorFactory,
+          NodeModel,
+          DialogView,
+          ModalAlert,
+          ChatView,
+          WrapperView,
+          chatResizer,
+          ExtraCombinedController,
+          ExtraPopoverController,
+          ExtraDialogController,
+          ManyNodesCollection,
+          networkUtils,
+          features
+        ) {
+          "use strict";
+
+          const context = new PortalContext();
+          const connector = context.getObject(ConnectorFactory);
+
+          if (authenticationEnabled) {
+            ensureAuthentication(showChatView);
+          } else {
+            showChatView();
+          }
+
+          function ensureAuthentication(callback) {
+            const { authenticator } = connector;
+            authenticator.updateAuthenticatedSession({ ticket });
+            if (!authenticator.isAuthenticated()) {
+              authenticator.syncStorage?.();
+              if (
+                !authenticator.isAuthenticated() &&
+                authenticator.authenticate
+              ) {
+                authenticator.authenticate(callback, (err) => {
+                  const error = networkUtils.normalizeError(err);
+                  console.error("Authentication failed:", error);
+                  ModalAlert.showError(error.message, "Authentication Failed");
+                });
+                return;
+              }
+            }
+            if (authenticator.isAuthenticated()) {
+              callback();
+            } else {
+              ModalAlert.showError("", "Missing Authentication");
+            }
+          }
+
+          async function showChatView() {
+            let nodes;
+            if (nodeIds.length) {
+              nodes = new ManyNodesCollection(undefined, {
+                connector,
+                ids: NodeModel.usesIntegerId
+                  ? nodeIds.map((id) => +id)
+                  : nodeIds,
+              });
+              try {
+                await nodes.fetch();
+              } catch (err) {
+                const error = networkUtils.normalizeError(err);
+                console.error("Failed to fetch nodes:", error);
+                ModalAlert.showError(error.message, "Fetching Nodes Failed");
+              }
+            }
+
+            // const popoverController = new ExtraPopoverController();
+            const dialogController = new ExtraDialogController();
+            // const extraViewController = new ExtraCombinedController(popoverController, dialogController);
+            const chatView = new ChatView({
+              context,
+              nodes,
+              dialogController,
+              showCloseButton: false,
+              showExpandButton: true,
+            });
+
+            chatView.on("expand", () => wrapperView.toggleSize());
+            const wrapperView = new WrapperView({ chatView });
+            // extraViewController.connectToChatPanel({ panel: wrapperView });
+            const chatRegion = new Marionette.Region({ el: "#chat" });
+            chatRegion.show(wrapperView);
+            // Enable drag'n'drop resizing of the chat view by its left border.
+            chatResizer.enableChatResizing({
+              target: chatView.el,
+              handle: wrapperView.el.querySelector(".aie-popover-resizer"),
+            });
+            chatView.focus();
+          }
+
+          // Open Graph
+          const ImageView = Marionette.View.extend({
+            tagName: "img",
+            className: "graph-image",
+            template: false,
+            attributes: {
+              src: "graph/mermaid.png",
+            },
+          });
+          const graphButton = document.getElementById("graph");
+          graphButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            const imageView = new ImageView();
+            const dialog = new DialogView({
+              className: "content-dialog",
+              title: "Graph",
+              view: imageView,
+            });
+            dialog.show();
+          });
+
+          // Open Docs
+          const DocsView = Marionette.View.extend({
+            tagName: "iframe",
+            // className: "graph-image",
+            template: false,
+            attributes: {
+              src: "docs/",
+              width: "900px",
+              height: "600px",
+            },
+          });
+          const docsButton = document.getElementById("docs");
+          docsButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            const docsView = new DocsView();
+            const dialog = new DialogView({
+              className: "content-dialog",
+              title: "API Docs",
+              view: docsView,
+            });
+            dialog.show();
+          });
+
+          // Login
+          const loginButton = document.getElementById("login");
+          loginButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            location.href =
+              location.href +
+              (location.href.includes("?") ? "&" : "?") +
+              "auth=true";
+          });
+
+          // Logout
+          const logoutButton = document.getElementById("logout");
+          logoutButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            connector.authenticator.unauthenticate();
+            location.href = location.href.replace("auth=true", "");
+          });
+        });
+      }
+    </script>
+  </head>
+  <body class="binf-widgets background">
+    <div class="container">
+      <div id="leftpanel">
+        <otc-button id="graph" size="medium" type="primary">Graph</otc-button>
+        <otc-button id="docs" size="medium" type="primary">API Docs</otc-button>
+        <otc-button
+          size="medium"
+          type="primary"
+          onclick="csui.configureAviatorFeatures()"
+          >Aviator Settings</otc-button
+        >
+
+        <div>
+          <otc-button id="login" size="medium" type="secondary">Login</otc-button>
+          <otc-button id="logout" size="medium" type="secondary"
+            >Logout</otc-button
+          >
+        </div>
+      </div>
+      <div id="chat"></div>
+    </div>
+  </body>
+</html>

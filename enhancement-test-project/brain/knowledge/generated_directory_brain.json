@@ -1,0 +1,62 @@
+[
+  {
+    "directory_path": ".",
+    "business_domain": "Testing",
+    "technical_role": "Utility Classes",
+    "core_responsibilities": "This directory contains dummy or placeholder classes used for testing or demonstration purposes.",
+    "intent_terms": [
+      "dummy",
+      "Dummy2"
+    ],
+    "key_artifacts": [
+      "dummy.java"
+    ]
+  },
+  {
+    "directory_path": "src",
+    "business_domain": "Order Management",
+    "technical_role": "Core Application Logic",
+    "core_responsibilities": "This directory contains the primary business logic and data models for managing orders, including services for order processing, notifications, payments, and member management, along with utility functions.",
+    "intent_terms": [
+      "init",
+      "OrderService",
+      "NotificationService",
+      "PaymentGateway",
+      "MemberService",
+      "OrderHandler",
+      "models",
+      "OrderModel",
+      "CustomerModel",
+      "InventoryItem",
+      "ProjectMember",
+      "ContractMember",
+      "utils"
+    ],
+    "key_artifacts": [
+      "src/__init__.py",
+      "src/app.py",
+      "src/models.py",
+      "src/utils.py"
+    ]
+  },
+  {
+    "directory_path": "tests",
+    "business_domain": "Order Management",
+    "technical_role": "Unit Tests",
+    "core_responsibilities": "This directory contains unit tests for various components related to order management, including order services, models, and related entities.",
+    "intent_terms": [
+      "init",
+      "test",
+      "orders",
+      "TestOrderService",
+      "TestOrderModel",
+      "TestCustomerModel",
+      "TestInventoryItem",
+      "TestMemberService"
+    ],
+    "key_artifacts": [
+      "tests/__init__.py",
+      "tests/test_orders.py"
+    ]
+  }
+]

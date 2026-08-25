@@ -1,0 +1,20 @@
+apiVersion: v2
+name: aviator-backend
+description: A Helm chart for the Aviator backend with dependencies
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+dependencies:
+  - name: pubsub
+    version: 0.1.0
+    condition: pubsub.enabled
+  - name: pgvector
+    version: 0.1.0
+    condition: pgvector.enabled
+  - name: rabbitmq
+    version: 0.1.0
+    condition: rabbitmq.enabled
+  - name: vault
+    version: 0.1.0
+    condition: vault.enabled

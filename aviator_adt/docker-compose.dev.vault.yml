@@ -1,0 +1,131 @@
+services:
+  # Override aviator service for Vault
+  aviator:
+    extends:
+      file: docker-compose.dev.yml
+      service: aviator
+    # Uncomment the line below to test the role / roleId authentication
+    # entrypoint: ["/usr/local/bin/aviator-vault-entrypoint.sh"]
+    environment:
+      SECRETS_MANAGER: vault
+      VAULT_URL: http://vault:8200
+      # VERSION 1 - uncomment 2 lines below for Vault version 1 testing
+      VAULT_CONFIG: '{"apiVersion":"v1","endpoint":"http://vault:8200","token":"password"}'
+      SECRETS_PGVECTOR_PASSWORD_KEY: 'kv1/path_name::DATABASE_PASSWORD'
+      SECRETS_BROKER_PASSWORD_KEY: 'kv1/path_name::BROKER_PASSWORD'
+      #
+      # VERSION 2 - uncomment line below and uncomment the VAULT_CONFIG for the auth method you are testing.
+      # SECRETS_PGVECTOR_PASSWORD_KEY: 'secret/data/path_name::DATABASE_PASSWORD'
+      # SECRETS_BROKER_PASSWORD_KEY: 'secret/data/path_name::BROKER_PASSWORD'
+      # VERSION 2 - token auth
+      # VAULT_CONFIG: '{"apiVersion":"v2","endpoint":"http://vault:8200","token":"password"}'
+      # VERSION 2 - username / password auth
+      # VAULT_CONFIG: '{"apiVersion":"v2","endpoint":"http://vault:8200","userpass":{"username":"testuser", "password":"testpass"}}'
+      # VERSION 2 - role / roleId auth (VAULT_CONFIG will be set dynamically by entrypoint script) uncomment volume and entrypoint related to aviator-vault-entrypoint.sh
+      # 
+      # Override inherited connections to force vault password retrieval
+      POSTGRES_CONNECTION: ""
+      BROKER_URL: ""
+      # Set individual postgres settings
+      POSTGRES_HOST: db
+      POSTGRES_USER: postgres
+      POSTGRES_DATABASE: postgres
+      POSTGRES_PORT: 5432
+      # Set individual broker settings
+      BROKER_TYPE: amqp
+      BROKER_HOST: rabbitmq
+      BROKER_USER: admin
+      BROKER_VHOST: /
+    volumes:
+      - vault_shared:/shared:ro
+      # Uncomment the line below to test the role / roleId authentication
+      # - ./docker_compose_scripts/aviator-vault-entrypoint.sh:/usr/local/bin/aviator-vault-entrypoint.sh:ro
+    depends_on: !override
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+
+  # Override aviator-worker service for Vault  
+  aviator-worker:
+    extends:
+      file: docker-compose.dev.yml
+      service: aviator-worker
+    command: ["worker"]
+    environment:
+      SECRETS_MANAGER: vault
+      VAULT_URL: http://vault:8200
+      # VERSION 1 - uncomment 2 lines below for Vault version 1 testing
+      # VAULT_CONFIG: '{"apiVersion":"v1","endpoint":"http://vault:8200","token":"password"}'
+      # SECRETS_PGVECTOR_PASSWORD_KEY: 'kv1/path_name::DATABASE_PASSWORD'
+      # SECRETS_BROKER_PASSWORD_KEY: 'kv1/path_name::BROKER_PASSWORD'
+      #
+      # VERSION 2 - uncomment line below and uncomment the VAULT_CONFIG for the auth method you are testing.
+      SECRETS_PGVECTOR_PASSWORD_KEY: 'secret/data/path_name::DATABASE_PASSWORD'
+      SECRETS_BROKER_PASSWORD_KEY: 'secret/data/path_name::BROKER_PASSWORD'
+      # VERSION 2 - token auth
+      VAULT_CONFIG: '{"apiVersion":"v2","endpoint":"http://vault:8200","token":"password"}'
+      # VERSION 2 - username / password auth
+      # VAULT_CONFIG: '{"apiVersion":"v2","endpoint":"http://vault:8200","userpass":{"username":"testuser", "password":"testpass"}}'
+      # Override inherited connections to force vault password retrieval
+      POSTGRES_CONNECTION: ""
+      BROKER_URL: ""
+      # Set individual postgres settings
+      POSTGRES_HOST: db
+      POSTGRES_USER: postgres
+      POSTGRES_DATABASE: postgres
+      POSTGRES_PORT: 5432
+      # Set individual broker settings
+      BROKER_TYPE: amqp
+      BROKER_HOST: rabbitmq
+      BROKER_USER: admin
+      BROKER_VHOST: /
+    depends_on: !override
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+
+  # Ensure pubsub service is available
+  rabbitmq:
+    extends:
+      file: docker-compose.yml
+      service: rabbitmq
+
+  vault:
+    extends:
+      file: docker-compose.yml
+      service: vault
+
+  # Consolidated Vault initialization - sets up all auth methods and secrets
+  vault-init:
+    image: alpine/curl:latest
+    restart: "no"
+    depends_on:
+      vault:
+        condition: service_healthy
+    volumes:
+      - ./docker_compose_scripts/vault-init-script.sh:/usr/local/bin/vault-init-script.sh:ro
+      - /tmp/k8s-jwt:/var/run/secrets/kubernetes.io/serviceaccount
+      - vault_shared:/shared
+    command:
+      - /bin/sh
+      - /usr/local/bin/vault-init-script.sh
+  
+  db:
+    extends:
+      file: docker-compose.yml
+      service: db
+
+volumes:
+  pgdata:
+  rabbitmq_data:
+  vault_shared:

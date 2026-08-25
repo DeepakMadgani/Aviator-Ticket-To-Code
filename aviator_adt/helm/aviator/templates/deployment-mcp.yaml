@@ -1,0 +1,129 @@
+{{- if .Values.mcpServer.enabled }}
+{{- $root := . -}}
+{{- $name := include "aviator.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aviator.name" . }}-mcpserver
+spec:
+  replicas: {{ .Values.mcpServer.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "aviator.name" . }}-mcpserver
+  template:
+    metadata:
+      labels:
+        app: {{ include "aviator.name" . }}-mcpserver
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.pod.terminationGracePeriodSeconds }}
+      {{- if .Values.serviceAccount.enabled }}
+      serviceAccountName: {{ if .Values.serviceAccount.app.name }}{{ .Values.serviceAccount.app.name }}{{ else }}{{ include "aviator.name" . }}{{ end }}
+      {{- end }}
+{{- if .Values.pod.securityContext.enabled }}
+      securityContext:
+        runAsUser: {{ .Values.pod.securityContext.runAsUser }}
+        runAsGroup: {{ .Values.pod.securityContext.runAsGroup }}
+        fsGroup: {{ .Values.pod.securityContext.fsGroup }}
+{{- end }}
+{{- if (gt (len .Values.initContainers.containers) 0) }}
+      initContainers:
+{{- range $container := .Values.initContainers.containers }}
+        - name: {{ $container.name }}
+          image: "{{ $container.image.repository }}/{{ $container.image.name }}:{{ $container.image.tag }}"
+          imagePullPolicy: {{ $container.image.pullPolicy | default "Always" }}
+          volumeMounts:
+            - name: {{ $root.Values.initContainers.pluginVolume.name }}
+              mountPath: {{ $root.Values.initContainers.pluginVolume.mountPath }}
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+{{- end }}
+{{- end }}
+      containers:
+        {{- if .Values.cloudsqlproxy.enabled }}
+        - name: cloud-sql-proxy
+          {{- with .Values.cloudsqlproxy }}
+          image: {{ .image }}
+          command:
+            - /cloud-sql-proxy
+            {{- toYaml .arguments | nindent 12 }}
+            - {{ .instanceConnectionName }}
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+          {{- end }}
+        {{- end }}
+        - name: {{ include "aviator.name" . }}-mcpserver
+          image: "{{ .Values.mcpServer.image.repository | default .Values.image.repository }}/{{ .Values.mcpServer.image.name | default .Values.image.name }}:{{ .Values.mcpServer.image.tag | default .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.mcpServer.image.pullPolicy | default .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "aviator.name" . }}-config
+            - secretRef:
+                name: {{ .Values.secrets.keys.name }}
+          env:
+            {{- if not .Values.gcp.workloadIdentity.enabled }}
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "{{ .Values.volumeMounts.gsa.mountPath }}/{{ .Values.volumeMounts.gsa.path }}"
+            {{- end }}
+{{- if and .Values.initContainers.enabled (gt (len .Values.initContainers.containers) 0) }}
+            - name: PLUGIN_PATH
+              value: "{{ .Values.initContainers.pluginVolume.mountPath }}"
+{{- end }}
+          resources:
+            requests:
+              memory: "{{ .Values.mcpServer.resources.requests.memory }}"
+              cpu: "{{ .Values.mcpServer.resources.requests.cpu }}"
+            limits:
+              memory: "{{ .Values.mcpServer.resources.limits.memory }}"
+              cpu: "{{ .Values.mcpServer.resources.limits.cpu }}"
+          args: ["mcp-server"]
+          ports:
+            - name: http
+              containerPort: 8100
+          volumeMounts:
+            {{- if not .Values.gcp.workloadIdentity.enabled }}
+              {{- if .Values.secrets.files.create }}
+            - name: {{ .Values.secrets.files.name }}
+              mountPath: {{ .Values.volumeMounts.gsa.mountPath }}
+              {{- else }}
+            - name: gsa-credentials
+              mountPath: {{ .Values.volumeMounts.gsa.mountPath }}
+              {{- end }}
+            {{- end }}
+{{- if (gt (len .Values.initContainers.containers) 0) }}
+            - name: {{ .Values.initContainers.pluginVolume.name }}
+              mountPath: {{ .Values.initContainers.pluginVolume.mountPath }}
+              readOnly: {{ .Values.initContainers.pluginVolume.readOnly }}
+{{- end }}
+{{- if .Values.pod.tolerations }}
+      tolerations:
+{{ toYaml .Values.pod.tolerations | indent 8 }}
+{{- end }}
+      imagePullSecrets:
+{{ toYaml .Values.imagePullSecrets | indent 8 }}
+      volumes:
+         {{- if not .Values.gcp.workloadIdentity.enabled }}
+          {{- if .Values.secrets.files.create }}
+        - name: {{ .Values.secrets.files.name }}
+          secret:
+            secretName: {{ .Values.secrets.files.name }}
+          {{- else }}
+        - name: gsa-credentials
+          secret:
+            secretName: {{ .Values.secrets.files.name }}
+            items:
+              - key: {{ .Values.volumeMounts.gsa.key }}
+                path: {{ .Values.volumeMounts.gsa.path }}
+          {{- end }}
+        {{- end }}
+{{- if (gt (len .Values.initContainers.containers) 0) }}
+        - name: {{ .Values.initContainers.pluginVolume.name }}
+          emptyDir: {}
+{{- end }}
+{{- end}}

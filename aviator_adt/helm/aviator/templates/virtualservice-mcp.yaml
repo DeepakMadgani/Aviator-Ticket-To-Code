@@ -1,0 +1,18 @@
+{{- if .Values.mcpServer.virtualService.enabled -}}
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ include "aviator.name" . }}-mcp
+spec:
+  hosts:
+    - aviator-mcp-qa.dev.ca.opentext.com
+  gateways:
+    - paas-apps/asm-gateway
+    - mesh
+  http:
+    - route:
+        - destination:
+            host: {{ include "aviator.name" . }}-mcp
+            port:
+              number: 8100
+{{- end }}

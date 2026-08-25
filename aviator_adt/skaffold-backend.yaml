@@ -1,0 +1,72 @@
+apiVersion: skaffold/v4beta6
+kind: Config
+metadata:
+  name: aviator-backend
+manifests:
+  helm:
+    releases:
+      - name: aviator-backend
+        chartPath: helm/aviator-backend
+        namespace: default
+        skipBuildDependencies: true
+        valuesFiles:
+          - helm/site-specific-values/backend/default.yaml
+        setValues:
+          nameOverride: aviator-backend
+deploy:
+  helm: {}
+profiles:
+  - name: skaffold-namespace-common
+    activation:
+      - env: SKAFFOLD_NAMESPACE=.+
+    patches:
+      - op: replace
+        path: /manifests/helm/releases/0/namespace
+        value: "{{ .SKAFFOLD_NAMESPACE }}"
+  - name: docker-desktop
+    activation:
+      - kubeContext: docker-desktop
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/backend/docker-desktop.yaml
+  - name: gcp-otl-cs-csai
+    activation:
+      - kubeContext: otl-cs-csai
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/backend/gcp-otl-cs-csai.yaml
+  - name: gcp-otl-cs-csai-xecm
+    activation:
+      - kubeContext: gke_otl-cs-csai_us-east4_otl-cs-csai-cluster1
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/backend/gcp-otl-cs-csai-xecm.yaml
+  - name: prj-ot-ocp-np-dev-gke
+    activation:
+      - kubeContext: prj-ot-ocp-np-dev-gke
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/backend/prj-ot-ocp-np-dev-gke.yaml
+  - name: vault
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/backend/vault.yaml
+  - name: csai-cluster-azure
+    activation:
+      - kubeContext: csai-cluster-azure
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/backend/csai-cluster-azure.yaml
+  - name: csai-cluster-azure
+    activation:
+      - kubeContext: csai-cluster.us-west-2.eksctl.io
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/backend/csai-cluster-aws.yaml

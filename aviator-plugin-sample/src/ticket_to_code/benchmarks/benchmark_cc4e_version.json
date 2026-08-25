@@ -1,0 +1,32 @@
+{
+    "dataset_name":  "cc4e_production_readiness_test",
+    "tickets":  [
+                    {
+                        "expected_changed_files":  [
+
+                                                   ],
+                        "ticket_id":  "CC4E-VERSION-01",
+                        "description":  "Currently, the application version is hardcoded in multiple files across the backend and frontend. Every release requires updating the version in many different locations, making the process error-prone and difficult to maintain. Refactor the project so that the version is maintained in a single authoritative location (or the minimum number of canonical locations if one location is not technically feasible). The solution should: - Identify where the application version is currently defined and used. - Determine the true source(s) of the version. - Introduce a central version provider/configuration if necessary. - Update all consumers to obtain the version from the central source instead of hardcoding it. - Remove duplicated version literals wherever possible. - Preserve existing runtime behavior. - Ensure UI, backend APIs, configuration, and other consumers continue displaying or using the correct version. - Avoid unnecessary architectural changes outside the scope of version management.",
+                        "expected_owner_files":  [
+
+                                                 ],
+                        "category":  "config_or_version",
+                        "complexity":  "large",
+                        "technology":  "angular",
+                        "repo_scope":  "C:/CC4E/xchange-ui",
+                        "acceptance_criteria":  [
+                                                    "Version is maintained in one canonical location",
+                                                    "Hardcoded duplicate version values are removed where possible",
+                                                    "Existing functionality remains unchanged",
+                                                    "All consumers obtain the version from the canonical source"
+                                                ],
+                        "title":  "Prefer using an existing configuration or version source if one already exists. Only introduce a new central version provider if no suitable canonical source exists",
+                        "priority":  "high",
+                        "labels":  [
+                                       "architecture",
+                                       "refactoring"
+                                   ]
+                    }
+                ],
+    "version":  "1.0"
+}

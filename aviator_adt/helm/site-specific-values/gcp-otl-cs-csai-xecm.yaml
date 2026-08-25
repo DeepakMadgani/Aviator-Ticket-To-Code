@@ -1,0 +1,30 @@
+global:
+  imageSource: artifactory.otxlab.net/cs-csai-docker-dev
+
+image:
+  repository: artifactory.otxlab.net/cs-csai-docker-dev
+
+worker:
+  image:
+    repository: artifactory.otxlab.net/cs-csai-docker-dev
+
+# Google Pub/Sub configuration for GCP deployment
+config:
+  # Override broker configuration for Google Pub/Sub
+  BROKER_TYPE: "pubsub"
+  PUBSUB_PROJECT_ID: "otl-cs-csai"  # Replace with your actual GCP project ID
+  # PUBSUB_EMULATOR_HOST: ""  # Only set for local development with emulator
+
+pod:
+  tolerations: []
+
+serviceAccount:
+  enabled: true
+
+chat-svc:
+  service:
+    port: 3000 # override port to match xECM defaults
+
+embed-svc:
+  service:
+    port: 3000 # override port to match xECM defaults

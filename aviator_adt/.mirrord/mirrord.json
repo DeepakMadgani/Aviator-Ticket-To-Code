@@ -1,0 +1,15 @@
+{
+    "target": "deployment/aviator",
+    "feature": {
+        "network": {
+            "incoming": {
+                "mode": "steal"
+            },
+            "outgoing": {
+                "ignore_localhost": true
+            }
+        },
+        "env": true,
+        "fs": "read"
+    }
+}

@@ -1,0 +1,105 @@
+{
+  "summary": {
+    "generated_at": "2026-08-09T15:23:56.552134Z",
+    "total_tickets": 1,
+    "terminal_outcomes": {
+      "solved_with_patch": 0,
+      "no_action_required": 0,
+      "needs_retry": 0,
+      "failed_closed": 0,
+      "failed": 0,
+      "other": 1
+    },
+    "success_rate_effect_achieved": 0.0,
+    "avg_latency_seconds": 673.0281817999785,
+    "p95_latency_seconds": 673.0281817999785,
+    "avg_prompt_tokens": 0,
+    "avg_completion_tokens": 0,
+    "avg_total_tokens": 0,
+    "localization_accuracy_mean": 0.0,
+    "owner_identification_rate": 0.0,
+    "verification_pass_rate": 1.0,
+    "human_acceptance_rate": null,
+    "human_acceptance_coverage": 0.0,
+    "failure_taxonomy": {
+      "none": 0,
+      "localization": 0,
+      "retrieval": 0,
+      "planning": 0,
+      "generation": 0,
+      "validation": 1,
+      "environment": 0,
+      "unknown": 0
+    },
+    "top_bottlenecks": [
+      {
+        "stage": "validation",
+        "count": 1
+      },
+      {
+        "stage": "localization",
+        "count": 0
+      },
+      {
+        "stage": "retrieval",
+        "count": 0
+      },
+      {
+        "stage": "planning",
+        "count": 0
+      },
+      {
+        "stage": "generation",
+        "count": 0
+      }
+    ],
+    "by_category": {
+      "feature": {
+        "count": 1,
+        "solved_with_patch": 0,
+        "no_action_required": 0,
+        "needs_retry": 0,
+        "failed": 0,
+        "avg_latency_seconds": 673.0281817999785
+      }
+    }
+  },
+  "tickets": [
+    {
+      "ticket_id": "CC4E-MEM-ORG-01",
+      "category": "feature",
+      "complexity": "medium",
+      "workspace_path": "C:/CC4E",
+      "status": "build_failed",
+      "terminal_bucket": "other",
+      "latency_seconds": 673.028,
+      "changed_files_count": 8,
+      "changed_files": [
+        "project-service/src/main/java/com/opentext/bim/projectservice/model/ContractMember.java",
+        "project-service/src/main/java/com/opentext/bim/projectservice/model/ParticipatingMember.java",
+        "xchange-ui/src/app/modules/members/add-members/add-members.component.html",
+        "xchange-ui/src/app/modules/members/add-members/add-members.component.scss",
+        "xchange-ui/src/app/modules/shared/models/contract.ts",
+        "xchange-ui/src/app/modules/shared/models/displayed-member.ts",
+        "xchange-ui/src/app/modules/shared/models/member.ts",
+        "xchange-ui/src/app/modules/shared/models/project.ts"
+      ],
+      "localization_accuracy": 0.0,
+      "owner_identified": false,
+      "expected_effect_achieved": false,
+      "verification_passed": true,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0,
+      "failure_stage": "validation",
+      "failure_reason": "build_failed  ",
+      "human_acceptance": null
+    }
+  ],
+  "run_config": {
+    "execution_mode": "contract",
+    "experience_enabled": true,
+    "technology": null,
+    "max_fix_attempts_override": 1
+  }
+}

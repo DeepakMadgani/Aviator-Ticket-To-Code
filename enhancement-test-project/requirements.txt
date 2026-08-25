@@ -1,0 +1,7 @@
+# Order Service Test Project for T2C Enhancement Verification
+# This project deliberately has bugs, missing deps, config issues, and cross-service calls
+# so that Aviator's 13 enhancement agents can be exercised by running tickets against it.
+flask==2.3.2
+requests==2.31.0
+gunicorn==20.1.0
+python-dotenv==1.0.0

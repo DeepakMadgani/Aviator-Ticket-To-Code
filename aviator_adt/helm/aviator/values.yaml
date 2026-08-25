@@ -1,0 +1,1176 @@
+# Default values for aviator chart
+
+# =============================================================================
+# DEFAULT CONFIGURATIONS
+# =============================================================================
+# -- Default container image configuration (used as fallback if not specified in app/worker)
+image:
+  # -- Default container image repository
+  # Override this with your own registry and image path via site-specific values
+  repository: ""
+  # -- Default container image name
+  name: aviator
+  # -- Default container image tag
+  tag: latest
+  # -- Default image pull policy (Always, IfNotPresent, Never)
+  pullPolicy: Always
+
+# =============================================================================
+# APP CONFIGURATION
+# =============================================================================
+
+app:
+  # -- Enable or disable the main application deployment
+  enabled: true
+  # -- Name of the application
+  name: aviator
+  # -- Number of replicas for the application (ignored if autoscaling is enabled)
+  replicaCount: 1
+  # -- Container port the application listens on
+  port: 3000
+  # -- Pod security context configuration
+  securityContext:
+    # -- Enable pod security context
+    enabled: true
+    # -- User ID to run the container as
+    runAsUser: 1000
+    # -- Group ID to run the container as
+    runAsGroup: 1000
+    # -- Filesystem group ID
+    fsGroup: 1000
+  tolerations: []
+  annotations: {}
+  # -- Number of Gunicorn worker threads
+  threads: 4
+  # -- Container image configuration for the application
+  image:
+    # -- Container image repository
+    repository:
+    # -- Container image name
+    name:
+    # -- Container image tag
+    tag:
+    # -- Image pull policy (Always, IfNotPresent, Never)
+    pullPolicy:
+  # -- Resource requests and limits for the application container
+  resources:
+    limits:
+      # -- CPU limit
+      cpu: "2000m"
+      # -- Memory limit
+      memory: "512Mi"
+    requests:
+      # -- CPU request
+      cpu: "100m"
+      # -- Memory request
+      memory: "512Mi"
+  # -- Service configuration for the application
+  service:
+    # -- Kubernetes service type (ClusterIP, NodePort, LoadBalancer)
+    type: ClusterIP
+    # -- Service port (external-facing port on the K8s Service)
+    port: 80
+  # -- Ingress configuration for external access
+  ingress:
+    # -- Enable ingress resource
+    enabled: false
+    # -- Ingress class name (e.g., nginx, traefik)
+    ingressClassName: nginx
+    # -- Ingress hosts configuration
+    # @default -- []
+    hosts: []
+      # - host: aviator.example.com
+      #   paths:
+      #     - path: /
+      #       pathType: ImplementationSpecific
+    # -- TLS configuration for ingress
+    # @default -- []
+    tls: []
+      # - secretName: aviator-tls
+      #   hosts:
+      #     - aviator.example.com
+    # -- Additional ingress annotations
+    # @default -- {}
+    annotations: {}
+      # ingress.kubernetes.io/force-hsts: "true"
+      # ingress.kubernetes.io/hsts-max-age: "15552000"
+      # nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      # nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  # -- Deployment strategy configuration
+  strategy:
+    # -- Deployment strategy type (RollingUpdate, Recreate)
+    type: RollingUpdate
+    # -- Rolling update configuration
+    rollingUpdate:
+      # -- Maximum number of unavailable pods during update
+      maxUnavailable: 0
+      # -- Maximum number of pods that can be created above desired count
+      maxSurge: 1
+  # -- Horizontal Pod Autoscaler configuration
+  autoscaling:
+    # -- Enable autoscaling for the application
+    enabled: false
+    # -- Minimum number of replicas
+    minReplicas: 1
+    # -- Maximum number of replicas
+    maxReplicas: 100
+    # -- Target CPU utilization percentage for autoscaling
+    targetCPUUtilizationPercentage: 80
+    # -- Target memory utilization percentage for autoscaling (optional)
+    # targetMemoryUtilizationPercentage: 80
+  # -- Probe configuration for the application container
+  probes:
+    # -- Readiness probe configuration
+    readiness:
+      # -- Enable readiness probe
+      enabled: true
+      # -- Seconds before starting readiness probe
+      initialDelaySeconds: 5
+      # -- How often to perform the probe
+      periodSeconds: 10
+      # -- Probe timeout in seconds
+      timeoutSeconds: 3
+      # -- Number of failures before marking unhealthy
+      failureThreshold: 3
+    # -- Liveness probe configuration
+    liveness:
+      # -- Enable liveness probe
+      enabled: true
+      # -- Seconds before starting liveness probe
+      initialDelaySeconds: 30
+      # -- How often to perform the probe
+      periodSeconds: 60
+      # -- Probe timeout in seconds
+      timeoutSeconds: 3
+      # -- Number of failures before restarting container
+      failureThreshold: 3
+    # -- Startup probe configuration
+    startup:
+      # -- Enable startup probe
+      enabled: true
+      # -- Seconds before starting startup probe
+      initialDelaySeconds: 10
+      # -- How often to perform the probe
+      periodSeconds: 10
+      # -- Probe timeout in seconds
+      timeoutSeconds: 3
+      # -- Number of failures before killing container
+      failureThreshold: 30
+  # -- Prometheus metrics configuration
+  prometheus:
+    # -- Enable Prometheus metrics scraping
+    enabled: true
+    # -- Prometheus scrape annotations
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "3000"
+      prometheus.io/path: "/metrics"
+  # -- PodDisruptionBudget configuration
+  pdb:
+    # -- Enable PodDisruptionBudget
+    enabled: false
+    # -- Minimum number of pods that must be available
+    minAvailable: 1
+
+# =============================================================================
+# SHARED POD SETTINGS
+# =============================================================================
+pod:
+  # -- Termination grace period in seconds
+  terminationGracePeriodSeconds: 60
+  # -- Pod security context configuration
+  securityContext:
+    # -- Enable pod security context
+    enabled: true
+    # -- User ID to run the container as
+    runAsUser: 1000
+    # -- Group ID to run the container as
+    runAsGroup: 1000
+    # -- Filesystem group ID
+    fsGroup: 1000
+  tolerations: []
+  annotations: {}
+  # -- Number of Gunicorn worker threads
+  threads: 4
+  # -- Container image configuration for the application
+  image:
+    # -- Container image repository
+    repository:
+    # -- Container image name
+    name:
+    # -- Container image tag
+    tag:
+    # -- Image pull policy (Always, IfNotPresent, Never)
+    pullPolicy:
+  # -- Resource requests and limits for the application container
+  resources:
+    limits:
+      # -- CPU limit
+      cpu: "2000m"
+      # -- Memory limit
+      memory: "512Mi"
+    requests:
+      # -- CPU request
+      cpu: "100m"
+      # -- Memory request
+      memory: "512Mi"
+  # -- Service configuration for the application
+  service:
+    # -- Kubernetes service type (ClusterIP, NodePort, LoadBalancer)
+    type: ClusterIP
+    # -- Service port
+    port: 80
+  # -- Ingress configuration for external access
+  ingress:
+    # -- Enable ingress resource
+    enabled: false
+    # -- Ingress class name (e.g., nginx, traefik)
+    ingressClassName: nginx
+    # -- Ingress hosts configuration
+    # @default -- []
+    hosts: []
+      # - host: aviator.example.com
+      #   paths:
+      #     - path: /
+      #       pathType: ImplementationSpecific
+    # -- TLS configuration for ingress
+    # @default -- []
+    tls: []
+      # - secretName: aviator-tls
+      #   hosts:
+      #     - aviator.example.com
+    # -- Additional ingress annotations
+    # @default -- {}
+    annotations: {}
+      # ingress.kubernetes.io/force-hsts: "true"
+      # ingress.kubernetes.io/hsts-max-age: "15552000"
+      # nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      # nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  # -- Deployment strategy configuration
+  strategy:
+    # -- Deployment strategy type (RollingUpdate, Recreate)
+    type: RollingUpdate
+    # -- Rolling update configuration
+    rollingUpdate:
+      # -- Maximum number of unavailable pods during update
+      maxUnavailable: 0
+      # -- Maximum number of pods that can be created above desired count
+      maxSurge: 1
+  # -- Horizontal Pod Autoscaler configuration
+  autoscaling:
+    # -- Enable autoscaling for the application
+    enabled: false
+    # -- Minimum number of replicas
+    minReplicas: 1
+    # -- Maximum number of replicas
+    maxReplicas: 100
+    # -- Target CPU utilization percentage for autoscaling
+    targetCPUUtilizationPercentage: 80
+    # -- Target memory utilization percentage for autoscaling (optional)
+    # targetMemoryUtilizationPercentage: 80
+  # -- Probe configuration for the application container
+  probes:
+    # -- Readiness probe configuration
+    readiness:
+      # -- Enable readiness probe
+      enabled: true
+      # -- Seconds before starting readiness probe
+      initialDelaySeconds: 5
+      # -- How often to perform the probe
+      periodSeconds: 10
+      # -- Probe timeout in seconds
+      timeoutSeconds: 3
+      # -- Number of failures before marking unhealthy
+      failureThreshold: 3
+    # -- Liveness probe configuration
+    liveness:
+      # -- Enable liveness probe
+      enabled: true
+      # -- Seconds before starting liveness probe
+      initialDelaySeconds: 30
+      # -- How often to perform the probe
+      periodSeconds: 60
+      # -- Probe timeout in seconds
+      timeoutSeconds: 3
+      # -- Number of failures before restarting container
+      failureThreshold: 3
+    # -- Startup probe configuration
+    startup:
+      # -- Enable startup probe
+      enabled: true
+      # -- Seconds before starting startup probe
+      initialDelaySeconds: 10
+      # -- How often to perform the probe
+      periodSeconds: 10
+      # -- Probe timeout in seconds
+      timeoutSeconds: 3
+      # -- Number of failures before killing container
+      failureThreshold: 30
+  # -- Prometheus metrics configuration
+  prometheus:
+    # -- Enable Prometheus metrics scraping
+    enabled: true
+    # -- Prometheus scrape annotations
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "3000"
+      prometheus.io/path: "/metrics"
+  # -- PodDisruptionBudget configuration
+  pdb:
+    # -- Enable PodDisruptionBudget
+    enabled: false
+    # -- Minimum number of pods that must be available
+    minAvailable: 1
+
+# =============================================================================
+# SUMMARY WORKER CONFIGURATION
+# =============================================================================
+summaryWorker:
+  # -- Enable or disable the summary worker deployment
+  enabled: true
+  # -- Number of replicas for the worker (ignored if autoscaling is enabled)
+  replicaCount: 1
+  # -- Additional pod annotations
+  # @default -- {}
+  annotations: {}
+  # -- Number of Summary worker threads (used in --autoscale parameter)
+  threads: 4
+  queueName: aviator-summaries
+  # -- Worker role for routing
+  workerRole: summary
+  # -- Container image configuration for the worker
+  image:
+    # -- Container image repository
+    repository:  artifactory.otxlab.net/cs-csai-docker-dev
+    # -- Container image name
+    name: aviator
+    # -- Container image tag
+    tag: latest
+    # -- Image pull policy (Always, IfNotPresent, Never)
+    pullPolicy:
+  # -- Horizontal Pod Autoscaler configuration for worker
+  autoscaling:
+    # -- Enable autoscaling for the worker
+    enabled: false
+    # -- Minimum number of replicas
+    minReplicas: 1
+    # -- Maximum number of replicas
+    maxReplicas: 100
+    # -- Target CPU utilization percentage for autoscaling
+    targetCPUUtilizationPercentage: 80
+    # -- Target memory utilization percentage for autoscaling (optional)
+    # targetMemoryUtilizationPercentage: 80
+  # -- Service configuration for the worker
+  service:
+    # -- Service port for the worker
+    port: 80
+  # -- Resource requests and limits for the worker container
+  resources:
+    requests:
+      # -- Memory request
+      memory: "512Mi"
+      # -- CPU request
+      cpu: "100m"
+    limits:
+      # -- Memory limit
+      memory: "512Mi"
+      # -- CPU limit
+      cpu: "2000m"
+  # -- Deployment strategy configuration for worker
+  strategy:
+    # -- Deployment strategy type (RollingUpdate, Recreate)
+    type: RollingUpdate
+    # -- Rolling update configuration
+    rollingUpdate:
+      # -- Maximum number of unavailable pods during update
+      maxUnavailable: 0
+      # -- Maximum number of pods that can be created above desired count
+      maxSurge: 1
+  # -- Probe configuration for the worker container
+  probes:
+    # -- Readiness probe configuration
+    readiness:
+      # -- Enable readiness probe
+      enabled: true
+      # -- Seconds before starting readiness probe
+      initialDelaySeconds: 5
+      # -- How often to perform the probe
+      periodSeconds: 10
+      # -- Probe timeout in seconds
+      timeoutSeconds: 3
+      # -- Number of failures before marking unhealthy
+      failureThreshold: 3
+    # -- Liveness probe configuration
+    liveness:
+      # -- Enable liveness probe
+      enabled: true
+      # -- Seconds before starting liveness probe
+      initialDelaySeconds: 30
+      # -- How often to perform the probe
+      periodSeconds: 60
+      # -- Probe timeout in seconds
+      timeoutSeconds: 3
+      # -- Number of failures before restarting container
+      failureThreshold: 3
+    # -- Startup probe configuration
+    startup:
+      # -- Enable startup probe
+      enabled: true
+      # -- Seconds before starting startup probe
+      initialDelaySeconds: 10
+      # -- How often to perform the probe
+      periodSeconds: 10
+      # -- Probe timeout in seconds
+      timeoutSeconds: 3
+      # -- Number of failures before killing container
+      failureThreshold: 30
+
+# =============================================================================
+# WORKER CONFIGURATION
+# =============================================================================
+worker:
+  # -- Enable or disable the Celery worker deployment
+  enabled: true
+  # -- Number of replicas for the worker (ignored if autoscaling is enabled)
+  replicaCount: 1
+  # -- Additional pod annotations
+  # @default -- {}
+  annotations: {}
+  # -- Number of Celery worker threads (used in --autoscale parameter)
+  threads: 4
+  queuePrefix: aviator-embeddings
+  # -- Worker role for routing
+  workerRole: default
+  # -- Container image configuration for the worker
+  image:
+    # -- Container image repository
+    repository:
+    # -- Container image name
+    name:
+    # -- Container image tag
+    tag:
+    # -- Image pull policy (Always, IfNotPresent, Never)
+    pullPolicy:
+  # -- Horizontal Pod Autoscaler configuration for worker
+  autoscaling:
+    # -- Enable autoscaling for the worker
+    enabled: false
+    # -- Minimum number of replicas
+    minReplicas: 1
+    # -- Maximum number of replicas
+    maxReplicas: 100
+    # -- Target CPU utilization percentage for autoscaling
+    targetCPUUtilizationPercentage: 80
+    # -- Target memory utilization percentage for autoscaling (optional)
+    # targetMemoryUtilizationPercentage: 80
+  # -- Service configuration for the worker
+  service:
+    # -- Service port for the worker
+    port: 80
+  # -- Resource requests and limits for the worker container
+  resources:
+    requests:
+      # -- Memory request
+      memory: "512Mi"
+      # -- CPU request
+      cpu: "100m"
+    limits:
+      # -- Memory limit
+      memory: "512Mi"
+      # -- CPU limit
+      cpu: "2000m"
+  # -- Deployment strategy configuration for worker
+  strategy:
+    # -- Deployment strategy type (RollingUpdate, Recreate)
+    type: RollingUpdate
+    # -- Rolling update configuration
+    rollingUpdate:
+      # -- Maximum number of unavailable pods during update
+      maxUnavailable: 0
+      # -- Maximum number of pods that can be created above desired count
+      maxSurge: 1
+  # -- Probe configuration for the worker container
+  probes:
+    # -- Readiness probe configuration
+    readiness:
+      # -- Enable readiness probe
+      enabled: true
+      # -- Seconds before starting readiness probe
+      initialDelaySeconds: 5
+      # -- How often to perform the probe
+      periodSeconds: 10
+      # -- Probe timeout in seconds
+      timeoutSeconds: 3
+      # -- Number of failures before marking unhealthy
+      failureThreshold: 3
+    # -- Liveness probe configuration
+    liveness:
+      # -- Enable liveness probe
+      enabled: true
+      # -- Seconds before starting liveness probe
+      initialDelaySeconds: 30
+      # -- How often to perform the probe
+      periodSeconds: 60
+      # -- Probe timeout in seconds
+      timeoutSeconds: 3
+      # -- Number of failures before restarting container
+      failureThreshold: 3
+    # -- Startup probe configuration
+    startup:
+      # -- Enable startup probe
+      enabled: true
+      # -- Seconds before starting startup probe
+      initialDelaySeconds: 10
+      # -- How often to perform the probe
+      periodSeconds: 10
+      # -- Probe timeout in seconds
+      timeoutSeconds: 3
+      # -- Number of failures before killing container
+      failureThreshold: 30
+
+# =============================================================================
+# Celery Beat scheduler (single instance, runs periodic tasks)
+# =============================================================================
+beat:
+  # -- Enable or disable the Celery Beat scheduler deployment
+  enabled: true
+  # -- Additional pod annotations
+  # @default -- {}
+  annotations: {}
+  # -- Container image configuration for Beat scheduler
+  image:
+    # -- Container image repository
+    repository:
+    # -- Container image name
+    name:
+    # -- Container image tag
+    tag:
+    # -- Image pull policy (Always, IfNotPresent, Never)
+    pullPolicy:
+  # -- Resource requests and limits for the Beat scheduler container
+  resources:
+    requests:
+      # -- Memory request
+      memory: "512Mi"
+      # -- CPU request
+      cpu: "50m"
+    limits:
+      # -- Memory limit
+      memory: "512Mi"
+      # -- CPU limit
+      cpu: "1000m"
+
+# =============================================================================
+# MIGRATION JOB (CSAI → ADT vector store migration)
+# =============================================================================
+# Architecture: ID-based migration
+# - Producer reads all row IDs from source and publishes batches of IDs to the queue
+# - Workers fetch full rows from source DB using WHERE id IN (...)
+# - Workers group rows by tenant schema and insert into target DB
+# - This keeps queue messages small (no embeddings) and distributes source DB load
+# - Each batch targets specific IDs, making it deterministic and resumable
+#
+# IMPORTANT: Both the producer AND workers need source DB access. Set source
+# DB credentials in migration.config (non-sensitive) and migration.secrets (sensitive).
+# These are automatically propagated to workers via the shared configmap/secrets.
+# =============================================================================
+migration:
+  # -- Enable the migration Job (runs the migration producer to completion)
+  # When true, a Kubernetes Job is created that runs the migration producer,
+  # and the worker automatically subscribes to the migration queue.
+  # Workers also receive source DB credentials to fetch rows directly.
+  # Check job status: kubectl get jobs -l app=aviator-migration
+  # View logs: kubectl logs job/aviator-migration
+  enabled: false
+  # -- Migration job runtime mode: `migration` (chunk/index migration) or `summary-backfill`.
+  # Set to `summary-backfill` to run the summary backfill producer with the same Job template.
+  mode: migration
+  # -- Number of retries before the Job is considered failed
+  backoffLimit: 3
+  # -- Maximum time the Job is allowed to run (null for no limit)
+  activeDeadlineSeconds:
+  # -- Seconds after completion before the Job is auto-deleted (default: 24h, null to keep forever).
+  # Allows time to inspect logs before cleanup.
+  ttlSecondsAfterFinished: 86400
+  # -- Additional pod annotations
+  # @default -- {}
+  annotations: {}
+  # -- Container image for the migration Job (falls back to default image)
+  image:
+    repository:
+    name:
+    tag:
+    pullPolicy:
+  # -- Resource requests and limits for the migration producer container
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  # -- Migration-specific environment variables (non-sensitive, set on Job AND workers)
+  # These are added to the shared ConfigMap when migration is enabled.
+  # @default -- {}
+  config:
+    MIGRATION_SOURCE_TABLE: "test1"
+    # MIGRATION_SOURCE_SCHEMA: ""
+    # MIGRATION_BATCH_SIZE: "500"  # IDs per batch message
+    # MIGRATION_DRY_RUN: ""
+    # MIGRATION_DEFER_INDEXES: ""
+    # MIGRATION_LOG_LEVEL: ""
+    # MIGRATION_STRIP_TENANT_FROM_META: ""
+    # MIGRATION_MIGRATION_QUEUE: ""
+    # MIGRATION_SUMMARY_BATCH_SIZE: "10"
+    # MIGRATION_SUMMARY_QUEUE: "aviator-summaries"
+    # -- Source DB via individual components (alternative to MIGRATION_SOURCE_DSN).
+    # -- When MIGRATION_SOURCE_DSN is set in secrets, these are ignored.
+    # MIGRATION_SOURCE_HOST: ""
+    # MIGRATION_SOURCE_PORT: "5432"
+    # MIGRATION_SOURCE_USER: "postgres"
+    # MIGRATION_SOURCE_DATABASE: "postgres"
+    # -- Google Secret Manager key for source DB password (requires SECRETS_MANAGER=google)
+    # MIGRATION_SOURCE_PASSWORD_KEY: "projects/<project>/secrets/<name>/versions/latest"
+  # -- Migration secrets (sensitive values, set on Job AND workers)
+  # These are added to a Secret and mounted to both producer and workers.
+  # Either provide a full DSN, or individual source password (when using source component fields)
+  secrets:
+    # -- Create the migration secrets resource
+    create: true
+    # -- Name of the Kubernetes secret for migration
+    name: aviator-migration-secrets
+    # -- Key-value pairs for secret data
+    # @default -- {}
+    items: {
+      # MIGRATION_SOURCE_DSN: "postgresql://postgres:postgres@source_db:5432/CSAI"
+    }
+
+# =============================================================================
+# SUMMARY MIGRATION JOB (document summary backfill — runs after chunk migration)
+# =============================================================================
+# Prerequisites for summary backfill:
+# 1. Chunk migration job MUST complete successfully (migration.enabled=true first)
+# 2. Worker deployment MUST have MIGRATION_ENABLED=true to consume summary tasks
+# 3. Source and target databases must both be accessible
+# 4. LLM credentials must be configured (LLM_PROVIDER=google_genai or openai)
+# 5. Message broker (RabbitMQ/Redis/Pub/Sub) must be available for producer→worker communication
+# 6. Embeddings service must be available for title embeddings generation
+#
+# Typical deployment sequence:
+# 1. Deploy worker with MIGRATION_ENABLED=true (global config or via initContainers)
+# 2. Run chunk migration: migration.enabled=true
+# 3. Wait for chunk migration to complete
+# 4. Run summary backfill: summaryMigration.enabled=true
+summaryMigration:
+  # -- Enable the summary backfill Job.
+  # Run this after the chunk migration job has completed successfully.
+  # Note: Requires worker to have MIGRATION_ENABLED=true to register summary consumer tasks.
+  enabled: false
+  # -- When true, an init container polls the migration_state table until chunk migration
+  # (id=csai_to_adt) reaches status=completed before starting the summary producer.
+  # If chunk migration is still running or failed, init container will retry indefinitely.
+  # Set activeDeadlineSeconds or use waitForMigration=false to prevent infinite waiting.
+  # Requires POSTGRES_HOST/USER/DATABASE in the shared configmap and POSTGRES_PASSWORD in secrets.
+  waitForMigration: true
+  # -- Image used by the wait init container. Must include the psql CLI.
+  waitImage: postgres:16-alpine
+  # -- Number of retries before the Job is considered failed.
+  backoffLimit: 3
+  # -- Seconds after completion before the Job is auto-deleted (default: 24h, null to keep forever).
+  ttlSecondsAfterFinished: 86400
+  # -- Maximum time the Job is allowed to run in seconds (null for no limit).
+  # Recommended: Set this if using waitForMigration=true to prevent init container from hanging indefinitely.
+  activeDeadlineSeconds:
+  # -- Additional pod annotations.
+  # @default -- {}
+  annotations: {}
+  # -- Container image for the summary migration Job (falls back to default image).
+  image:
+    repository:
+    name:
+    tag:
+    pullPolicy:
+  # -- Resource requests and limits. Summary generation is LLM-heavy; tune accordingly.
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "100m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+  # -- Non-sensitive environment variables for the summary backfill producer.
+  # Note: MIGRATION_ENABLED=true is automatically set by the job template.
+  # @default -- {}
+  config:
+    # MIGRATION_SUMMARY_BATCH_SIZE: "10"
+    # MIGRATION_SUMMARY_QUEUE: "csai-adt-summary"
+    # MIGRATION_DRY_RUN: ""
+    # MIGRATION_LOG_LEVEL: ""
+    # -- Source DB connection (summary producer reads chunks from source to generate summaries).
+    # -- Use MIGRATION_SOURCE_DSN for a full connection string, or individual components below.
+    # MIGRATION_SOURCE_TABLE: ""
+    # MIGRATION_SOURCE_SCHEMA: ""
+    # MIGRATION_SOURCE_HOST: ""
+    # MIGRATION_SOURCE_PORT: "5432"
+    # MIGRATION_SOURCE_USER: "postgres"
+    # MIGRATION_SOURCE_DATABASE: "postgres"
+    # MIGRATION_SOURCE_PASSWORD_KEY: "projects/<project>/secrets/<name>/versions/latest"
+  # -- Sensitive values (source DSN or source DB password).
+  secrets:
+    # -- Create the summary migration secrets resource.
+    create: false
+    # -- Name of the Kubernetes secret.
+    name: aviator-summary-migration-secrets
+    # -- Key-value pairs for secret data.
+    # @default -- {}
+    items: {
+      # MIGRATION_SOURCE_DSN: "postgresql://postgres:postgres@source_db:5432/CSAI"
+    }
+
+# PodDisruptionBudget
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# =============================================================================
+# MCP Server 
+# =============================================================================
+mcpServer:
+  # -- server replicas
+  replicaCount: 1
+  # -- Enable or disable the MCP Server deployment
+  enabled: true
+  # -- Additional pod annotations
+  # @default -- {}
+  annotations: {}
+  # -- Container image configuration for MCP Server
+  image:
+    # -- Container image repository
+    repository:
+    # -- Container image name
+    name:
+    # -- Container image tag
+    tag:
+    # -- Image pull policy (Always, IfNotPresent, Never)
+    pullPolicy:
+  # -- Resource requests and limits for the MCP Server container
+  resources:
+    requests:
+      # -- Memory request
+      memory: "512Mi"
+      # -- CPU request
+      cpu: "50m"
+    limits:
+      # -- Memory limit
+      memory: "512Mi"
+      # -- CPU limit
+      cpu: "1000m"
+  ingress:
+    # -- Enable ingress resource
+    enabled: false
+    # -- Ingress class name (e.g., nginx, traefik)
+    ingressClassName: nginx
+    # -- Ingress hosts configuration
+    # @default -- []
+    hosts: []
+      # - host: aviator-mcp.example.com
+      #   paths:
+      #     - path: /
+      #       pathType: ImplementationSpecific
+    # -- TLS configuration for ingress
+    # @default -- []
+    tls: []
+      # - secretName: aviator-tls
+      #   hosts:
+      #     - aviator-mcp.example.com
+    # -- Additional ingress annotations
+    # @default -- {}
+    annotations: {}
+      # ingress.kubernetes.io/force-hsts: "true"
+      # ingress.kubernetes.io/hsts-max-age: "15552000"
+      # nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      # nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  virtualService:
+    enabled: false
+
+# -- RBAC configuration
+rbac:
+  # -- Create RBAC resources
+  create: false
+  # -- RBAC rules for the service accounts
+  # @default -- Default rules for Kubernetes secret provider
+  rules: []
+    # Allow reading secrets for Kubernetes secret provider
+    # - apiGroups: [""]
+    #   resources: ["secrets"]
+    #   verbs: ["get", "list"]
+    # Add additional rules as needed
+    # - apiGroups: [""]
+    #   resources: ["configmaps"]
+    #   verbs: ["get", "list"]
+    # - apiGroups: ["apps"]
+    #   resources: ["deployments"]
+    #   verbs: ["get", "list", "watch"]
+
+# -- Image pull secrets for private registries
+# @default -- []
+imagePullSecrets: []
+  # - name: registry-credentials
+
+# Prometheus annotations for scraping
+prometheus:
+  enabled: true
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "3000"
+    prometheus.io/path: "/metrics"
+
+
+# =============================================================================
+# SHARED CONFIGURATION (app and worker)
+# ============================================================================
+config:
+  # -- Log level for the application (DEBUG, INFO, WARNING, ERROR)
+  LOGLEVEL:
+
+  # -- PostgreSQL username
+  POSTGRES_USER:
+  # -- PostgreSQL host address
+  POSTGRES_HOST:
+  # -- PostgreSQL port
+  POSTGRES_PORT:
+  # -- PostgreSQL database name
+  POSTGRES_DATABASE:
+
+  # -- Message broker type (amqp, redis, pubsub)
+  BROKER_TYPE:
+  # -- Message broker host address
+  BROKER_HOST:
+  # -- Message broker username
+  BROKER_USER:
+  # -- Message broker virtual host (for RabbitMQ)
+  BROKER_VHOST:
+  # -- Message broker queue name
+  BROKER_QUEUE_NAME:
+  # -- Summary queue name used by summary tasks and summary worker routing
+  BROKER_SUMMARY_QUEUE_NAME: aviator-summaries
+  # -- Enable RabbitMQ consistent hash exchange for document-level routing.
+  # When enabled, workers are deployed as a StatefulSet with each pod pinned to its own queue.
+  BROKER_CONSISTENT_HASH_ENABLED:
+  # -- Number of worker queues when using consistent hash exchange (should match worker.replicaCount)
+  BROKER_WORKER_QUEUE_COUNT:
+
+  # -- Vector store type (memory, pgvectorstore)
+  VECTOR_STORE:
+  # -- Vector store table name in PostgreSQL
+  VECTOR_STORE_TABLE_NAME:
+  # -- Metadata column name in vector store table
+  VECTOR_STORE_METADATA_COLUMN:
+  # -- Minimum similarity score threshold for vector search results
+  VECTOR_SCORE_THRESHOLD:
+  # -- Vector storage mode for pgvector (vector, halfvec)
+  VECTOR_STORAGE_TYPE:
+  # -- ANN index type for pgvector (hnsw, ivfflat). For ivfflat, Aviator derives lists/probes by default.
+  VECTOR_INDEX_TYPE:
+  # -- HNSW index parameter: max links per node
+  HNSW_M:
+  # -- HNSW index parameter: construction search depth
+  HNSW_EF_CONSTRUCTION:
+  # -- Advanced IVFFlat override: number of inverted lists. Leave empty for the default floor(sqrt(total_chunks)).
+  IVFFLAT_LISTS:
+  # -- Advanced IVFFlat override: probed lists during search. Leave empty for the default floor(sqrt(lists)).
+  IVFFLAT_PROBES:
+
+  # -- Enable multi-tenant mode with schema isolation
+  MULTI_TENANT_ENABLED:
+  # -- Enable the /v1/tenants CRUD REST API (requires MULTI_TENANT_ENABLED!=false)
+  TENANT_API_ENABLED:
+  # -- Default PostgreSQL schema name
+  DEFAULT_SCHEMA:
+  # -- Prefix for tenant-specific schemas
+  TENANT_SCHEMA_PREFIX:
+
+  # -- Bind address for the API server
+  BIND_ADDRESS:
+  # -- Bind port for the API server
+  BIND_PORT:
+  # -- Number of Gunicorn workers
+  WORKERS:
+  # -- Root path prefix for API endpoints
+  ROOT_PATH:
+
+  # -- Content system type for authentication (determines auth handler)
+  CONTENT_SYSTEM:
+  # -- Content system base URL
+  CONTENT_SYSTEM_URL:
+  # -- Content system authentication URL
+  CONTENT_SYSTEM_AUTH_URL:
+  # -- OAuth client ID
+  CLIENT_ID:
+
+  # -- Secrets management configuration
+  # -- Secrets provider type (environment, google, vault, kubernetes)
+  SECRETS_MANAGER:
+  # -- Google Cloud project ID for Secret Manager (when SECRETS_MANAGER=google)
+  GOOGLE_CLOUD_PROJECT:
+  # -- Vault server URL (when SECRETS_MANAGER=vault)
+  VAULT_URL:
+  # -- Vault configuration JSON (when SECRETS_MANAGER=vault)
+  VAULT_CONFIG:
+  # -- Kubernetes configuration JSON (when SECRETS_MANAGER=kubernetes)
+  KUBERNETES_CONFIG:
+  # -- Secret key for PostgreSQL password retrieval
+  SECRETS_PGVECTOR_PASSWORD_KEY:
+
+  # -- Add document metadata to RAG context
+  ADD_DOC_METADATA_TO_CONTEXT:
+
+  # -- Path to plugin directory
+  PLUGIN_PATH:
+  # -- UV cache directory for plugin dependencies
+  UV_CACHE_DIR:
+  # -- Enable development tools
+  DEV_TOOLS:
+
+  # -- Checkpointer type for LangGraph state persistence (memory, postgres)
+  CHECKPOINTER:
+  # -- Hours to retain LangGraph checkpoints before periodic cleanup
+  CHECKPOINTER_RETENTION_HOURS:
+
+  # -- Enable conversation message history
+  MESSAGE_HISTORY_ENABLED:
+  # -- Message history strategy (token_window, summary)
+  MESSAGE_HISTORY_STRATEGY:
+  # -- Maximum tokens to keep in message history
+  MESSAGE_HISTORY_MAX_TOKENS:
+  # -- Maximum tokens for message history summary
+  MESSAGE_HISTORY_MAX_SUMMARY_TOKENS:
+
+  # -- Enable OpenTelemetry debug tracing
+  ENABLE_DEBUG_TRACING:
+
+  # -- LLM model name for general use
+  LLM_MODEL:
+  # -- LLM model name for assistant/chat use
+  LLM_MODEL_ASSISTANT:
+  # -- LLM API base URL
+  LLM_BASE_URL:
+  # -- LLM temperature (0.0 to 1.0)
+  LLM_TEMPERATURE:
+  # -- LLM provider (google_genai, openai)
+  LLM_PROVIDER:
+  # -- LLM location/region (for Google AI)
+  LLM_LOCATION:
+  # -- Top-K sampling parameter
+  TOP_K:
+  # -- Top-P (nucleus) sampling parameter
+  TOP_P:
+  # -- Maximum output tokens
+  MAX_TOKENS:
+  # -- Default limit for RAG query results
+  RAG_DEFAULT_LIMIT:
+
+  # -- Embeddings model name
+  EMBEDDINGS_MODEL:
+  # -- Embeddings API base URL
+  EMBEDDINGS_BASE_URL:
+
+  # -- Chunk size for text splitting
+  TEXT_SPLITTER_CHUNK_SIZE:
+  # -- Chunk overlap for text splitting
+  TEXT_SPLITTER_CHUNK_OVERLAP:
+  # -- Chunk size for table splitting
+  TABLE_SPLITTER_CHUNK_SIZE:
+  # -- Chunk overlap for table splitting
+  TABLE_SPLITTER_CHUNK_OVERLAP:
+
+# =============================================================================
+# OPEN AI
+# =============================================================================
+
+  OPENAI_API_KEY:
+
+# =============================================================================
+# AZURE OPEN AI
+# =============================================================================
+
+  # -- Full Azure OpenAI endpoint URL (optional when instance name is provided)
+  AZURE_OPENAI_ENDPOINT:
+  # -- Azure OpenAI resource instance name (used to construct endpoint when endpoint is omitted)
+  AZURE_OPENAI_INSTANCE_NAME:
+  # -- API version for Azure OpenAI requests (for example 2024-10-21)
+  AZURE_OPENAI_API_VERSION:
+  # -- Deployment name for the primary chat/completions model
+  AZURE_OPENAI_DEPLOYMENT_NAME:
+  # -- Deployment name for the assistant/chat-specific model
+  AZURE_OPENAI_DEPLOYMENT_NAME_ASSISTANT:
+  # -- Deployment name for the embeddings model
+  AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME:
+
+# =============================================================================
+# SECRETS
+# =============================================================================
+secrets:
+  # -- Secret keys configuration (environment variables)
+  keys:
+    # -- Create the secrets resource
+    create: false
+    # -- Name of the Kubernetes secret
+    name: aviator-keys
+    # -- Key-value pairs for secret data
+    # @default -- {}
+    items:
+      GOOGLE_APPLICATION_CREDENTIALS: "/secrets/gsa.json"
+      # LANGSMITH_API_KEY: "APIKEY"
+      # BROKER_PASSWORD: "amqp_password"
+      # POSTGRES_PASSWORD: "vector_password"
+      # OPENAI_API_KEY: "openai_key"
+      # AZURE_OPENAI_API_KEY: azure_openai_key"
+      # ...
+
+  # -- Secret files configuration (mounted as files under /secrets in the container)
+  files:
+    # -- Create the secrets files resource
+    create: false
+    # -- Name of the Kubernetes secret for files
+    name: aviator-files
+    # -- File contents (key is filename, value is content)
+    # @default -- {}
+    items: {}
+      # gsa.json: |
+      #   { "type": "service_account", ... }
+       
+
+
+# =============================================================================
+# INIT CONTAINERS (plugin support)
+# =============================================================================
+initContainers:
+  # -- Plugin volume configuration
+  pluginVolume:
+    # -- Name of the shared plugin volume
+    name: plugin-volume
+    # -- Mount path for plugins in containers
+    mountPath: /plugins
+    # -- Mount as read-only in main container
+    readOnly: true
+  # -- List of init containers for plugin installation
+  # @default -- []
+  containers: []
+    # Example configuration:
+    # - name: plugin-init-ocp
+    #   image:
+    #     repository: artifactory.otxlab.net/cs-csai-docker-dev
+    #     name: aviator-plugin-ocp
+    #     tag: latest
+    #     pullPolicy: Always
+
+# -- Service account configuration
+# serviceAccount:
+#   # -- Create a service account
+#   create: false
+#   # -- Name of the service account to use (if not set, uses chart name)
+#   name: "aviator-sa"
+serviceAccount:
+  enabled: false
+  app:
+    name: ""
+  worker:
+    name: ""
+  summaryWorker:
+    name: ""
+
+volumeMounts:
+  gsa:
+    mountPath: /secrets
+    key: gsa
+    path: gsa.json
+
+gcp:
+  workloadIdentity:
+    # Enable Workload Identity for GKE deployments (no JSON credentials file needed)
+    enabled: false
+    app: ""
+    worker: ""
+    summaryWorker: ""
+
+# =============================================================================
+# NODE SCHEDULING
+# =============================================================================
+
+# -- Node selector for pod scheduling
+# @default -- {}
+nodeSelector: {}
+
+# -- Tolerations for pod scheduling
+# @default -- []
+tolerations: []
+
+# -- Affinity rules for pod scheduling
+# @default -- {}
+affinity: {}
+
+# =============================================================================
+# CLOUD SQL PROXY (sidecar)
+# =============================================================================
+cloudsqlproxy:
+  # -- Enable Cloud SQL Proxy sidecar container
+  enabled: false
+  # -- Cloud SQL Proxy container image
+  image: gcr.io/cloud-sql-connectors/cloud-sql-proxy
+  # -- Arguments to pass to Cloud SQL Proxy
+  arguments:
+    - --private-ip
+  # -- HTTP endpoint used by the migration Job to signal proxy shutdown.
+  # Update this if Cloud SQL Proxy admin bind/port is customized via arguments.
+  quitquitUrl: "http://localhost:9091/quitquitquit"
+  # -- Cloud SQL instance connection name (format: project:region:instance)
+  instanceConnectionName: ""
+  # -- Resource requests and limits for Cloud SQL Proxy
+  resources:
+    requests:
+      # -- CPU request
+      cpu: "100m"
+      # -- Memory request
+      memory: "512Mi"
+    limits:
+      # -- CPU limit
+      cpu: 2
+      # -- Memory limit
+      memory: 1.5Gi
+
+# =============================================================================
+# HYBRID DEPLOYMENT INGRESS CONFIGURATION
+# =============================================================================
+
+# -- Ingress configuration for the chat service (hybrid deployment)
+chat-svc:
+  ingress:
+    # -- Enable ingress for chat-svc (hybrid deployment)
+    enabled: false
+    # -- Ingress class name
+    class: nginx
+    # -- Ingress hostname
+    host: ""
+    # -- Ingress annotations
+    annotations: {}
+    # -- TLS configuration
+    tls:
+      enabled: "false"
+      secretName: ""
+
+# -- Ingress configuration for the embed service (hybrid deployment)
+embed-svc:
+  ingress:
+    # -- Enable ingress for embed-svc (hybrid deployment)
+    enabled: false
+    # -- Ingress class name
+    class: nginx
+    # -- Ingress hostname
+    host: ""
+    # -- Ingress annotations
+    annotations: {}
+    # -- TLS configuration
+    tls:
+      enabled: "false"
+      secretName: ""

@@ -1,0 +1,7 @@
+initContainers:
+  containers:
+    - name: plugin-init-ocp
+      image:
+        repository: artifactory.otxlab.net/cs-csai-docker-dev
+        name: aviator-plugin-ocp
+        tag: latest

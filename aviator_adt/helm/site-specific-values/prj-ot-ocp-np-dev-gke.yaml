@@ -1,0 +1,107 @@
+namespace: csai-and-devloop
+
+config:
+  CONTENT_SYSTEM: core_content
+  LLM_LOCATION: us-central1
+  CONTENT_SYSTEM_PERMISSIONS_URL: http://cms.cms-dev-qa.svc.cluster.local
+  CONTENT_SYSTEM_AUTH_URL: http://otdsauth.otds-dev-qa.svc.cluster.local
+  CONTENT_SYSTEM_CCMW_SERVICE_ENDPOINT: http://ccm-workspace.ccnt-dev-qa.svc.cluster.local
+  CONTENT_SYSTEM_CMS_SERVICE_ENDPOINT: http://cms.cms-dev-qa.svc.cluster.local
+  CONTENT_SYSTEM_CS_SERVICE_ENDPOINT_EXT: https://css-qa.dev.ca.opentext.com
+  CONTENT_SYSTEM_CS_SERVICE_ENDPOINT: http://css.css-dev-qa.svc.cluster.local
+  CONTENT_SYSTEM_PUB_SERVICE_ENDPOINT: http://cvt-publication.cvt-dev-qa.svc.cluster.local
+  GOOGLE_CLOUD_PROJECT: prj-ot-ocp-np-dev-csai-01
+  LLM_BASE_URL: us-central1-aiplatform.googleapis.com
+  EMBEDDINGS_BASE_URL: us-central1-aiplatform.googleapis.com
+  SECRETS_PGVECTOR_PASSWORD_KEY: gcp_cloudsql-otp-bs-gcp-csai-n-dev-psql-001-credentials-1::password
+  POSTGRES_USER: dbuser
+  POSTGRES_HOST: 127.0.0.1
+  POSTGRES_PORT: 5432
+  VECTOR_STORE_TABLE_NAME: csai_adt_db_qa_devloop
+  BROKER_TYPE: "pubsub"
+  PUBSUB_PROJECT_ID: prj-ot-ocp-np-dev-csai-01
+  BROKER_QUEUE_NAME: csaiEmbeddingsTopicQA
+  PUBSUB_SUBSCRIPTION_NAME_PREFIX: csaiEmbeddingsSubQA
+  CLIENT_ID: searchservice
+  VECTOR_STORE: "pgvectorstore"
+  LLM_TEMPERATURE: 0.2
+  SECRETS_MANAGER: google
+  JWKS_ENDPOINT: oauth2/jwks
+  HTTPS_PROXY: "http://prox.nane1.ocpldap.net:3128"
+  HTTP_PROXY: "http://prox.nane1.ocpldap.net:3128"
+  NO_PROXY: ".cluster.local,.opentext.com,localhost,127.0.0.1,10.0.0.0/8,192.168.0.0/16,.otldap.net,metadata.google.internal,.googleapis.com,169.254.169.254"
+
+app:
+  image:
+    repository: northamerica-northeast1-docker.pkg.dev/prj-ot-ocp-np-dev-csai-01/chat-svc-devloop
+    name: aviator
+  enabled: true
+  replicaCount: 1
+
+worker:
+  image:
+    repository: northamerica-northeast1-docker.pkg.dev/prj-ot-ocp-np-dev-csai-01/chat-svc-devloop
+    name: aviator
+  enabled: true
+  replicaCount: 1
+  
+cloudsqlproxy:
+  enabled: true
+  instanceConnectionName: "prj-ot-ocp-np-dev-csai-01:northamerica-northeast1:otp-bs-gcp-csai-n-dev-psql-001"
+
+image:
+  repository: northamerica-northeast1-docker.pkg.dev/prj-ot-ocp-np-dev-csai-01/chat-svc-devloop
+  tag: latest
+  pullPolicy: Always
+  source: northamerica-northeast1-docker.pkg.dev/prj-ot-ocp-np-dev-csai-01/chat-svc-devloop
+  name: aviator
+
+nodeSelector:
+  type: dev-qa
+tolerations:
+  - key: dev-qa
+    operator: Equal
+    value: enabled
+    effect: NoSchedule
+
+ingress:
+  enabled: false
+
+gcp:
+  workloadIdentity:
+    enabled: true
+    app: sa-csai-dev-chat-svc@prj-ot-ocp-np-dev-csai-01.iam.gserviceaccount.com
+    worker: sa-csai-dev-embed-wrkr@prj-ot-ocp-np-dev-csai-01.iam.gserviceaccount.com
+
+serviceAccount:
+  enabled: true
+  app:
+    name: "csai-chat-svc"
+  worker:
+    name: "csai-embed-wrkr"  
+  
+replicaCount: 1
+
+initContainers:
+  enabled: true
+  pluginVolume:
+    name: plugin-volume
+    mountPath: /plugins
+    readOnly: true
+  containers:
+    - name: plugin-init-ocp-ccm
+      image:
+        repository : northamerica-northeast1-docker.pkg.dev/prj-ot-ocp-np-dev-csai-01/chat-svc-qa
+        name: core-content-adt-plugin
+        tag: latest
+        pullPolicy : Always
+      volumeMounts:
+        - name: plugin-volume
+          mountPath: /plugins
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "50m"
+        limits:
+          memory: "128Mi"
+          cpu: "100m"

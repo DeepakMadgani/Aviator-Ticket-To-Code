@@ -1,0 +1,19 @@
+config:
+  SECRETS_MANAGER: vault
+  VAULT_URL: http://aviator-backend-vault:8200
+  # Version 1 Token authentication method
+  # VAULT_CONFIG: '{"apiVersion":"v1","endpoint":"http://aviator-backend-vault:8200","token":"password"}'
+  # SECRETS_PGVECTOR_PASSWORD_KEY: 'kv1/path_name::DATABASE_PASSWORD'
+  # end of - Version 1 Token authentication method
+  # Version 2 Kubernetes authentication method
+  VAULT_CONFIG: '{"kubernetes":{"appNameEnvVar":"APP_NAME","jwtEnvVar":"APP_SVC_ACCT_SECRET_TOKEN"},"apiVersion":"v2","endpoint":"http://aviator-backend-vault:8200","pathPrefix":"secret"}'
+  SECRETS_PGVECTOR_PASSWORD_KEY: 'path_name::DATABASE_PASSWORD'
+  APP_NAME: aviator
+  APP_SVC_ACCT_SECRET_TOKEN: /var/run/secrets/kubernetes.io/serviceaccount/token
+  # end of - Version 2 Kubernetes authentication method
+  POSTGRES_CONNECTION: ''
+  # Set individual postgres settings
+  POSTGRES_HOST: aviator-backend-pgvector
+  POSTGRES_USER: postgres
+  POSTGRES_DATABASE: postgres
+  POSTGRES_PORT: 5432

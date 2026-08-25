@@ -1,0 +1,5 @@
+.DS_Store
+.git/
+*.tgz
+*.bak
+__pycache__/

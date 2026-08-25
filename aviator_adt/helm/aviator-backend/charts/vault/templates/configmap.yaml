@@ -1,0 +1,11 @@
+{{- if .Values.vault.config }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vault.fullname" . }}-config
+  labels:
+    {{- include "vault.labels" . | nindent 4 }}
+data:
+  vault.hcl: |
+{{ .Values.vault.config | indent 4 }}
+{{- end }}

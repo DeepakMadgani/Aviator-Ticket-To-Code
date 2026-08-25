@@ -1,0 +1,24 @@
+initContainers:
+  pluginVolume:
+    name: plugin-volume
+    mountPath: /plugins
+    readOnly: true
+  containers:
+    - name: plugin-init-otcm
+      image:
+        repository: artifactory.otxlab.net/cs-otcm-docker-dev/aviator/latest
+        name: init-aviator-otcm
+        tag: latest
+
+config:
+  OTDS__CLIENT_ID: LLM_Client
+  OTDS__CLIENT_SECRET: llmSecret
+  OTDS__URL: https://otds-{{ .SKAFFOLD_NAMESPACE }}.cluster1.otl-cs-csai.otxlab.net
+  OTCS__URL: https://otcs-{{ .SKAFFOLD_NAMESPACE }}.cluster1.otl-cs-csai.otxlab.net
+  OTCS__URL_FRONTEND: http://otcs-frontend/cs/cs/api
+  # CLIENT_ID: LLM_Client
+  # CLIENT_SECRET: llmSecret
+  CONTENT_SYSTEM: otcm
+  CONTENT_SYSTEM_PERMISSIONS_URL: http://otcs-frontend/cs/cs/api
+  CONTENT_SYSTEM_AUTH_URL: http://otcs-frontend/cs/cs/api
+  

@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  python_app:
+    build: .  # Assumes a Dockerfile exists in the project root to build the image
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - TAX_RATE=0.10

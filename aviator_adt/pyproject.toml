@@ -1,0 +1,196 @@
+[project]
+name = "aviator"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "Kai Gatzweiler", email = "kgatzweiler@opentext.com" }]
+requires-python = ">=3.13"
+dependencies = [
+    "aiofiles>=25.1.0",
+    "asyncio>=4.0.0",
+    "beautifulsoup4>=4.14.3",
+    "celery>=5.6.3",
+    "fastapi>=0.136.1",
+    "fastmcp>=3.2.4",
+    "google-api-core>=2.30.3",
+    "google-cloud-monitoring>=2.30.0",
+    "google-cloud-pubsub>=2.37.0",
+    "google-cloud-secret-manager>=2.27.0",
+    "jinja2>=3.1.6",
+    "langchain>=1.2.15",
+    "langchain-anthropic>=1.4.1",
+    "langchain-aws>=1.4.5",
+    "langchain-google-genai>=4.2.2",
+    "langchain-mcp-adapters>=0.2.2",
+    "langchain-mistralai>=1.1.2",
+    "langchain-openai>=1.2.1",
+    "langchain-postgres>=0.0.17",
+    "langchain-text-splitters>=1.1.2",
+    "langfuse>=4.0.0",
+    "langgraph>=1.1.9",
+    "langgraph-checkpoint>=4.0.2",
+    "langgraph-checkpoint-postgres>=3.0.5",
+    "langmem>=0.0.30",
+    "langsmith>=0.7.37",
+    "lxml>=6.1.0",
+    "opentelemetry-exporter-otlp>=1.41.1",
+    "opentelemetry-instrumentation-celery>=0.62b1",
+    "opentelemetry-instrumentation-fastapi>=0.62b1",
+    "opentelemetry-instrumentation-google-genai>=0.7b0",
+    "opentelemetry-instrumentation-langchain>=0.60.0",
+    "opentelemetry-instrumentation-psycopg>=0.62b1",
+    "opentelemetry-instrumentation-requests>=0.62b1",
+    "opentelemetry-instrumentation-sqlalchemy>=0.62b1",
+    "opentelemetry-instrumentation-threading>=0.62b1",
+    "prometheus-fastapi-instrumentator>=7.1.0",
+    "pgvector>=0.3.6,<1",
+    "psycopg2-binary>=2.9.12",
+    "psycopg[binary]>=3.3.3",
+    "sqlalchemy>=2.0.49",
+    "pydantic-settings>=2.14.0",
+    "sentry-sdk>=2.58.0",
+    "slowapi>=0.1.9",
+    "uvicorn>=0.46.0",
+    "hvac>=2.4.0",
+    "protobuf>=6.33.5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aviator"]
+
+[project.entry-points."aviator.auth_handlers"]
+[project.entry-points."aviator.auth_handlers_ws"]
+[project.entry-points."aviator.startup_extensions"]
+[project.entry-points."aviator.tool_modifiers"]
+[project.entry-points."aviator.graph_extensions"]
+[project.entry-points."aviator.prompt_modifiers"]
+[project.entry-points."aviator.rag_permission_filters"]
+[project.entry-points."aviator.rag_metadata_retrievers"]
+[project.entry-points."aviator.embedding_extensions"]
+[project.entry-points."aviator.routers"]
+[project.entry-points."aviator.celery_imports"]
+[project.entry-points."aviator.celery_beat_schedules"]
+[project.entry-points."aviator.mcp_servers"]
+
+
+[project.scripts]
+aviator = "aviator.main:run_api"
+
+[build-system]
+requires = ["uv_build>=0.9.9,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "debugpy>=1.8.20",
+    "langgraph-cli[inmem]>=0.4.24",
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.6",
+    "mkdocs-swagger-ui-tag>=0.8.0",
+    "mkdocstrings[python]>=1.0.4",
+    "pymdown-extensions>=10.21.2",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.1.0",
+    "pytest-dotenv>=0.5.2",
+    "pytest-mock>=3.15.1",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.15.12",
+    "settings-doc>=4.3.2",
+]
+
+[tool.pytest.ini_options]
+addopts = ['-n', '0', '-W', '']
+pythonpath = ["src"]
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s [%(levelname)8s] [%(thread_id)s] %(message)s (%(filename)s:%(lineno)s)"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff.lint]
+# https://docs.astral.sh/ruff/rules/
+select = ["ALL"]
+
+ignore = [
+    "N815",
+    "FIX002",
+    "TD002",
+    "TD003",
+    "BLE001",
+    "ERA001",
+    "S105",
+    "S106",
+    "S107",
+    "S113",
+    "S311",
+    "S314",
+    "S603",
+    "S608",
+    "RUF005",
+    "RUF012",
+    "E501",
+    "PERF203",
+    "PLW2901",
+    "PD002",
+    "UP032",
+    "D202",
+    "D203",
+    "D213",
+    "PLC0415",
+    "PLR0911",
+    "PLR0912",
+    "PLR0913",
+    "PLR0915",
+    "PLR2004",
+    "PTH",
+    "PTH123",
+    "PTH103",
+    "PTH104",
+    "PTH107",
+    "PTH110",
+    "PTH112",
+    "PTH113",
+    "PTH118",
+    "PTH119",
+    "PTH120",
+    "PTH122",
+    "FBT001",
+    "FBT002",
+    "RET504",
+    "RET505",
+    "C901",
+    "B019",
+    "TRY400",
+    "COM812",
+]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff]
+line-length = 120
+include = ["src/**/*.py", "tests/**/*.py"]
+exclude = []
+
+[tool.ruff.lint.extend-per-file-ignores]
+"**/tests/*.py" = ["INP001", "D100", "D103", "ANN", "S101", "ARG", "S311", "TRY002", "TRY003", "EM101"]
+"**/**/test_*.py" = [
+    "INP001",
+    "D100",
+    "D101",
+    "D103",
+    "ANN",
+    "S101",
+    "ARG",
+    "FBT",
+    "PLR2004",
+    "S311",
+    "D102",
+    "SLF001",
+    "PT011"
+]
+"**/__init__.py" = ["D104"]
+
+[tool.uv] 
+managed = true

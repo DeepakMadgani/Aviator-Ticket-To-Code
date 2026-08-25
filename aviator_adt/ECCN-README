@@ -1,0 +1,43 @@
+# ECCN Scan Workflow (Python 3)
+
+## Prerequisites
+
+1. Install Python 3.x.
+2. Use the correct script:
+    - `eccn.py` is for Python 2.x (deprecated)
+    - `eccn3.py` is for Python 3.x
+3. Clone or download the ECCN scanner repository:
+    https://gitlab.otxlab.net/ECCN-Tech-SMEs/ECCN
+
+## Setup
+
+1. Change directory to the scanner tool:
+
+```bash
+cd ECCN/scantool
+```
+
+2. Install required dependency (`PyYAML`):
+
+```bash
+pip install pyyaml
+```
+
+## Run the Scanner
+
+Run the scanner against the repository root and redirect output to an HTML report:
+
+```bash
+python3 eccn3.py ./aviator_adt/ > ./aviator_adt/eccn/eccn_output.html
+```
+
+## Output
+
+1. The command generates `eccn_output.html` at the output path you provide.
+2. Open the HTML report and verify the findings.
+3. Use the verified `eccn_output.html` to prepare `encryption.xml`.
+
+## Reference
+
+ECCN Tech SME procedure:
+https://confluence.opentext.com/display/OTFC/ECCN+Tech+SME+Procedure

@@ -1,0 +1,2 @@
+1. Get application status:
+  kubectl get deployments,svc,ingress -l app={{ include "aviator.name" . }}

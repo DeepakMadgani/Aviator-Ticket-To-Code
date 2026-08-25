@@ -1,0 +1,29 @@
+pgvector:
+  image:
+    repository: mobilecsai-e4cshecqf8cph4a9.azurecr.io/csai/pgvector
+    tag: v0.5.0
+  imagePullSecrets: 
+    - name: azure-acr-credentials
+  resources:
+    limits:
+      cpu: 1
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 2Gi
+  persistence:
+    enabled: enabled
+  secrets:
+    POSTGRES_PASSWORD: "1-TERRIBLE-password!"
+
+rabbitmq:
+  image:
+    repository: mobilecsai-e4cshecqf8cph4a9.azurecr.io/rabbitmq
+    tag: 4.0.6-management
+  imagePullSecrets: 
+    - name: azure-acr-credentials
+
+pubsub:
+  enabled: false
+  
+

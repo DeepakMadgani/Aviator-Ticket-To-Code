@@ -1,0 +1,82 @@
+# OpenAI-compatible endpoint configuration (AMS / model-broker)
+global:
+  imageSource: artifactory.otxlab.net/cs-csai-docker-dev
+
+image:
+  repository: artifactory.otxlab.net/cs-csai-docker-dev
+  tag: latest
+  pullPolicy: IfNotPresent
+
+worker:
+  replicaCount: 1
+  image:
+    repository: artifactory.otxlab.net/cs-csai-docker-dev
+    tag: latest
+    pullPolicy: IfNotPresent
+  probes:
+    startup:
+      enabled: false
+    liveness:
+      enabled: false
+
+# Summary worker for document summarization tasks.
+# Disabled by default for local development to save resources.
+# Enable if testing summary migration or summary-related features.
+summaryWorker:
+  enabled: false
+  probes:
+    startup:
+      enabled: false
+    liveness:
+      enabled: false
+
+pod:
+  tolerations: []
+
+serviceAccount:
+  enabled: true
+
+config:
+  # LLM Provider Configuration
+  LLM_PROVIDER: "openai"
+  LLM_BASE_URL: "https://model-broker.aviator-model.bp.anthos.otxlab.net/v1"
+  LLM_MODEL: "llama-3.3-70b"
+  LLM_MODEL_ASSISTANT: "llama-3.3-70b"
+
+  # Embeddings Configuration
+  EMBEDDINGS_MODEL: "snowflake-arctic"
+  EMBEDDINGS_BASE_URL: "https://model-broker.aviator-model.bp.anthos.otxlab.net/v1"
+
+  # Vector store configuration
+  VECTOR_STORE: "pgvectorstore"
+  VECTOR_SIZE: "1024"
+  # Database settings
+  POSTGRES_HOST: "aviator-backend-pgvector"
+  POSTGRES_USER: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DATABASE: "postgres"
+
+  # Broker settings
+  BROKER_TYPE: "amqp"
+  BROKER_HOST: "aviator-backend-rabbitmq"
+  BROKER_USER: "user"
+  BROKER_QUEUE_NAME: "amqp1.0"
+
+secrets:
+  keys:
+    create: true
+    name: aviator-keys
+    items:
+      OPENAI_API_KEY: "sk-REDACTED" # Update with actual API key received from https://model-broker.aviator-model.bp.anthos.otxlab.net/ui/
+      BROKER_PASSWORD: "secretpassword"  # Update with actual password
+      POSTGRES_PASSWORD: "1-TERRIBLE-password!"  # Update with actual password
+
+
+initContainers: 
+  # Shared volume configuration for plugins
+  pluginVolume:
+    name: plugin-volume
+    mountPath: /plugins
+    readOnly: true  # ReadOnly for main container
+  # List of initContainers (executed in order)
+  containers: []

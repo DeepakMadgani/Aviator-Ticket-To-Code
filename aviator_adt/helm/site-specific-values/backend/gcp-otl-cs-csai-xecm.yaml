@@ -1,0 +1,10 @@
+pubsub:
+  enabled: false
+rabbitmq:
+  enabled: false
+pgvector:
+  enabled: true
+  image:
+    repository: artifactory.otxlab.net/cs-csai-docker-dev/pgvector
+vault:
+  enabled: false

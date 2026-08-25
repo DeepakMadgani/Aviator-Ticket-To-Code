@@ -1,0 +1,57 @@
+{
+  "project_id": "30712149-8cd1-488c-9e05-42f120cfae6d",
+  "ticket_id": "TASK-F43FCEE5",
+  "ticket_description": "TASK-901C1D31.py",
+  "repo_path": "C:\\Users\\dmadgani\\Desktop\\My_Aviator\\enhancement-test-project",
+  "execution_mode": "pipeline",
+  "attachments": [],
+  "status": "failed",
+  "completed_at": "2026-08-07T00:36:18.897366",
+  "generated_files": [
+    "file_path='src/script_executor.py' content='import os\\nimport sys\\nimport io\\nimport traceback\\nfrom typing import Dict, Any, Optional\\nfrom dataclasses import dataclass, field\\n\\n@dataclass\\nclass ScriptExecutionResult:\\n    \"\"\"Represents the result of a script execution.\"\"\"\\n    success: bool\\n    output: str = \"\"\\n    error: str = \"\"\\n    returned_globals: Dict[str, Any] = field(default_factory=dict)\\n\\ndef execute_python_script(script_path: str) -> ScriptExecutionResult:\\n    \"\"\"\\n    Executes a Python script in an isolated environment.\\n\\n    The script is executed using `exec()` with its own global and local dictionaries,\\n    preventing it from directly modifying the calling module\\'s state.\\n    Standard output (stdout) and standard error (stderr) are captured.\\n\\n    Args:\\n        script_path: The path to the Python script file.\\n\\n    Returns:\\n        A ScriptExecutionResult object containing:\\n        - success (bool): True if the script executed without unhandled exceptions, False otherwise.\\n        - output (str): The captured standard output of the script.\\n        - error (str): The captured standard error or exception traceback.\\n        - returned_globals (Dict[str, Any]): The global namespace of the executed script.\\n                                            This can be used to retrieve variables or functions defined in the script.\\n\\n    Edge Cases Handled:\\n    - FileNotFoundError: If the script file does not exist.\\n    - SyntaxError: If the script contains Python syntax errors.\\n    - ImportError/ModuleNotFoundError: If the script tries to import a non-existent module.\\n    - General Exception: Catches any other runtime exceptions.\\n\\n    Limitations:\\n    - This function does not provide OS-level sandboxing or resource limits (e.g., CPU time, memory).\\n      A script with an infinite loop will block the current process.\\n      For true security and resource control, consider using subprocesses with timeouts\\n      or dedicated sandboxing libraries/containers.\\n    - The script runs with the same user permissions as the calling process.\\n    \"\"\"\\n    captured_output = io.StringIO()\\n    captured_error = io.StringIO()\\n\\n    original_stdout = sys.stdout\\n    original_stderr = sys.stderr\\n\\n    # Prepare an isolated environment for the script\\n    # __builtins__ is necessary for basic Python functions to work\\n    # __file__ is set to the script_path for correct relative imports/paths within the script\\n    script_globals: Dict[str, Any] = {\\n        \"__builtins__\": __builtins__,\\n        \"__name__\": \"__main__\",\\n        \"__file__\": script_path,\\n        \"__doc__\": None,\\n        \"__package__\": None,\\n        \"sys\": sys, # Provide sys module for basic functionality if needed by script (e.g. sys.exit)\\n        \"os\": os,   # Provide os module for basic functionality if needed by script (e.g. os.path)\\n    }\\n    # For top-level script execution, locals and globals are typically the same.\\n    script_locals: Dict[str, Any] = script_globals\\n\\n    try:\\n        # Redirect stdout and stderr to capture script output\\n        sys.stdout = captured_output\\n        sys.stderr = captured_error\\n\\n        with open(script_path, \\'r\\', encoding=\\'utf-8\\') as f:\\n            script_code = f.read()\\n\\n        # Execute the script in the isolated environment\\n        exec(script_code, script_globals, script_locals)\\n\\n        return ScriptExecutionResult(\\n            success=True,\\n            output=captured_output.getvalue(),\\n            error=captured_error.getvalue(),\\n            returned_globals=script_globals\\n        )\\n\\n    except FileNotFoundError:\\n        error_msg = f\"Error: Script file not found at \\'{script_path}\\'\"\\n        captured_error.write(error_msg)\\n        return ScriptExecutionResult(\\n            success=False,\\n            output=captured_output.getvalue(),\\n            error=captured_error.getvalue() + \"\\\\n\" + error_msg\\n        )\\n    except SyntaxError as e:\\n        # Syntax errors are caught during compilation phase of exec\\n        error_msg = f\"Error: Syntax error in script \\'{script_path}\\': {e}\"\\n        captured_error.write(error_msg)\\n        return ScriptExecutionResult(\\n            success=False,\\n            output=captured_output.getvalue(),\\n            error=captured_error.getvalue() + \"\\\\n\" + error_msg\\n        )\\n    except ImportError as e:\\n        error_msg = f\"Error: Module import error in script \\'{script_path}\\': {e}\"\\n        captured_error.write(error_msg)\\n        return ScriptExecutionResult(\\n            success=False,\\n            output=captured_output.getvalue(),\\n            error=captured_error.getvalue() + \"\\\\n\" + error_msg\\n        )\\n    except Exception as e:\\n        # Catch any other runtime exceptions\\n        error_traceback = traceback.format_exc()\\n        error_msg = f\"Error: Runtime exception in script \\'{script_path}\\': {e}\\\\n{error_traceback}\"\\n        captured_error.write(error_msg)\\n        return ScriptExecutionResult(\\n            success=False,\\n            output=captured_output.getvalue(),\\n            error=captured_error.getvalue() + \"\\\\n\" + error_msg\\n        )\\n    finally:\\n        # Ensure stdout and stderr are restored even if an unexpected error occurs\\n        sys.stdout = original_stdout\\n        sys.stderr = original_stderr' language=<ProgrammingLanguage.PYTHON: 'python'> change_type=<TaskType.CREATE: 'create'> documentation='Created `src/script_executor.py` with `execute_python_script` function to run Python scripts in an isolated environment, capturing output and handling common exceptions.' test_file_path=None imports=['os', 'sys', 'io', 'traceback', 'typing', 'dataclasses'] generated_at=datetime.datetime(2026, 8, 7, 0, 35, 32, 560174)",
+    "file_path='src/TASK-901C1D31.py' content='\"\"\"\\nThis script contains specific logic to be executed by the system as part of TASK-901C1D31.\\nIt demonstrates a basic execution flow and can be extended with more complex operations.\\n\"\"\"\\n\\nimport sys\\nimport os\\n\\ndef execute_task_logic() -> None:\\n    \"\"\"\\n    Executes the core logic for TASK-901C1D31.\\n    For demonstration, it prints a message and some environment info.\\n    \"\"\"\\n    print(\"Executing TASK-901C1D31.py...\")\\n    print(f\"Python version: {sys.version}\")\\n    print(f\"Current working directory: {os.getcwd()}\")\\n    print(\"Task 901C1D31 logic completed successfully.\")\\n\\nif __name__ == \"__main__\":\\n    execute_task_logic()' language=<ProgrammingLanguage.PYTHON: 'python'> change_type=<TaskType.CREATE: 'create'> documentation='Creates a basic Python script for TASK-901C1D31 that prints a confirmation message and environment details when executed.' test_file_path=None imports=['sys', 'os'] generated_at=datetime.datetime(2026, 8, 7, 0, 35, 36, 481647)"
+  ],
+  "candidate_files": [
+    {
+      "path": "src/app.py",
+      "selected": true,
+      "confidence": 0.629
+    },
+    {
+      "path": "ene-load-service/src/main/java/com/opentext/bim/loadservice/services/LoadErrorHandlerService.java",
+      "selected": true,
+      "confidence": 0.621
+    },
+    {
+      "path": "issues-service/src/main/java/com/opentext/solutions/services/issues/rest/controllers/GenericControllerExceptionHandler.java",
+      "selected": true,
+      "confidence": 0.62
+    },
+    {
+      "path": "xchange-ui/src/shared/shared.module.ts",
+      "selected": true,
+      "confidence": 0.62
+    },
+    {
+      "path": "tests/test_orders.py",
+      "selected": true,
+      "confidence": 0.618
+    },
+    {
+      "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/constants/V2ErrorCode.java",
+      "selected": true,
+      "confidence": 0.617
+    },
+    {
+      "path": "xchange-ui/src/app/modules/tasks/tasks.module.ts",
+      "selected": true,
+      "confidence": 0.61
+    },
+    {
+      "path": "ene-load-service/src/main/java/com/opentext/bim/loadservice/services/AbstractEntityLoadService.java",
+      "selected": true,
+      "confidence": 0.604
+    }
+  ],
+  "error": "Build failed after max retries:\nC:\\Users\\dmadgani\\Desktop\\My_Aviator\\aviator-plugin-sample\\.venv\\Scripts\\python.exe: No module named pip"
+}

@@ -1,0 +1,46 @@
+chat-svc:
+  config:
+    PROXY_SERVER: http://saas-proxy-service:3333
+    PROXY_AUTH_CREDENTIALS_KEY: 'PROXY_AUTH_CREDENTIALS'
+    CONTENT_SYSTEM: xecm
+    CONTENT_SYSTEM_PERMISSIONS_URL: http://otcs-frontend/cs/cs/api
+    CONTENT_SYSTEM_AUTH_URL: http://otcs-frontend/cs/cs/api
+  proxyServerSecretName: saas-proxy-service-secret
+  ingress:
+    enabled: true
+    class: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    # Values to enable tls
+    tls:
+      enabled: "true"
+      secretName: csai-chat-svc-ingress
+
+embed-svc:
+  config:
+    PROXY_SERVER: http://saas-proxy-service:3333
+    PROXY_AUTH_CREDENTIALS_KEY: 'PROXY_AUTH_CREDENTIALS'
+    CONTENT_SYSTEM: xecm
+    CONTENT_SYSTEM_AUTH_URL: http://otds/otdsws
+  proxyServerSecretName: saas-proxy-service-secret
+  ingress:
+    enabled: true
+    class: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    # Values to enable tls
+    tls:
+      enabled: "true"
+      secretName: csai-embed-svc-ingress
+  
+embed-wrkr:
+  config:
+    PROXY_SERVER: http://saas-proxy-service:3333
+    PROXY_AUTH_CREDENTIALS_KEY: 'PROXY_AUTH_CREDENTIALS'
+    CONTENT_SYSTEM: xecm
+    CONTENT_SYSTEM_AUTH_URL: http://otds/otdsws
+  proxyServerSecretName: saas-proxy-service-secret
+
+secrets:
+  proxyServer:
+    authCredentials: '{"username":"testUser","password":"testPass"}'

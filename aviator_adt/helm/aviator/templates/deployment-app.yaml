@@ -1,0 +1,171 @@
+{{- if .Values.app.enabled }}
+{{- $root := . -}}
+{{- $name := include "aviator.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aviator.name" . }}
+spec:
+  replicas: {{ .Values.app.replicaCount }}
+{{- if .Values.app.strategy }}
+  strategy:
+{{ toYaml .Values.app.strategy | indent 4 }}
+{{- end }}
+  selector:
+    matchLabels:
+      app: {{ include "aviator.name" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "aviator.name" . }}
+    {{- $prom := dict }}
+    {{- if .Values.app.prometheus.enabled }}
+    {{- $_ := set $prom "prometheus.io/scrape" (index .Values.app.prometheus.annotations "prometheus.io/scrape") }}
+    {{- $_ := set $prom "prometheus.io/port" (index .Values.app.prometheus.annotations "prometheus.io/port") }}
+    {{- $_ := set $prom "prometheus.io/path" (index .Values.app.prometheus.annotations "prometheus.io/path") }}
+    {{- end }}
+    {{- if .Values.app.annotations }}
+    {{- $prom = merge $prom .Values.app.annotations }}
+    {{- end }}
+    {{- $podAnn := merge .Values.app.annotations $prom }}
+    {{- if $podAnn }}
+      annotations: {{ toYaml $podAnn | nindent 8 }}
+    {{- end }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.pod.terminationGracePeriodSeconds }}
+{{- if .Values.serviceAccount.enabled }}
+      serviceAccountName: {{ .Values.serviceAccount.app.name }}
+{{- end }}
+{{- if .Values.pod.securityContext.enabled }}
+      securityContext:
+        runAsUser: {{ .Values.pod.securityContext.runAsUser }}
+        runAsGroup: {{ .Values.pod.securityContext.runAsGroup }}
+        fsGroup: {{ .Values.pod.securityContext.fsGroup }}
+{{- end }}
+{{- if (gt (len .Values.initContainers.containers) 0) }}
+      initContainers:
+{{- range $container := .Values.initContainers.containers }}
+        - name: {{ $container.name }}
+          image: "{{ $container.image.repository }}/{{ $container.image.name }}:{{ $container.image.tag }}"
+          imagePullPolicy: {{ $container.image.pullPolicy | default "Always" }}
+          volumeMounts:
+            - name: {{ $root.Values.initContainers.pluginVolume.name }}
+              mountPath: {{ $root.Values.initContainers.pluginVolume.mountPath }}
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+{{- end }}
+{{- end }}
+      containers:
+        {{- if .Values.cloudsqlproxy.enabled }}
+        - name: cloud-sql-proxy
+          {{- with .Values.cloudsqlproxy }}
+          image: {{ .image }}
+          command:
+            - /cloud-sql-proxy
+            {{- toYaml .arguments | nindent 12 }}
+            - {{ .instanceConnectionName }}
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+          {{- end }}
+        {{- end }}
+        - name: {{ include "aviator.name" . }}
+          image: "{{ .Values.app.image.repository | default .Values.image.repository }}/{{ .Values.app.image.name | default .Values.image.name }}:{{ .Values.app.image.tag | default .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.app.image.pullPolicy | default .Values.image.pullPolicy }}
+          args: ["app"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "aviator.name" . }}-config
+            - secretRef:
+                name: {{ .Values.secrets.keys.name }}
+          env:
+            {{- if not .Values.gcp.workloadIdentity.enabled }}
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "{{ .Values.volumeMounts.gsa.mountPath }}/{{ .Values.volumeMounts.gsa.path }}"
+            {{- end }}
+{{- if and .Values.initContainers.enabled (gt (len .Values.initContainers.containers) 0) }}
+            - name: PLUGIN_PATH
+              value: "{{ .Values.initContainers.pluginVolume.mountPath }}"
+{{- end }}
+          resources:
+{{ toYaml .Values.app.resources | indent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.app.port }}
+          volumeMounts:
+            {{- if not .Values.gcp.workloadIdentity.enabled }}
+              {{- if .Values.secrets.files.create }}
+            - name: {{ .Values.secrets.files.name }}
+              mountPath: {{ .Values.volumeMounts.gsa.mountPath }}
+              {{- else }}
+            - name: gsa-credentials
+              mountPath: {{ .Values.volumeMounts.gsa.mountPath }}
+              {{- end }}
+            {{- end }}
+{{- if (gt (len .Values.initContainers.containers) 0) }}
+            - name: {{ .Values.initContainers.pluginVolume.name }}
+              mountPath: {{ .Values.initContainers.pluginVolume.mountPath }}
+              readOnly: {{ .Values.initContainers.pluginVolume.readOnly }}
+{{- end }}
+{{- if .Values.app.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.app.port }}
+            initialDelaySeconds: {{ .Values.app.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.app.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.app.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.app.probes.readiness.failureThreshold }}
+{{- end }}
+{{- if .Values.app.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.app.port }}
+            initialDelaySeconds: {{ .Values.app.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.app.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.app.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.app.probes.liveness.failureThreshold }}
+{{- end }}
+{{- if .Values.app.probes.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.app.port }}
+            initialDelaySeconds: {{ .Values.app.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.app.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.app.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.app.probes.startup.failureThreshold }}
+{{- end }}
+{{- if .Values.pod.tolerations }}
+      tolerations:
+{{ toYaml .Values.pod.tolerations | indent 8 }}
+{{- end }}
+      imagePullSecrets:
+{{ toYaml .Values.imagePullSecrets | indent 8 }}
+      volumes:
+        {{- if not .Values.gcp.workloadIdentity.enabled }}
+          {{- if .Values.secrets.files.create }}
+        - name: {{ .Values.secrets.files.name }}
+          secret:
+            secretName: {{ .Values.secrets.files.name }}
+          {{- else }}
+        - name: gsa-credentials
+          secret:
+            secretName: {{ .Values.secrets.files.name }}
+            items:
+              - key: {{ .Values.volumeMounts.gsa.key }}
+                path: {{ .Values.volumeMounts.gsa.path }}
+          {{- end }}
+        {{- end }}
+        {{- if (gt (len .Values.initContainers.containers) 0) }}
+        - name: {{ .Values.initContainers.pluginVolume.name }}
+          emptyDir: {}
+        {{- end }}
+{{- end }}

@@ -1,0 +1,623 @@
+spec:
+  inputs:
+    UV_BASE_IMAGE:
+      type: string
+      default: "artifactory.otxlab.net/ghcr.io/astral-sh/uv:python3.13-trixie-slim"
+      description: "Base UV image to use for testing and building"
+    
+    BASE_IMAGE:
+      type: string
+      default: "artifactory.otxlab.net/dockerhub/redhat/ubi9-minimal:latest"
+      description: "The base image layer to use."
+
+    VERSION:
+      type: string
+      default: "26.2.0"
+      description: "The version to tag the Docker image with. Must be semver compliant without build."
+
+    DOCKER_REPO:
+      type: string
+      default: "artifactory.otxlab.net/cs-csai-docker-dev/aviator"
+      description: "The Docker repository to push the built image to."
+
+    DOCKER_TAG:
+      type: string
+      default: "latest"
+      description: "The version to tag the Docker image with. Must be semver compliant. If '0.0.0', 'latest' tag will be used."
+--- 
+
+include:
+  - project: 'ot2/ci-templates'
+    file:
+      - 'ci-pipeline.gitlab-ci.yml'
+      - 'gcp-helm-templates/helm.gitlab-ci.yml'
+      - 'docker-templates/gcrane.gitlab-ci.yml'
+      - 'deploy-templates/deploy.gitlab-ci.yml'
+    ref: main
+
+workflow:
+  rules:
+    - if: $RUN_ALL_SCANS == "true"
+      variables:      
+        BLACKDUCK_SCAN_MODE: "INTELLIGENT"
+        FORTIFY_QUICK_SCAN: "NO"
+        TWISTLOCK_UPLOAD_TO_FORTIFY: "YES"
+    - if: $CI_COMMIT_BRANCH == $QA_CANDIDATE
+      variables:
+        BLACKDUCK_SCAN_MODE: "INTELLIGENT"
+        FORTIFY_QUICK_SCAN: "NO"
+        TWISTLOCK_UPLOAD_TO_FORTIFY: "YES"
+        DEPLOY_BRANCH: "true"
+        QA_DISABLE: "false"
+    - if: '$CI_COMMIT_TAG =~ $STABLE_TAG_REGEX || $CI_COMMIT_BRANCH == $DEV_CANDIDATE'
+      variables:
+        BLACKDUCK_SCAN_MODE: "INTELLIGENT"
+        FORTIFY_QUICK_SCAN: "NO"
+        TWISTLOCK_UPLOAD_TO_FORTIFY: "YES"
+    - if: '$CI_COMMIT_TAG =~ $RELEASE_TAG_REGEX_DEPLOY'
+      variables:
+        FORTIFY_QUICK_SCAN: "NO"
+        TWISTLOCK_UPLOAD_TO_FORTIFY: "YES"       
+        SONAR_PROJECT_EXTENSION: "release"
+        DEBRICKED_RELEASE_OPTS: "--tag-commit-as-release=true"
+        VERSION: $RELEASE_VERSION
+        ARTIFACTORY_REPO_PATH: cs-csai-helm-rel/aviator
+        DEBRICKED_PRODUCT_VERSION: $RELEASE_VERSION
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      variables:
+        ATTEST_DISABLED: "true"
+        IMAGE_EFFICIENCY_DISABLED: "true"
+        SAST_DISABLED: "true"
+        SCANS_DISABLED: "true"
+        SONAR_PROJECT_EXTENSION: "shared"
+    - when: always
+      variables:
+        SCANS_DISABLED: "true"
+        SONAR_PROJECT_EXTENSION: "shared"
+
+variables:
+  APP_SLUG: "csai"
+  DEBUG_ENABLED: "true"
+  GAR_LOCATION: northamerica-northeast1
+  GAR_PROJECT_ID: prj-ot-ocp-np-dev-csai-01
+  GAR_REPO: chat-svc
+  HELM_CHART_PATH: helm/aviator
+  IMAGE_TAGS: ${RELEASE_VERSION}
+  VERSION: ${RELEASE_VERSION}-${CI_COMMIT_REF_NAME}
+  BUILD_TAG: ${RELEASE_VERSION}.${CI_PIPELINE_IID}
+  KANIKO_OPTIONAL_FLAGS: "--build-arg=COMMIT_SHORT_SHA=$CI_COMMIT_SHORT_SHA --build-arg=RELEASE_VERSION=$VERSION --build-arg=BASEIMAGE=artifactory.otxlab.net/dockerhub/redhat/ubi9-minimal"
+  IMAGE_NAME: "aviator" # override to a common name
+  RELEASE_VERSION: "26.2.0"
+  ARTIFACTORY_REPO_PATH: cs-csai-helm-dev/aviator # for helm_push_artifactory
+  # Use a different variable to trigger release pipelines since we want the promotion jobs to be in the child pipelines only,
+  # and the DEPLOY_DISABLED variable is not respected by promotion rules.
+  RELEASE_TAG_REGEX_DEPLOY: /^release/ # matches RELEASE_TAG_REGEX in child pipelines
+  RELEASE_TAG_REGEX: /^DO-NOT-DEPLOY-ANYTHING-EVER/
+  DEPLOY_DISABLED: "true" # Only run deployment jobs from child pipelines
+  DEPLOY_MIGRATION: "false" # Include migration in child pipelines
+
+  # main is $CI_DEFAULT_BRANCH, but can't be a variable reference below since it isn't expanded before rules evaluation
+  # check project CI/CD variables for overrides
+  DEV_CANDIDATE: main
+  QA_CANDIDATE: main
+  DEV_CANDIDATE_CF: main # for CF deployments, in case they need to be separated from GCP
+  RELEASE_TAG_REGEX_DEPLOY_CF: /^release/
+
+  # Mitigate false positives (e.g., CSEC-167)
+  IMAGE_VULNERABILITY_ALLOW_FAILURE: "true"
+  IMAGE_EFFICIENCY_ALLOW_FAILURE: "true"
+  FORTIFY_QUICK_SCAN: "NO"
+  TWISTLOCK_UPLOAD_TO_FORTIFY: "NO"
+  BLACKDUCK_DISABLED: "false"
+  DEBRICKED_DISABLED: "true"
+  HADOLINT_FAILURE_THRESHOLD: warning
+  ATTEST_DISABLED: "true"
+  RUN_ALL_SCANS: "false"
+
+
+
+# Stages
+#
+
+stages:
+  - build
+  - test
+  - scan
+  - package
+  - verify
+  - push
+  - attest
+  - plugins
+  - deploy
+  - deploy_dev
+  - deploy_qa
+  - test_execution
+  - notifications_dev
+  - notifications_qa
+  - promote_test
+  - notifications_test
+  - promote_pprd
+  - notifications_pprd
+  - promote_prod
+  - status_prod
+
+#
+# Templates
+#
+
+.base_uv:
+  interruptible: true
+  variables:
+    UV_PYPY_INSTALL_MIRROR: "https://artifactory.otxlab.net/artifactory/api/pypi/pypi/simple"
+  image:
+    name: $[[ inputs.UV_BASE_IMAGE ]]
+  before_script:
+    - mkdir -p /root/.pip
+    - echo -e "[global]\nindex-url = https://artifactory.otxlab.net/artifactory/api/pypi/pypi/simple" > /root/.pip/pip.conf
+    - cd $CI_PROJECT_DIR
+    - uv sync --locked
+
+.pytest:
+  extends: .base_uv
+  stage: test
+  coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
+  # allow_failure: true
+  artifacts:
+    reports:
+      junit: junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
+#
+# Test
+#
+
+ruff_check:
+  extends: .base_uv
+  stage: test
+  script:
+    - uv run ruff version
+    - uv run ruff clean
+    - uv run ruff check --output-format=gitlab > code-quality-report.json
+  allow_failure: false
+  artifacts:
+    reports:
+      codequality: $CI_PROJECT_DIR/code-quality-report.json
+
+ruff_format:
+  extends: .base_uv
+  stage: test
+  script:
+    - uv run ruff version
+    - uv run ruff clean
+    - uv run ruff format --diff
+  allow_failure: true
+
+lint_helmchart:
+  extends: .helm:lint
+  variables:
+    HELM_LINT_ARGUMENTS: "--strict"
+  rules:
+    - if: $HELM_DISABLED
+      when: never
+    - when: always
+
+library_check:
+  extends: .base_uv
+  stage: test
+  script:
+    - uv tree
+    - uv pip list --outdated
+  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $QA_CANDIDATE
+      when: never
+
+
+#
+# docs
+#
+
+pages:
+  extends: .base_uv
+  stage: build
+  script:
+    - apt update && apt install -y curl
+    - curl -L https://github.com/norwoodj/helm-docs/releases/download/v1.14.2/helm-docs_1.14.2_Linux_x86_64.tar.gz -o helm-docs.tar.gz
+    - tar -xzf helm-docs.tar.gz
+    - mv helm-docs /usr/bin/helm-docs
+    - chmod +x /usr/bin/helm-docs
+    - helm-docs --chart-search-root=helm/aviator
+    - uv sync --locked
+    - uv run python -m aviator draw
+    - uv run python -m aviator openapi
+    - uv run settings-doc generate --class aviator.settings.Settings --output-format markdown --heading-offset 2 > settings_doc.md
+    - uv run mkdocs build -d public
+
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == 'main'
+
+#
+# Build
+#
+
+build:
+  stage: build
+  needs: []
+  script:
+    - echo "Build stage - delegates to build-container-image and build-helm-chart"
+  rules:
+    - if: $RUN_ALL_SCANS == "true"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == $QA_CANDIDATE
+
+unit_tests:
+  stage: test
+  extends: .pytest
+  needs: []
+  script:
+    - uv run pytest --cov=aviator --cov-report term --cov-report xml:coverage.xml --junitxml=junit.xml
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == $QA_CANDIDATE
+    - if: $CI_MERGE_REQUEST_TARGET_BRANCH_PROTECTED == "true"
+
+
+build-container-image:
+  rules:
+    - if: $RUN_ALL_SCANS == "true"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: '$CI_COMMIT_TAG =~ $RELEASE_TAG_REGEX_DEPLOY'
+  stage: package
+  image: artifactory.otxlab.net/quay.io/buildah/stable
+  variables:
+    # Use vfs with buildah. Docker offers overlayfs as a default, but Buildah
+    # cannot stack overlayfs on top of another overlayfs filesystem.
+    STORAGE_DRIVER: vfs
+    BUILDAH_FORMAT: docker
+  before_script:
+    - echo "$ARTIFACTORY_PASS" | buildah login -u "$ARTIFACTORY_USER" --password-stdin artifactory.otxlab.net
+  script:
+    - buildah build -t $[[ inputs.DOCKER_REPO ]]:$[[ inputs.DOCKER_TAG ]] -t $[[ inputs.DOCKER_REPO ]]:${BUILD_TAG} -f Dockerfile --build-arg BASEIMAGE=$[[ inputs.BASE_IMAGE ]] --build-arg BUILD=${CI_PIPELINE_IID} --build-arg VERSION=$[[ inputs.VERSION ]] --layers .
+    - buildah images
+    - buildah push $[[ inputs.DOCKER_REPO ]]:$[[ inputs.DOCKER_TAG ]]
+
+build-helm-chart:
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == $QA_CANDIDATE
+    - if: '$CI_COMMIT_TAG =~ $RELEASE_TAG_REGEX_DEPLOY'
+  stage: package
+  image: artifactory.otxlab.net/dockerhub/alpine:latest
+  needs: []
+  before_script:
+    - apk add --no-cache curl tar helm
+  script:
+    - helm lint helm/aviator
+    - helm package helm/aviator --version $[[ inputs.VERSION ]] --app-version $[[ inputs.VERSION ]] -d .
+    - curl -u "${ARTIFACTORY_USER}:${ARTIFACTORY_TOKEN}" -T chat-svc-$[[ inputs.VERSION ]].tgz "https://artifactory.otxlab.net/artifactory/cs-csai-helm-dev/aviator/chat-svc-$[[ inputs.VERSION ]].tgz"
+  artifacts:
+    name: helm-chart
+    paths:
+      - chat-svc-$[[ inputs.VERSION ]].tgz
+      - index.yaml
+    when: always
+
+#
+# Vulnerability Scanning
+#
+
+blackduck_scan:
+  variables:
+    FORTIFY_TOKEN: ""
+    BLACKDUCK_SYNOPSYS_DETECT_VERSION: 11
+    BLACKDUCK_ADDITIONAL_FLAGS: >-
+      --detect.included.detector.types=UV
+      --detect.excluded.detector.types=NPM,PNPM,YARN,RUSH
+      --detect.detector.search.depth=10
+      --detect.accuracy.required=NONE
+      --detect.uv.dependency.groups.excluded=dev,test
+  rules:
+    - if: $BLACKDUCK_DISABLED == "true"
+      when: never
+    - if: $SCANS_DISABLED == "true"
+      when: never
+    - if: $RUN_ALL_SCANS == "true"
+    - if: $CI_COMMIT_BRANCH == $QA_CANDIDATE
+    - if: '$CI_COMMIT_TAG =~ $RELEASE_TAG_REGEX_DEPLOY'
+
+
+build_image:
+  needs:
+    # we don't actually use these artifacts
+    # see original `needs:` in ot2/ci-templates's ci-pipeline.gitlab-ci.yml
+    - job: lint_dockerfile
+      artifacts: false
+      optional: true
+    - job: build
+      artifacts: false
+      optional: true
+    - job: unit_tests
+      artifacts: false
+      optional: true
+  artifacts:
+    expire_in: &expire_in "1 week"
+
+
+helm_package:
+  stage: package
+  artifacts:
+    name: helm-chart
+    paths:
+      - "${HELM_CHART_PATH}/artifacts/*.tgz"
+    reports:
+      dotenv: ${HELM_CHART_PATH}/chart.env
+    expire_in: *expire_in
+  rules:
+    - if: $HELM_DISABLED
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == $QA_CANDIDATE
+  needs:
+    - job: lint_helmchart
+      artifacts: false
+      optional: true
+
+
+code_quality:
+  stage: scan
+  extends: .scan_with_sonarqube
+  needs:
+    - job: build
+      optional: true
+    - job: unit_tests
+      optional: true
+  rules:
+    - if: $TESTS_DISABLED
+      when: never
+    - if: $UNIT_TESTS_DISABLED
+      when: never
+    - if: $SCANS_DISABLED
+      when: never
+    - if: $CODE_QUALITY_DISABLED
+      when: never
+    - if: $RUN_ALL_SCANS == "true"
+    - if: $CODE_QUALITY_ALLOW_FAILURE || $SCANS_ALLOW_FAILURE
+      allow_failure: true
+    - if: $CI_COMMIT_BRANCH
+
+
+scan-container-image:
+  rules:
+    - if: $RUN_ALL_SCANS == "true"
+    - if: $CI_COMMIT_BRANCH == "main"
+  stage: verify
+  image:
+    name: artifactory.otxlab.net/dockerhub/alpine
+  script:
+    - apk add bash curl
+    - bash <(curl -sL https://otscan.otxlab.net/otscan.sh) twistlock -remote -html-outfile scan-aviator-$[[ inputs.DOCKER_TAG ]].html $[[ inputs.DOCKER_REPO ]]:$[[ inputs.DOCKER_TAG ]]
+  allow_failure: true
+  artifacts:
+    name: twistlock-reports
+    paths:
+      - scan-*.html
+    when: always
+  needs:
+    - build-container-image
+
+#
+# Test execution jobs (previously in .gitlab-ci-deploy.yml)
+#
+
+.test_execution:
+  image: artifactory.otxlab.net/core-docker/ci-curl-jq:3.202407.2328826-251b024f
+  variables:
+    CCM_CLIENT_ID: ${CCM_${TARGET_ENV}_CLIENT_ID}
+    CCM_CLIENT_SECRET: ${CCM_${TARGET_ENV}_CLIENT_SECRET}
+    CCM_URL: ${CCM_${TARGET_ENV}_URL}
+    CCM_OTDS_URL: ${CCM_${TARGET_ENV}_OTDS_URL}
+  script:
+    - set -e
+    - >
+      ACCESS_TOKEN=$(curl ${CCM_OTDS_URL}/oauth2/token
+      -X POST
+      --silent
+      --data "grant_type=client_credentials"
+      --data "client_id=${CCM_CLIENT_ID}"
+      --data "client_secret=${CCM_CLIENT_SECRET}"
+      | jq -r '.access_token')
+    - if [ "${ACCESS_TOKEN}" == "null" ]; then echo "failed to get access token"; exit 42; fi
+    - >
+      curl ${CCM_URL}/llm/v1/chat
+      -X POST
+      -H "Authorization: Bearer ${ACCESS_TOKEN}"
+      -H 'Content-Type: application/json'
+      --data-raw '{"where":[{"documentID":"whatever"}],"context":"","messages":[{"author":"user","content":"[AviatorVersion]"}]}'
+      --fail-with-body
+
+test_execution:
+  extends:
+    - .test_execution
+  variables:
+    TARGET_ENV: DEV
+
+
+# Prevent CI/CD YAML errors by adding scripts
+consumer_test_execution: &not_implemented
+  script:
+    - echo "Not implemented."
+
+# This job used to run own P1,P2,P3 tests in their dev and test environment in promotion cycle
+dev_env_test_execution:
+  extends:
+    - .test_execution
+  variables:
+    TARGET_ENV: DEV
+
+# ci-templates job includes `trigger:` which we can't use...
+qa_env_test_execution:
+  rules:
+    - when: never
+
+
+test_env_test_execution:
+  extends:
+    - .test_execution
+  variables:
+    TARGET_ENV: TEST
+
+pprd_env_smoke_execution:
+  extends:
+    - .test_execution
+  variables:
+    TARGET_ENV: PPRD
+
+prod_env_au_smoke_execution:
+  extends:
+    - .test_execution
+  variables:
+    TARGET_ENV: AUPD
+
+prod_env_ca_smoke_execution:
+  extends:
+    - .test_execution
+  variables:
+    TARGET_ENV: PROD
+
+prod_env_us_smoke_execution:
+  extends:
+    - .test_execution
+  variables:
+    TARGET_ENV: USPD
+
+prod_env_eu_smoke_execution:
+  extends:
+    - .test_execution
+  variables:
+    TARGET_ENV: EUPD
+
+#skipping the qa env reports for now.
+qa_env_email_reports:
+  rules:
+    - when: never
+
+#skipping the qa env sacan reports for now.
+qa_env_email_scan_reports:
+  rules:
+    - when: never
+
+
+# skip automated test suite validation while we await
+# guidance on testing internal-only services
+.automation_suite_status: *not_implemented
+
+push_image_ocp:
+  stage: push
+  extends: .gcrane:push
+  needs: ["build_image"]
+  variables:
+    DEPLOY_ENVIRONMENT: "dev"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $QA_CANDIDATE
+
+###
+# Anthos deployments
+###
+
+#
+# Direct Helm Deployments
+#
+
+.deploy_helm_anthos:
+  stage: deploy
+  image: artifactory.otxlab.net/dockerhub/alpine/helm
+  before_script:
+    - echo "$KUBECONFIG_CONTENT" | base64 -d > kubeconfig.yaml
+    - export KUBECONFIG=$CI_PROJECT_DIR/kubeconfig.yaml
+    - echo "Deploying to $DEPLOY_NAMESPACE"
+    - |
+      if [ -z "$KUBECONFIG" ]; then
+        echo "Error: KUBECONFIG environment variable not set"
+        exit 1
+      fi
+  script:
+    - echo "Creating temp values file with GSA credentials..."
+    - |
+      if [ -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+        # GOOGLE_APPLICATION_CREDENTIALS is a file path, read its contents
+        cat "$GOOGLE_APPLICATION_CREDENTIALS" > /tmp/gsa.json
+      else
+        # GOOGLE_APPLICATION_CREDENTIALS is JSON content, write directly
+        echo "$GOOGLE_APPLICATION_CREDENTIALS" > /tmp/gsa.json
+      fi
+    - |
+      cat > /tmp/gsa-values.yaml <<EOF
+      secrets:
+        files:
+          create: true
+          items:
+            gsa.json: |
+      $(cat /tmp/gsa.json | sed 's/^/              /')
+      EOF
+    - >
+      helm upgrade --install aviator helm/aviator 
+      -n $DEPLOY_NAMESPACE 
+      -f helm/site-specific-values/ascent-anthos-dctm.yaml
+      -f /tmp/gsa-values.yaml
+      --set namespace=$DEPLOY_NAMESPACE
+      --set config.POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+      --set config.BROKER_PASSWORD=$BROKER_PWD
+      --set config.BROKER_USER=$BROKER_USR
+      --set config.BROKER_VHOST=$BROKER_VHOST
+      --set "app.ingress.hosts[0].host=$INGRESS_URL"
+      --set-string "app.annotations.pipeline-iid=$CI_PIPELINE_IID"
+  allow_failure: false
+
+deploy:chanakya:
+  extends: .deploy_helm_anthos
+  #needs: ["build_image","helm_package"]
+  variables:
+    DEPLOY_NAMESPACE: "ascent-adt-dev-ns1"
+    BROKER_VHOST: "/devns1"
+    BROKER_USR: "admin"
+    BROKER_PWD: "admin"
+    POSTGRES_PASSWORD: "admin"
+    POSTGRES_DATABASE: "devns1"
+    INGRESS_URL: "aviator-dev-ns1.ce-shared.bp.anthos.otxlab.net"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $ALLOW_FEATURE_DEPLOY == "true"
+
+###
+# OCP GCP Dev deployments
+###
+
+deploy:ocp:dev-qa:chat-svc:
+  stage: deploy_qa
+  extends: .deploy_trigger
+  needs: 
+    - job: "push_image_ocp"
+      artifacts: false
+  variables:
+    RELEASE_CANDIDATE : "qa" 
+    AUDIENCE: "qa"
+    GAR_PROJECT_ID: prj-ot-ocp-np-dev-csai-01
+    APP_SLUG: csai #used for vault
+    QA_CANDIDATE: $QA_CANDIDATE # needed to propagate value
+    PARENT_PIPELINE_ID: $CI_PIPELINE_ID
+    APP_NAME: &app_name chat-svc
+    DEPLOY_GITLAB_PROJECT_ID: 654
+    HELM_CHART_PATH: helm/aviator
+    GAR_REPO: *app_name
+    RELEASE_VERSION: $RELEASE_VERSION
+    DEPLOY_TOKEN: $DEPLOY_TOKEN_CHAT_SVC
+    GCP_GITLAB_TOKEN: $GCP_GITLAB_TOKEN_CHAT_SVC
+  rules:
+    - if: $CI_COMMIT_BRANCH == $QA_CANDIDATE

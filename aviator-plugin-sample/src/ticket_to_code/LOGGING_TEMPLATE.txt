@@ -1,0 +1,99 @@
+"""
+Inject detailed logging into workflow phases to track ALL outputs
+Add this at the beginning of each node function in workflow.py
+"""
+
+# For investigation_node():
+debug_input = {
+    'ticket_title': state['ticket'].title,
+    'ticket_desc': state['ticket'].description[:200]
+}
+debug_output = {
+    'ticket_type': result.get('ticket_type'),
+    'requires_code': result.get('requires_code_changes'),
+    'root_cause': result.get('root_cause_hypothesis')[:100] if result.get('root_cause_hypothesis') else None
+}
+from src.ticket_to_code.debug_tracker import log_phase
+log_phase('INVESTIGATE', debug_input, debug_input, debug_output, 'InvestigationAgent')
+
+# For discover_node():
+debug_input = {
+    'ticket': state['ticket'].title,
+    'search_query': state.get('search_query')
+}
+debug_output = {
+    'files_found': len(state.get('discovered_files', [])),
+    'top_3_files': state.get('discovered_files', [])[:3] if state.get('discovered_files') else None
+}
+log_phase('DISCOVER', debug_input, debug_input, debug_output, 'DiscoveryAgent')
+
+# For evidence_collection_loop_node():
+debug_output = {
+    'evidence_items': len(state.get('evidence_items', [])),
+    'search_budget_used': state.get('search_budget_used'),
+    'top_evidence': state.get('evidence_items', [])[:2] if state.get('evidence_items') else None
+}
+log_phase('EVIDENCE_COLLECTION', None, None, debug_output, 'EvidenceCollector')
+
+# For evidence_ranking_node():
+debug_output = {
+    'ranked_files_count': len(state.get('ranked_files', [])),
+    'top_ranked': state.get('ranked_files', [])[:1] if state.get('ranked_files') else None
+}
+log_phase('EVIDENCE_RANKING', None, None, debug_output, 'EvidenceRankingEngine')
+
+# For semantic_verification_node():
+debug_output = {
+    'verified_count': len(state.get('semantic_verification_results', [])),
+    'decisions': [r.get('decision') for r in state.get('semantic_verification_results', [])[:3]]
+}
+log_phase('SEMANTIC_VERIFICATION', None, None, debug_output, 'SemanticVerifier')
+
+# For plan_node():
+debug_output = {
+    'plan_created': state.get('plan') is not None,
+    'tasks_count': len(state.get('plan', {}).get('tasks', [])) if state.get('plan') else 0,
+    'architecture': state.get('plan', {}).get('architecture', 'N/A')[:100] if state.get('plan') else None
+}
+log_phase('PLAN', None, None, debug_output, 'PlannerAgent')
+
+# For generate_code_node():
+debug_output = {
+    'generated_files_count': len(state.get('generated_code', [])),
+    'first_file': state.get('generated_code', [{}])[0].get('file_path') if state.get('generated_code') else None,
+    'patch_status': state.get('patch_applied_status')
+}
+log_phase('GENERATE_CODE', None, None, debug_output, 'CodeGenerator')
+
+# For generate_tests_node():
+debug_output = {
+    'test_files_count': len(state.get('generated_tests', [])),
+    'test_framework': state.get('test_framework'),
+    'first_test': state.get('generated_tests', [{}])[0].get('file_path') if state.get('generated_tests') else None
+}
+log_phase('GENERATE_TESTS', None, None, debug_output, 'TestGenerator')
+
+# For build_node():
+debug_output = {
+    'build_status': state.get('build_result', {}).get('status'),
+    'build_errors': len(state.get('build_result', {}).get('errors', [])) if state.get('build_result') else 0,
+    'exit_code': state.get('build_result', {}).get('exit_code')
+}
+log_phase('BUILD', None, None, debug_output, 'BuildExecutor')
+
+# For test_node():
+debug_output = {
+    'test_status': state.get('test_result', {}).get('status'),
+    'tests_passed': state.get('test_result', {}).get('passed', 0),
+    'tests_failed': state.get('test_result', {}).get('failed', 0),
+    'total_tests': state.get('test_result', {}).get('total_tests', 0)
+}
+log_phase('TEST', None, None, debug_output, 'TestRunner')
+
+# For memory_update_node():
+debug_output = {
+    'memory_status': result.get('status'),
+    'files_registered': len(state.get('generated_code', [])),
+    'learning_enabled': os.getenv('AVIATOR_ENABLE_MEMORY_UPDATE') == '1'
+}
+log_phase('MEMORY_UPDATE', None, None, debug_output, 'MemorySystem')

@@ -1,0 +1,132 @@
+namespace: ascent-adt-dev-ns1
+
+global:
+  imageSource: artifactory.otxlab.net/cs-csai-docker-dev
+  imagePullPolicy: Always
+
+image:
+  repository: artifactory.otxlab.net/cs-csai-docker-dev
+  name: aviator
+  tag: latest
+  pullPolicy: Always
+
+app:
+  enabled: true
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 3000
+  pdb:
+    enabled: false
+    minAvailable: 1
+  prometheus:
+    enabled: false
+  annotations: {}
+  probes:
+    readiness:
+      enabled: true
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+    liveness:
+      enabled: false
+      initialDelaySeconds: 30
+      periodSeconds: 60
+      timeoutSeconds: 3
+      failureThreshold: 3
+    startup:
+      enabled: false
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 30
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    serviceName: csai-chat-svc
+    hosts:
+      - host: aviator-dev-ns1.ce-shared.bp.anthos.otxlab.net
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+    annotations:
+      ingress.kubernetes.io/force-hsts: "true"
+      ingress.kubernetes.io/hsts-max-age: "15552000"
+      ingress.kubernetes.io/whitelist-x-forwarded-for: "true"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+
+worker:
+  image:
+    repository: artifactory.otxlab.net/cs-csai-docker-dev
+    name: aviator
+    tag: latest
+    pullPolicy: Always
+
+imagePullSecrets:
+
+initContainers:
+  pluginVolume:
+    name: plugin-volume
+    mountPath: /plugins
+    readOnly: true
+  containers:
+    - name: plugin-init-ocp
+      image:
+        repository: artifactory.otxlab.net/cs-dctmaviatorplugins-docker-dev
+        name: adt-plugin-dctm
+        tag: latest
+        pullPolicy: Always
+
+config:
+  BROKER_TYPE: "amqp"
+  BROKER_HOST: 10.194.52.164
+  BROKER_PASSWORD: "dummypassword"
+  BROKER_VHOST: "/devns1"
+  POSTGRES_HOST: 10.194.52.164
+  POSTGRES_USER: "postgres"
+  POSTGRES_DATABASE: "devns1"
+  POSTGRES_PASSWORD: "dummypassword"
+  HTTPS_PROXY: "http://10.194.10.21:3128"
+  HTTP_PROXY: "http://10.194.10.21:3128"
+  NO_PROXY: "*.otxlab.net,*.internal,localhost,localhost,10.194.52.164"
+  OTDS_URL: http://nginx-ascent-adt-dev-ns3.ce-shared.bp.anthos.otxlab.net
+  CONTENT_SYSTEM_URL: https://nginx-ascent-adt-dev-ns3.ce-shared.bp.anthos.otxlab.net/smartview/repositories
+  CONTENT_SYSTEM: dctm
+  DCTM_AUTH_URI: /currentuser
+  DCTM_PERM_CHECK_URI: /objects-specific-permission
+  GOOGLE_APPLICATION_CREDENTIALS: /secrets/gsa.json
+
+secrets:
+  files:
+    create: true
+    name: gsa-credentials
+    items:
+      gsa.json: |
+        {
+          "type": "service_account",
+          "project_id": "otl-cs-csai"
+        }
+
+pod:
+  tolerations: []
+
+serviceAccount:
+  enabled: false
+
+volumeMounts:
+  gsa:
+    mountPath: /secrets
+    key: gsa.json
+    path: gsa.json
+
+gcp:
+  workloadIdentity:
+    enabled: false
+
+rabbitmq:
+  enabled: false
+
+pubsub:
+  enabled: false

@@ -1,0 +1,272 @@
+apiVersion: skaffold/v4beta6
+kind: Config
+metadata:
+  name: aviator
+manifests:
+  helm:
+    releases:
+      - name: aviator
+        chartPath: helm/aviator
+        valuesFiles:
+          - helm/site-specific-values/default.yaml
+        namespace: default
+        setValues:
+          # Need something for later setValues patches
+          nameOverride: aviator
+        setValueTemplates:
+          # Need something for later setValueTemplates patches
+          nameOverride: aviator
+        skipBuildDependencies: true
+deploy:
+  helm:
+    flags:
+      # Helm waits for post-upgrade hooks (migration Job). The producer
+      # exits in seconds when migration is already completed (checkpoint).
+      # 30 min covers a first-time migration of large tables.
+      upgrade: ["--timeout", "30m"]
+  tolerateFailuresUntilDeadline: true
+  statusCheck: false
+profiles:
+  # Build image
+  # set env var NO_BUILD (or IMAGE_TAG) to suppress builds
+  - name: build
+    requiresAllActivations: true
+    activation:
+      - env: NO_BUILD=
+      - env: IMAGE_TAG=
+    build:
+      artifacts:
+        - image: artifactory.otxlab.net/cs-csai-docker-dev/aviator
+          context: "."
+          docker:
+            dockerfile: Dockerfile
+            buildArgs:
+              COMMIT_SHORT_SHA: "{{.COMMIT_SHORT_SHA}}"
+              RELEASE_VERSION: "{{.RELEASE_VERSION}}"
+      local:
+        useDockerCLI: true
+        useBuildkit: true
+        push: true
+      tagPolicy:
+        dateTime: {}
+  - name: docker-desktop
+    activation:
+      - kubeContext: docker-desktop
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/docker-desktop.yaml
+      - op: replace
+        path: /build/local/push
+        value: false
+  - name: ams
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/ams.yaml
+      - op: replace
+        path: /build/local/push
+        value: false
+  - name: skaffold-namespace-common
+    activation:
+      - env: SKAFFOLD_NAMESPACE=.+
+    patches:
+      - op: replace
+        path: /manifests/helm/releases/0/namespace
+        value: "{{ .SKAFFOLD_NAMESPACE }}"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/namespace
+        value: "{{ .SKAFFOLD_NAMESPACE }}"
+  - name: gcp-otl-cs-csai-xecm
+    activation:
+      - kubeContext: &kubeContextotl-cs-csai-xecm gke_otl-cs-csai_us-east4_otl-cs-csai-cluster1
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/gcp-otl-cs-csai-xecm.yaml
+  - name: prj-ot-ocp-np-dev-gke
+    activation:
+      - kubeContext: &kubeContext-prj-ot-ocp-np-dev-gke prj-ot-ocp-np-dev-gke
+    patches:
+      - op: replace
+        path: /build/artifacts/0/image
+        value: northamerica-northeast1-docker.pkg.dev/prj-ot-ocp-np-dev-csai-01/chat-svc-devloop/aviator
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/prj-ot-ocp-np-dev-gke.yaml
+  - name: csai-cluster-aws
+    activation:
+      - kubeContext: &kubeContextAWS_EKS_US_WEST2 csai-cluster.us-west-2.eksctl.io
+    patches:
+      - op: replace
+        path: /build/artifacts/0/image
+        value: 028791545937.dkr.ecr.us-west-2.amazonaws.com/csai/aviator
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/csai-cluster-aws.yaml
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.CONTENT_SYSTEM_PERMISSIONS_URL
+        value: "https://otcs-adt.csai.ot-xecm.com/cs/cs/api"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.CONTENT_SYSTEM_AUTH_URL
+        value: "https://otcs-adt.csai.ot-xecm.com/cs/cs/api"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.CONTENT_SYSTEM_AUTH_URL
+        value: "https://otds-adt.csai.ot-xecm.com/otdsws"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.CONTENT_SYSTEM_AUTH_URL
+        value: "https://otds-adt.csai.ot-xecm.com/otdsws"
+  - name: aws-bedrock
+    activation:
+      - kubeContext: *kubeContextAWS_EKS_US_WEST2
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/aws-bedrock.yaml
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/secrets.keys.items.AWS_BEDROCK_ACCESS_KEY
+        value: "{{ .AWS_BEDROCK_ACCESS_KEY }}"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/secrets.keys.items.AWS_BEDROCK_SECRET_KEY
+        value: "{{ .AWS_BEDROCK_SECRET_KEY }}"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.SECRETS_AWS_BEDROCK_ACCESS_KEY
+        value: "aviator-keys::AWS_BEDROCK_ACCESS_KEY"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.SECRETS_AWS_BEDROCK_SECRET_KEY
+        value: "aviator-keys::AWS_BEDROCK_SECRET_KEY"
+  - name: azure-openai
+    activation:
+      - kubeContext: &kubeContextCsai-cluster-azure csai-cluster-azure
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/azure-openai.yaml
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/secrets.keys.items.AZURE_OPENAI_API_KEY
+        value: "{{ .AZURE_OPENAI_API_KEY }}"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.AZURE_OPENAI_API_VERSION
+        value: "{{ .AZURE_OPENAI_API_VERSION }}"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.AZURE_OPENAI_INSTANCE_NAME
+        value: "{{ .AZURE_OPENAI_INSTANCE_NAME }}"
+  - name: csai-cluster-azure
+    activation:
+      - kubeContext: *kubeContextCsai-cluster-azure
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/csai-cluster-azure.yaml
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.CONTENT_SYSTEM_PERMISSIONS_URL
+        value: "https://otcs-adt.csai-azure.ot-xecm.com/cs/cs/api"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.CONTENT_SYSTEM_AUTH_URL
+        value: "https://otcs-adt.csai-azure.ot-xecm.com/cs/cs/api"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.CONTENT_SYSTEM_AUTH_URL
+        value: "https://otds-adt.csai-azure.ot-xecm.com/otdsws"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.CONTENT_SYSTEM_AUTH_URL
+        value: "https://otds-adt.csai-azure.ot-xecm.com/otdsws"
+  - name: build-csai-cluster-azure
+    requiresAllActivations: true
+    activation:
+      - env: NO_BUILD=
+        kubeContext: *kubeContextCsai-cluster-azure
+      - env: IMAGE_TAG=
+    patches:
+      - op: add
+        path: /build/platforms
+        value:
+          - linux/amd64
+      - op: replace
+        path: /build/artifacts/0/image
+        value: mobilecsai-e4cshecqf8cph4a9.azurecr.io/csai/aviator
+      - op: add
+        path: /build/local
+        value:
+          useDockerCLI: true
+          useBuildkit: true
+          push: true
+      - op: replace
+        path: /build/tagPolicy
+        value: 
+          sha256: {}
+  - name: build-gcp-otl-cs-csai-xecm
+    requiresAllActivations: true
+    activation:
+      - env: NO_BUILD=
+      - kubeContext: *kubeContextotl-cs-csai-xecm
+      - kubeContext: *kubeContext-prj-ot-ocp-np-dev-gke
+      - env: IMAGE_TAG=
+    patches:
+      - op: replace
+        path: /build/artifacts/0/image
+        value: artifactory.otxlab.net/cs-csai-docker-dev/aviator
+      - op: add
+        path: /build/local/push
+        value: true
+  - name: hybrid-deployment
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/hybrid-deployment.yaml
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/chat-svc.ingress.host
+        value: "csai-chat-svc-{{ .SKAFFOLD_NAMESPACE }}.cluster1.otl-cs-csai.otxlab.net"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/embed-svc.ingress.host
+        value: "csai-embed-svc-{{ .SKAFFOLD_NAMESPACE }}.cluster1.otl-cs-csai.otxlab.net"
+  # GCP Common patches
+  - name: gcp-common
+    activation:
+      - kubeContext: *kubeContextotl-cs-csai-xecm
+      - kubeContext: *kubeContext-prj-ot-ocp-np-dev-gke
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.BROKER_QUEUE_NAME
+        value: "aviator-{{ .SKAFFOLD_NAMESPACE }}-topic"
+  # Plugins
+  - name: plugin-ocp
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/plugins/plugin-ocp.yaml
+  - name: plugin-otcm
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/plugins/plugin-otcm.yaml
+  - name: gcp-otl-cs-csai-xecm-plugin-otcm
+    activation:
+      - kubeContext: &kubeContextotl-cs-csai-xecm gke_otl-cs-csai_us-east4_otl-cs-csai-cluster1
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/gcp-otl-cs-csai-xecm.yaml
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.OTDS__URL
+        value: "https://otds-{{ .SKAFFOLD_NAMESPACE }}.cluster1.otl-cs-csai.otxlab.net"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.OTCS__URL_FRONTEND
+        value: "https://otcs-{{ .SKAFFOLD_NAMESPACE }}.cluster1.otl-cs-csai.otxlab.net"
+      - op: add
+        path: /manifests/helm/releases/0/setValueTemplates/config.OTCS__URL
+        value: "https://otcs-{{ .SKAFFOLD_NAMESPACE }}.cluster1.otl-cs-csai.otxlab.net"
+  - name: plugin-sample
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/plugins/plugin-sample.yaml
+  - name: vault
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/vault.yaml
+  - name: kubernetes-secrets
+    patches:
+      - op: add
+        path: /manifests/helm/releases/0/valuesFiles/-
+        value: helm/site-specific-values/kubernetes-secrets.yaml

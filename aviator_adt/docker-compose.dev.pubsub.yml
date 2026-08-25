@@ -1,0 +1,55 @@
+services:
+  # Override aviator service for Pub/Sub
+  aviator:
+    extends:
+      file: docker-compose.dev.yml
+      service: aviator
+    environment:
+      # Remove RabbitMQ broker URL
+      BROKER_URL: 
+      # Add Pub/Sub configuration
+      BROKER_TYPE: pubsub
+      PUBSUB_PROJECT_ID: aviator-dev
+      PUBSUB_SUBSCRIPTION_NAME_PREFIX: aviator-subscription-
+      PUBSUB_EMULATOR_HOST: pubsub:8432
+      BROKER_QUEUE_NAME: aviator-embeddings-topic
+    depends_on: !override
+      db:
+        condition: service_healthy
+      pubsub:
+        condition: service_healthy
+
+  # Override aviator-worker service for Pub/Sub  
+  aviator-worker:
+    extends:
+      file: docker-compose.dev.yml
+      service: aviator-worker
+    command: ["worker"]
+    environment:
+      BROKER_URL: 
+      # Add Pub/Sub configuration
+      BROKER_TYPE: pubsub
+      PUBSUB_PROJECT_ID: aviator-dev
+      PUBSUB_SUBSCRIPTION_NAME_PREFIX: aviator-subscription-
+      PUBSUB_EMULATOR_HOST: pubsub:8432
+      BROKER_QUEUE_NAME: aviator-embeddings-topic
+    depends_on: !override
+      db:
+        condition: service_healthy
+      pubsub:
+        condition: service_healthy
+
+  # Ensure pubsub service is available
+  pubsub:
+    extends:
+      file: docker-compose.yml
+      service: pubsub
+  
+  db:
+    extends:
+      file: docker-compose.yml
+      service: db
+
+volumes:
+  pgdata:
+  rabbitmq_data:

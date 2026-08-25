@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pubsub.fullname" . }}
+data:
+{{- with .Values.config }}
+  PUBSUB_LISTEN_ADDRESS: {{ .PUBSUB_LISTEN_ADDRESS }}
+  PUBSUB_PROJECT_ID: {{ .PUBSUB_PROJECT_ID }}
+{{- end }}

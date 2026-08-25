@@ -1,0 +1,8 @@
+pgvector:
+  persistence:
+    enabled: enabled
+  secrets:
+    POSTGRES_PASSWORD: "1-TERRIBLE-password!"
+
+vault:
+  enabled: false

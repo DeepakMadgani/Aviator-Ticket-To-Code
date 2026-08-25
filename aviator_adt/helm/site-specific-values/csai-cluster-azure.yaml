@@ -1,0 +1,29 @@
+app:
+  image: &image-repository
+    repository: mobilecsai-e4cshecqf8cph4a9.azurecr.io/csai
+    name: aviator
+    tag: latest
+    pullPolicy: Always
+
+imagePullSecrets:
+  - name: azure-acr-credentials
+
+worker:
+  image: *image-repository
+
+summaryWorker:
+  image: *image-repository
+
+beat:
+  image: *image-repository
+
+mcpServer:
+  image: *image-repository
+
+migration:
+  image: *image-repository
+
+gcp:
+  workloadIdentity:
+    # Disable gsa-credentials secret mounts for Azure cluster deployments.
+    enabled: true

@@ -1,0 +1,35 @@
+{
+  "dataset_name": "cc4e_add_members_org_display",
+  "version": "1.0",
+  "tickets": [
+    {
+      "ticket_id": "CC4E-MEM-ORG-01",
+      "title": "Display existing organization as static text for existing project members in Add Members modal",
+      "description": "In the Add Members modal, when a user is staged to be added to a contract, the system should check whether that user is already a member of the current project (via any other contract in the same project). If they are, their organization assignment should be displayed as read-only static text showing their existing organization name — not as an editable dropdown. If the user is new to the project, they should still see the editable organization dropdown to select their org. Additionally, prevent duplicate members: if a user is already a member of the current contract, flag them as a duplicate and show a warning. On Save, persist members with their assigned organizations.",
+      "category": "feature",
+      "complexity": "medium",
+      "priority": "high",
+      "technology": "angular",
+      "labels": ["frontend", "backend", "java", "angular", "feature"],
+      "repo_scope": "C:/CC4E",
+      "acceptance_criteria": [
+        "When a staged member is already in the project (in any contract), their organization is shown as read-only static text — not an editable dropdown",
+        "The static text shows the member's EXISTING organization name from the project, not the currently selected dropdown value",
+        "When a staged member is new to the project, the editable organization dropdown is shown as normal",
+        "The UI correctly distinguishes between existing-project-members and new-project-members using a dedicated boolean flag (e.g. isExistingMemberInProject)",
+        "The TypeScript controller (add-members.component.ts) calls a backend service/API to determine if the staged user has an existing organization in the project",
+        "Duplicate contract members are flagged with isDuplicate=true and a warning is shown",
+        "On Save, members are persisted with their assigned organizations"
+      ],
+      "expected_changed_files": [
+        "src/app/modules/members/add-members/add-members.component.ts",
+        "src/app/modules/members/add-members/add-members.component.html",
+        "src/app/modules/shared/models/displayed-member.ts"
+      ],
+      "expected_owner_files": [
+        "src/app/modules/members/add-members/add-members.component.ts",
+        "src/app/modules/members/add-members/add-members.component.html"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,141 @@
+spec:
+  inputs:
+    UV_BASE_IMAGE:
+      type: string
+      default: "artifactory.otxlab.net/ghcr.io/astral-sh/uv:python3.13-bookworm"
+      description: "Base UV image to use for testing and building"
+    
+    BASE_IMAGE:
+      type: string
+      default: "artifactory.otxlab.net/cs-csai-docker-dev/aviator:latest"
+      description: "The Aviator base image containing ADT, uv, and otuser."
+
+    VERSION:
+      type: string
+      default: "0.1.0"
+      description: "The version to tag the Docker image with. Must be semver compliant without build."
+
+    DOCKER_REPO:
+      type: string
+      default: "artifactory.otxlab.net/cs-csai-docker-dev/aviator"
+      description: "The Docker repository to push the built image to."
+
+    DOCKER_TAG:
+      type: string
+      default: "latest"
+      description: "The version to tag the Docker image with. Must be semver compliant. If '0.0.0', 'latest' tag will be used."
+---
+
+# Workflow rules - only run on protected branches and MRs
+#
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_REF_PROTECTED == "true"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+# Stages
+#
+
+
+stages:
+  - test
+  - build
+  - scan
+  - plugins
+
+
+.base_uv:
+  interruptible: true
+  variables:
+    UV_PYPY_INSTALL_MIRROR: "https://artifactory.otxlab.net/artifactory/api/pypi/pypi/simple"
+  image:
+    name: $[[ inputs.UV_BASE_IMAGE ]]
+  before_script:
+    - mkdir -p /root/.pip
+    - echo -e "[global]\nindex-url = https://artifactory.otxlab.net/artifactory/api/pypi/pypi/simple" > /root/.pip/pip.conf
+    # Clone aviator_adt repo as a sibling directory (required for editable dependency)
+    - git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.otxlab.net/csai/aviator_adt.git $CI_PROJECT_DIR/../aviator_adt
+    - cd $CI_PROJECT_DIR
+    - uv sync --locked
+
+
+.pytest:
+  extends: .base_uv
+  stage: test
+  coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
+  # allow_failure: true
+  artifacts:
+    reports:
+      junit: junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
+
+ruff_check:
+  extends: .base_uv
+  stage: test
+  script:
+    - uv run ruff version
+    - uv run ruff clean
+    - uv run ruff check --ignore FIX --output-format=gitlab > code-quality-report.json
+  allow_failure: true
+  artifacts:
+    reports:
+      codequality: $CI_PROJECT_DIR/code-quality-report.json
+
+ruff_format:
+  extends: .base_uv
+  rules:
+    - when: never # ignore this job
+  stage: test
+  script:
+    - uv run ruff version
+    - uv run ruff clean
+    - uv run ruff format --diff
+  allow_failure: true
+
+
+#
+# Build
+#
+
+build-container-image:
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  stage: build
+  needs: []
+  image: artifactory.otxlab.net/quay.io/buildah/stable
+  variables:
+    STORAGE_DRIVER: vfs
+    BUILDAH_FORMAT: docker
+  # before_script:
+  #   - buildah login -u "$ARTIFACTORY_USER" -p "$ARTIFACTORY_PASS" artifactory.otxlab.net
+  script:
+    - buildah build -t aviator-plugin-sample:test -f Dockerfile --build-arg BASEIMAGE=$[[ inputs.BASE_IMAGE ]] .
+    - echo "Build completed successfully"
+
+#
+# Vulnerability Scanning
+#
+
+scan-container-image:
+  rules:
+    # - if: $CI_COMMIT_BRANCH == "main"
+    - when: never
+  stage: scan
+  image:
+    name: artifactory.otxlab.net/dockerhub/alpine
+  script:
+    - apk add bash curl
+    - bash <(curl -sL https://otscan.otxlab.net/otscan.sh) twistlock -remote -html-outfile scan-aviator-$[[ inputs.DOCKER_TAG ]].html $[[ inputs.DOCKER_REPO ]]:$[[ inputs.DOCKER_TAG ]]
+  allow_failure: true
+  artifacts:
+    name: twistlock-reports
+    paths:
+      - scan-*.html
+    when: always
+  needs:
+    - build-container-image

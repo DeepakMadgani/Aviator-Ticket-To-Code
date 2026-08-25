@@ -1,0 +1,22 @@
+{
+    "app_name": "Order Service",
+    "version": "1.0.0",
+    "debug": true,
+    "log_level": "DEBUG",
+    "tax_rate": 0.10,
+    "database": {
+        "url": "sqlite:///orders.db",
+        "pool_size": 5,
+        "max_overflow": 10
+    },
+    "services": {
+        "notification_url": "http://localhost:9000/api/notifications",
+        "payment_url": "http://localhost:9001/api/payments",
+        "inventory_url": "http://localhost:9002/api/inventory"
+    },
+    "features": {
+        "enable_tax": true,
+        "enable_discounts": true,
+        "enable_notifications": false
+    }
+}

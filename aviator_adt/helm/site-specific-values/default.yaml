@@ -1,0 +1,49 @@
+global:
+  imageSource: artifactory.otxlab.net/cs-csai-docker-dev
+  imagePullPolicy: Always
+
+image:
+  repository: artifactory.otxlab.net/cs-csai-docker-dev
+  tag: latest
+  pullPolicy: Always
+
+app:
+  service:
+    port: 3000
+
+worker:
+  image:
+    repository: artifactory.otxlab.net/cs-csai-docker-dev
+    tag: latest
+    pullPolicy: Always
+
+imagePullSecrets:
+
+ingress:
+  enabled: false
+
+config:
+  POSTGRES_HOST: "aviator-backend-pgvector"
+  BROKER_USER: "user"
+  BROKER_HOST: "aviator-backend-rabbitmq"
+
+secrets:
+  keys:
+    create: true
+    name: aviator-keys
+    items:
+      BROKER_PASSWORD: "secretpassword"
+      POSTGRES_PASSWORD: "1-TERRIBLE-password!"
+  files:
+    create: false
+    name: aviator-files
+    # External file reference - secret should be created from service-account-key-file.json
+    # kubectl create secret generic aviator-files --from-file=gsa=service-account-key-file.json
+
+pod:
+  tolerations: []
+  service:
+    port: 3000
+
+serviceAccount:
+  enabled: true

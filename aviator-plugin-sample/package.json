@@ -1,0 +1,8 @@
+{
+  "name": "aviator-plugin-sample-local",
+  "version": "1.0.0",
+  "description": "Local development package.json for Aviator plugin",
+  "private": true,
+  "dependencies": {},
+  "devDependencies": {}
+}

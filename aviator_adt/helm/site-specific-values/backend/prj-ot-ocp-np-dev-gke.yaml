@@ -1,0 +1,26 @@
+pubsub:
+  enabled: false
+rabbitmq:
+  enabled: true
+  image:
+    repository: northamerica-northeast1-docker.pkg.dev/prj-ot-ocp-np-dev-csai-01/chat-svc-devloop/rabbitmq
+  resources:
+    limits:
+      cpu: 1
+      memory: 512Mi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+pgvector:
+  enabled: true
+  image:
+    repository: northamerica-northeast1-docker.pkg.dev/prj-ot-ocp-np-dev-csai-01/chat-svc-devloop/pgvector
+  resources:
+    limits:
+      cpu: 1
+      memory: 512Mi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+vault:
+  enabled: false

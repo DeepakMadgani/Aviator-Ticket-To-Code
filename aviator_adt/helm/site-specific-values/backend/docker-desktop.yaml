@@ -1,0 +1,11 @@
+pgvector:
+  persistence:
+    enabled: enabled
+  secrets:
+    POSTGRES_PASSWORD: "1-TERRIBLE-password!"
+
+pubsub:
+  enabled: false
+
+vault:
+  enabled: false

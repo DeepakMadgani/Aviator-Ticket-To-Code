@@ -1,0 +1,26 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "vault.rbac.clusterRoleName" . }}
+  labels:
+    {{- include "vault.labels" . | nindent 4 }}
+rules:
+# Required for Vault Kubernetes authentication
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+{{- with .Values.rbac.clusterRole.extraRules }}
+# Additional rules
+{{- toYaml . | nindent 0 }}
+{{- end }}
+{{- end }}

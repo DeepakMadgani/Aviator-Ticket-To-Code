@@ -1,0 +1,113 @@
+{{- if .Values.app.ingress.enabled }}
+{{- $root := . }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "aviator.name" . }}
+  annotations:
+{{ toYaml .Values.app.ingress.annotations | indent 4 }}
+spec:
+  ingressClassName: {{ .Values.app.ingress.ingressClassName }}
+  rules:
+{{- range .Values.app.ingress.hosts }}
+    - host: {{ .host }}
+      http:
+        paths:
+{{- range .paths }}
+          - backend:
+              service:
+                name: {{ $root.Values.app.ingress.serviceName | default (include "aviator.name" $root) }}
+                port:
+                  name: http
+            path: {{ .path }}
+            pathType: {{ .pathType }}
+{{- end }}
+{{- end }}
+  tls:
+{{ toYaml .Values.app.ingress.tls | indent 4 }}
+{{- end -}}
+{{- if index .Values "chat-svc" "ingress" "enabled" }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chat-svc
+  annotations:
+{{ toYaml (index .Values "chat-svc" "ingress" "annotations") | indent 4 }}
+spec:
+  ingressClassName: {{ index .Values "chat-svc" "ingress" "class" }}
+  rules:
+    - host: {{ index .Values "chat-svc" "ingress" "host" }}
+      http:
+        paths:
+          - backend:
+              service:
+                name: csai-chat-svc
+                port:
+                  name: http
+            path: /v1/chat
+            pathType: Prefix
+  {{- if eq (index .Values "chat-svc" "ingress" "tls" "enabled") "true" }}
+  tls:
+    - secretName: {{ index .Values "chat-svc" "ingress" "tls" "secretName" }}
+      hosts:
+        - {{ index .Values "chat-svc" "ingress" "host" }}
+  {{- end }}
+{{- end }}
+{{- if index .Values "embed-svc" "ingress" "enabled" }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: embed-svc
+  annotations:
+{{ toYaml (index .Values "embed-svc" "ingress" "annotations") | indent 4 }}
+spec:
+  ingressClassName: {{ index .Values "embed-svc" "ingress" "class" }}
+  rules:
+    - host: {{ index .Values "embed-svc" "ingress" "host" }}
+      http:
+        paths:
+          - backend:
+              service:
+                name: csai-embed-svc
+                port:
+                  name: http
+            path: /v1/embeddings
+            pathType: Prefix
+  {{- if eq (index .Values "embed-svc" "ingress" "tls" "enabled") "true" }}
+  tls:
+    - secretName: {{ index .Values "embed-svc" "ingress" "tls" "secretName" }}
+      hosts:
+        - {{ index .Values "embed-svc" "ingress" "host" }}
+  {{- end }}
+{{- end }}
+{{- if .Values.mcpServer.ingress.enabled }}
+---
+{{- $root := . }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ (printf "%s-mcp" (include "aviator.name" $root)) }}
+  annotations:
+{{ toYaml .Values.mcpServer.ingress.annotations | indent 4 }}
+spec:
+  ingressClassName: {{ .Values.mcpServer.ingress.ingressClassName }}
+  rules:
+{{- range .Values.mcpServer.ingress.hosts }}
+    - host: {{ .host }}
+      http:
+        paths:
+{{- range .paths }}
+          - backend:
+              service:
+                name: {{ $root.Values.mcpServer.ingress.serviceName | default (printf "%s-mcp" (include "aviator.name" $root)) }}
+                port:
+                  name: http
+            path: {{ .path }}
+            pathType: {{ .pathType }}
+{{- end }}
+{{- end }}
+  tls:
+{{ toYaml .Values.mcpServer.ingress.tls | indent 4 }}
+{{- end }}

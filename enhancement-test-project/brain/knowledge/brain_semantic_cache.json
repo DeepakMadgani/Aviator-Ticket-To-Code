@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "folders": {
+    ".": {
+      "current_signature": "5d0bff6da954227d03b8c78c4bdfdccc47669c68f4510e394f476a498e4ffd15",
+      "descriptions": {
+        "5d0bff6da954227d03b8c78c4bdfdccc47669c68f4510e394f476a498e4ffd15": {
+          "business_domain": "Testing",
+          "technical_role": "Utility Classes",
+          "core_responsibilities": "This directory contains dummy or placeholder classes used for testing or demonstration purposes."
+        }
+      }
+    },
+    "src": {
+      "current_signature": "015a09b9aaa6d8e03479ff00b4d1f4e1ba09974c67e7f403d23a57866b150d81",
+      "descriptions": {
+        "015a09b9aaa6d8e03479ff00b4d1f4e1ba09974c67e7f403d23a57866b150d81": {
+          "business_domain": "Order Management",
+          "technical_role": "Core Application Logic",
+          "core_responsibilities": "This directory contains the primary business logic and data models for managing orders, including services for order processing, notifications, payments, and member management, along with utility functions."
+        }
+      }
+    },
+    "tests": {
+      "current_signature": "e71584fb13312bda3f66b370e139e986cf4db3f08a20a484dc4d99e416ed9677",
+      "descriptions": {
+        "e71584fb13312bda3f66b370e139e986cf4db3f08a20a484dc4d99e416ed9677": {
+          "business_domain": "Order Management",
+          "technical_role": "Unit Tests",
+          "core_responsibilities": "This directory contains unit tests for various components related to order management, including order services, models, and related entities."
+        }
+      }
+    }
+  }
+}

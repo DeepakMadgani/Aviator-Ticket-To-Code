@@ -1,0 +1,35 @@
+```json
+{
+  "pattern": "Responsive Design",
+  "affected_modules": ["UI Layer", "JATO Module"],
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Implement responsive tab layout for JATO deliverables page",
+      "description": "Add a window resize event listener to the JATO deliverables component. Implement logic to calculate available horizontal space and tab widths, and dynamically apply CSS properties (e.g., flexbox, overflow-x: auto) or classes to the tab container to ensure tabs remain accessible and scroll horizontally when the window is resized.",
+      "file_path": "xchange-ui/src/jato/deliverables/jdeliverables.component.ts",
+      "task_type": "modify",
+      "language": "typescript",
+      "selection_reason": "This component is the primary representation of the JATO deliverables page, which hosts the tabs requiring responsive layout adjustments. It needs to contain the logic for handling window resize events and dynamically managing tab visibility and scrolling.",
+      "target_class": "JDeliverablesComponent",
+      "allowed_methods": [
+        "ngOnInit",
+        "ngOnDestroy",
+        "onWindowResize",
+        "adjustTabLayout",
+        "applyResponsiveStyles",
+        "HostListener",
+        "ElementRef",
+        "Renderer2"
+      ],
+      "new_file_creation_allowed": false,
+      "dependencies": [],
+      "estimated_complexity": 3,
+      "requires_testing": true
+    }
+  ],
+  "api_changes": [],
+  "database_changes": [],
+  "external_dependencies": []
+}
+```

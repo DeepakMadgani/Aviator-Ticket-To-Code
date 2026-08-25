@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aviator Chat</title>
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+
+        background: linear-gradient(
+            rgba(255, 255, 255, 0),
+            rgba(255, 255, 255, 0.5)
+          ),
+          url("img/bg.png") no-repeat;
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+      }
+
+      .chat-container {
+        width: 80%;
+        max-width: 800px;
+        margin: 50px auto;
+        background-color: #fff;
+        border-radius: 20px;
+        box-shadow: 0px 0px 20px 0px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        height: 80vh;
+      }
+      .chat-header {
+        background-color: #0570f0;
+        color: #fff;
+        padding: 15px;
+        font-weight: bold;
+        text-align: center;
+        border-top-left-radius: 20px;
+        border-top-right-radius: 20px;
+      }
+      .chat-messages {
+        padding: 15px;
+        overflow-y: auto;
+        flex-grow: 1;
+      }
+      .message-container {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        margin-bottom: 10px;
+      }
+      .message {
+        border-radius: 20px;
+        padding: 10px;
+        max-width: 70%;
+        position: relative;
+      }
+      .message.bot {
+        background-color: #e0e0e0;
+        align-self: flex-start;
+      }
+      .message.user {
+        background-color: #0570f0;
+        color: #fff;
+        align-self: flex-end;
+      }
+      .chat-input {
+        padding: 10px;
+        background-color: #fff;
+        border-top: 1px solid #ccc;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom-left-radius: 20px;
+        border-bottom-right-radius: 20px;
+      }
+      .chat-input input[type="text"] {
+        flex: 1;
+        border: none;
+        padding: 10px;
+        border-radius: 20px;
+        margin-right: 10px;
+        outline: none;
+      }
+      .chat-input button {
+        border: none;
+        padding: 10px 20px;
+        background: #0570f0;
+        color: #fff;
+        cursor: pointer;
+        border-radius: 20px;
+        font-size: 14px;
+        outline: none;
+      }
+      /* Clear button: white fill with a light red border and red icon/text */
+      #clearButton {
+        background: #ffffff;
+        border: 1px solid #ffd6d6;
+        color: #d9534f;
+        padding: 8px 12px;
+        border-radius: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #clearButton:hover {
+        box-shadow: 0 0 0 4px rgba(217, 83, 79, 0.06);
+      }
+      .feedback-buttons {
+        display: flex;
+        gap: 2px;
+        justify-content: center;
+        margin-top: 2px;
+      }
+      .feedback-button {
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 10px;
+      }
+      .feedback-button {
+        background-color: #f0f0f0;
+        border: none;
+        padding: 3px 5px;
+        margin: 3px;
+        cursor: pointer;
+        border-radius: 6px;
+      }
+      .feedback-container {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+      .comment-container {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-top: 5px;
+      }
+      .comment-input {
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        padding: 5px;
+        outline: none;
+      }
+      .comment-button {
+        background-color: #0570f0;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 5px;
+        cursor: pointer;
+        font-size: 10px;
+      }
+      .thinking-indicator {
+        color: #888;
+        margin-left: 3px;
+        overflow: hidden;
+        width: auto;
+        white-space: nowrap;
+        margin-bottom: 3px;
+      }
+      /* Modal for graph display */
+      .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgba(0, 0, 0, 0.6);
+        align-items: center;
+        justify-content: center;
+      }
+      .modal-content {
+        background-color: #fff;
+        margin: auto;
+        padding: 12px;
+        border-radius: 12px;
+        max-width: 92vw;
+        max-height: 88vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .modal-content img {
+        max-width: 90vw;
+        max-height: 80vh;
+        display: block;
+      }
+      .modal-close {
+        position: absolute;
+        right: 16px;
+        top: 12px;
+        background: transparent;
+        border: none;
+        font-size: 22px;
+        color: #fff;
+        cursor: pointer;
+      }
+      /* Thinking area inside chat panel - fixed height showing last ~5 lines */
+      .thinking-in-chat {
+        display: none;
+        height: calc(1.4em * 5 + 16px);
+        overflow-y: auto;
+        padding: 8px 12px;
+        background: #fbfbfb;
+        border-bottom: 1px solid #eee;
+        font-size: 13px;
+        line-height: 1.4em;
+        color: #333;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="chat-container">
+        <div
+          class="chat-header"
+          style="display: flex; align-items: center; gap: 12px; justify-content: space-between;"
+        >
+          <div style="display:flex; align-items:center; gap:12px;">
+            <img
+              src="img/aviator.svg"
+              alt="Aviator logo"
+              width="36"
+              height="36"
+              style="display: block"
+            />
+            <span id="aviatorTitle" style="cursor: pointer">Aviator Chat</span>
+          </div>
+
+          <!-- Right-aligned compact where input -->
+          <div style="display:flex; flex-direction:column; align-items:flex-end;">
+            <span id="threadIdDisplay" style="font-size:12px; opacity:0.9;">thread: none</span>
+            <div id="whereRow" style="padding-top:6px; font-size:12px; opacity:0.95; display:flex; gap:6px; align-items:center;">
+              <span style="opacity:0.9">where:</span>
+              <input id="whereInput" type="text" value='{"workspaceID": "39377"}' placeholder='{"workspaceID":"xxxx"}' style="width:180px; padding:4px 6px; border-radius:8px; border:1px solid #ccc; font-size:12px;" />
+            </div>
+          </div>
+        </div>
+        <div id="thinkingInChat" class="thinking-in-chat" role="status" aria-live="polite">
+          <div id="thinkingInChatContent" style="white-space:pre-wrap; font-size:13px; color:#333;"></div>
+        </div>
+        <div class="chat-messages" id="messages">
+          <!-- Messages will be displayed here -->
+        </div>
+        <div class="chat-input">
+          <input
+          type="text"
+          id="messageText"
+          autocomplete="off"
+          autofocus
+          placeholder="Type a message..."
+          class="form-control"
+          />
+          <button onclick="sendMessage()" class="btn btn-primary">Send</button>
+          &nbsp;
+          <button id="clearButton" onclick="clearConversation()" class="btn">Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Graph modal -->
+    <div id="graphModal" class="modal" role="dialog" aria-modal="true">
+      <button class="modal-close" id="graphModalClose" aria-label="Close">×</button>
+      <div class="modal-content">
+        <img id="graphImage" src="graph/mermaid.png" alt="Graph" />
+      </div>
+    </div>
+
+
+
+    <!-- Markdown renderer (marked) + sanitizer (DOMPurify) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@2.4.0/dist/purify.min.js"></script>
+
+    <script>
+      var wsUrl =
+        (location.protocol === "https:" ? "wss://" : "ws://") +
+        location.host +
+        "/v1/chat/stream";
+      var ws = null;
+      var wsConnecting = false;
+      var pendingMessages = [];
+      // Current thread id for the conversation. Start with "none" for initial messages.
+      var currentThreadId = null;
+      function updateThreadDisplay() {
+        var el = document.getElementById("threadIdDisplay");
+        if (!el) return;
+        el.textContent = "thread: " + (currentThreadId || "none");
+      }
+      var messages = document.getElementById("messages");
+      var botMessageBuffer = "";
+      var lastUserMessage = "";
+      var activeCommentContainer = null;
+      var thinkingBuffer = "";
+      var thinkingDotTimer = null;
+      var thinkingDotCount = 0;
+      var thinkingDotIncreasing = true;
+
+      function showThinkingDialog() {
+        var dlg = document.getElementById("thinkingInChat");
+        var contentEl = document.getElementById("thinkingInChatContent");
+        if (!dlg || !contentEl) return;
+        dlg.style.display = "block";
+        try {
+          contentEl.innerHTML = DOMPurify.sanitize(marked.parse(thinkingBuffer || ""));
+        } catch (e) {
+          contentEl.textContent = thinkingBuffer || "";
+        }
+        // scroll so the last lines are visible (scroll the outer container)
+        try {
+          dlg.scrollTop = dlg.scrollHeight;
+        } catch (e) {
+          contentEl.scrollTop = contentEl.scrollHeight;
+        }
+      }
+
+      function updateThinkingDialog(text) {
+        thinkingBuffer = text || "";
+        var contentEl = document.getElementById("thinkingInChatContent");
+        if (!contentEl) return;
+        try {
+          contentEl.innerHTML = DOMPurify.sanitize(marked.parse(thinkingBuffer));
+        } catch (e) {
+          contentEl.textContent = thinkingBuffer;
+        }
+        // always show the bottom (last lines) by scrolling the outer container
+        var dlg = document.getElementById("thinkingInChat");
+        try {
+          if (dlg) dlg.scrollTop = dlg.scrollHeight;
+          else contentEl.scrollTop = contentEl.scrollHeight;
+        } catch (e) {
+          contentEl.scrollTop = contentEl.scrollHeight;
+        }
+      }
+
+      function closeThinkingDialog() {
+        var dlg = document.getElementById("thinkingInChat");
+        var contentEl = document.getElementById("thinkingInChatContent");
+        if (contentEl) contentEl.innerHTML = "";
+        thinkingBuffer = "";
+        if (dlg) dlg.style.display = "none";
+      }
+
+      function createWebSocket() {
+        if (wsConnecting || (ws && ws.readyState === WebSocket.OPEN)) return;
+        wsConnecting = true;
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = function () {
+          wsConnecting = false;
+          // flush queued messages
+          while (pendingMessages.length > 0) {
+            var msg = pendingMessages.shift();
+            try {
+              ws.send(msg);
+            } catch (e) {
+              console.error("Failed to send queued message", e);
+              pendingMessages.unshift(msg);
+              break;
+            }
+          }
+        };
+
+        ws.onmessage = function (event) {
+          try {
+            var parsedData = JSON.parse(event.data);
+            // If the server returned metadata with a thread_id, persist it for following messages
+            if (parsedData.metadata && parsedData.metadata.thread_id) {
+              currentThreadId = parsedData.metadata.thread_id;
+              updateThreadDisplay();
+            }
+              if (parsedData.type === "AIMessageChunk" || parsedData.type === "ai")  {
+                // Route chunks based on their langgraph_node metadata.
+                var node = parsedData.metadata && parsedData.metadata.langgraph_node;
+                if (parsedData.type === "ai") {
+                  // Final answer agent chunks are displayed directly in the chat
+                  removeThinkingIndicator();
+                  botMessageBuffer += parsedData.content;
+                  appendMessage(parsedData.content, "bot");
+                } else {
+                  // Other nodes go into the thinking dialog (not shown in main chat)
+                  showThinkingDialog();
+                  thinkingBuffer += parsedData.content;
+                  updateThinkingDialog(thinkingBuffer);
+                }
+              } else if (parsedData.type === "tool") {
+              // tool messages (ignored for now)
+              } else if (parsedData.type === "feedback") {
+                // The message is complete, add feedback buttons for the last chat message
+                var botMessage = botMessageBuffer;
+                removeThinkingIndicator();
+                if (botMessage) {
+                  addFeedbackButtons(
+                    messages.lastElementChild,
+                    botMessageBuffer,
+                    lastUserMessage
+                  );
+                }
+                botMessageBuffer = "";
+                // Close any thinking dialog content when a message completes
+                thinkingBuffer = "";
+                closeThinkingDialog();
+            }
+          } catch (e) {
+            // Not JSON, treat as plain text
+            console.error("Failed to parse message chunk as JSON", e);
+          }
+        };
+
+        ws.onclose = function () {
+          ws = null;
+          wsConnecting = false;
+        };
+
+        ws.onerror = function (err) {
+          console.error("WebSocket error", err);
+        };
+      }
+
+      // open initial connection
+      createWebSocket();
+
+      // Render message as Markdown (sanitized) and append to the chat.
+      // Stores the raw markdown text in `data-raw` so incremental chunks
+      // can be concatenated and re-rendered safely.
+      function appendMessage(message, className) {
+        var lastMessageContainer = messages.lastElementChild;
+        if (
+          lastMessageContainer &&
+          lastMessageContainer.classList.contains("message-container") &&
+          lastMessageContainer.lastElementChild.classList.contains(className)
+        ) {
+          var existing = lastMessageContainer.lastElementChild.dataset.raw || "";
+          var combined = (existing ? existing + " " : "") + message;
+          lastMessageContainer.lastElementChild.dataset.raw = combined;
+          try {
+            var rendered = marked.parse(combined);
+            lastMessageContainer.lastElementChild.innerHTML = DOMPurify.sanitize(rendered);
+          } catch (e) {
+            lastMessageContainer.lastElementChild.textContent = combined;
+          }
+        } else {
+          var messageContainer = document.createElement("div");
+          messageContainer.className = "message-container";
+
+          var newMessage = document.createElement("div");
+          newMessage.className = "message " + className;
+          newMessage.dataset.raw = message;
+          try {
+            var rendered = marked.parse(message);
+            newMessage.innerHTML = DOMPurify.sanitize(rendered);
+          } catch (e) {
+            newMessage.textContent = message;
+          }
+
+          messageContainer.appendChild(newMessage);
+          messages.appendChild(messageContainer);
+        }
+        messages.scrollTop = messages.scrollHeight;
+      }
+
+      function sendMessage() {
+        var input = document.getElementById("messageText");
+        var message = input.value.trim();
+        if (message) {
+          var whereText = (document.getElementById("whereInput") && document.getElementById("whereInput").value) || "";
+          var whereParsed = null;
+          try {
+            whereParsed = whereText ? JSON.parse(whereText) : null;
+          } catch (e) {
+            alert("Invalid JSON in 'where' field. Please enter valid JSON (object or array).");
+            return;
+          }
+          var whereArray = [];
+          if (whereParsed === null) {
+            whereArray = [];
+          } else if (Array.isArray(whereParsed)) {
+            whereArray = whereParsed;
+          } else {
+            whereArray = [whereParsed];
+          }
+
+          appendMessage(message, "user");
+          lastUserMessage = message;
+
+          var ws_message = {
+            // Use persisted thread id; initial messages should send "none"
+            thread_id: currentThreadId || null,
+            content: message,
+            context: "",
+            where: whereArray,
+          };
+
+          // If socket is open, send immediately; otherwise queue and (re)connect
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(ws_message));
+          } else {
+            pendingMessages.push(JSON.stringify(ws_message));
+            createWebSocket();
+          }
+          input.value = "";
+          addThinkingIndicator();
+        }
+      }
+
+      function addThinkingIndicator() {
+        // Avoid duplicate indicator
+        if (document.getElementById("thinkingIndicator")) return;
+
+        var thinkingIndicator = document.createElement("div");
+        thinkingIndicator.className = "message-container";
+        thinkingIndicator.id = "thinkingIndicator";
+
+        var indicatorMessage = document.createElement("div");
+        indicatorMessage.className = "message bot thinking-indicator";
+        indicatorMessage.innerText = "Thinking";
+
+        thinkingIndicator.appendChild(indicatorMessage);
+        messages.appendChild(thinkingIndicator);
+        messages.scrollTop = messages.scrollHeight;
+
+        // start dot animation
+        thinkingDotCount = 0;
+        thinkingDotIncreasing = true;
+        if (thinkingDotTimer) clearInterval(thinkingDotTimer);
+        thinkingDotTimer = setInterval(function () {
+          if (thinkingDotIncreasing) {
+            thinkingDotCount++;
+            if (thinkingDotCount >= 3) thinkingDotIncreasing = false;
+          } else {
+            thinkingDotCount--;
+            if (thinkingDotCount <= 0) thinkingDotIncreasing = true;
+          }
+          var dots = new Array(thinkingDotCount + 1).join('.');
+          var container = document.getElementById('thinkingIndicator');
+          if (container) {
+            var msg = container.querySelector('.thinking-indicator');
+            if (msg) msg.innerText = 'Thinking' + dots;
+          }
+        }, 400);
+      }
+
+      function removeThinkingIndicator() {
+        if (thinkingDotTimer) {
+          clearInterval(thinkingDotTimer);
+          thinkingDotTimer = null;
+        }
+        var thinkingIndicator = document.getElementById("thinkingIndicator");
+        if (thinkingIndicator) {
+          thinkingIndicator.remove();
+        }
+      }
+
+      function clearConversation() {
+        currentThreadId = null;
+        updateThreadDisplay();
+        if (messages) messages.innerHTML = "";
+        pendingMessages = [];
+        botMessageBuffer = "";
+        lastUserMessage = "";
+        thinkingBuffer = "";
+        closeThinkingDialog();
+        removeThinkingIndicator();
+        if (ws) {
+          try {
+            ws.close();
+          } catch (e) {}
+          ws = null;
+          wsConnecting = false;
+        }
+      }
+
+      function sendFeedback(userMessage, botMessage, feedback, comment = "") {
+        fetch("/feedback", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            user_message: userMessage,
+            bot_message: botMessage,
+            feedback: feedback,
+            comment: comment,
+          }),
+        });
+      }
+
+      function addFeedbackButtons(messageContainer, botMessage, userMessage) {
+        var feedbackContainer = document.createElement("div");
+        feedbackContainer.className = "feedback-container";
+
+        var feedbackButtons = document.createElement("div");
+        feedbackButtons.className = "feedback-buttons";
+
+        var thumbsUp = document.createElement("button");
+        thumbsUp.className = "feedback-button";
+        thumbsUp.innerText = "👍";
+        thumbsUp.onclick = function () {
+          sendFeedback(userMessage, botMessage, "up");
+          thumbsUp.style.backgroundColor = "green"; // Change color to green
+          thumbsDown.style.backgroundColor = ""; // Reset color of the other button
+        };
+
+        var thumbsDown = document.createElement("button");
+        thumbsDown.className = "feedback-button";
+        thumbsDown.innerText = "👎";
+        thumbsDown.onclick = function () {
+          sendFeedback(userMessage, botMessage, "down");
+          thumbsDown.style.backgroundColor = "green"; // Change color to green
+          thumbsUp.style.backgroundColor = ""; // Reset color of the other button
+        };
+
+        var commentButton = document.createElement("button");
+        commentButton.className = "feedback-button";
+        commentButton.innerText = "💬";
+        commentButton.onclick = function () {
+          showCommentInput(messageContainer, userMessage, botMessage);
+        };
+
+        feedbackButtons.appendChild(thumbsUp);
+        feedbackButtons.appendChild(thumbsDown);
+        feedbackButtons.appendChild(commentButton);
+
+        feedbackContainer.appendChild(feedbackButtons);
+        messageContainer.appendChild(feedbackContainer); // Append feedback container after the bot message
+      }
+
+      function showCommentInput(messageContainer, userMessage, botMessage) {
+        if (activeCommentContainer) {
+          activeCommentContainer.remove();
+        }
+
+        var commentContainer = document.createElement("div");
+        commentContainer.className = "comment-container";
+
+        var commentInput = document.createElement("input");
+        commentInput.className = "comment-input";
+        commentInput.type = "text";
+        commentInput.placeholder = "Type your comment...";
+
+        var sendCommentButton = document.createElement("button");
+        sendCommentButton.className = "comment-button";
+        sendCommentButton.innerText = "Send";
+        sendCommentButton.onclick = function () {
+          var comment = commentInput.value.trim();
+          if (comment) {
+            sendFeedback(userMessage, botMessage, comment);
+            commentContainer.remove();
+            activeCommentContainer = null;
+          }
+        };
+
+        commentContainer.appendChild(commentInput);
+        commentContainer.appendChild(sendCommentButton);
+        messageContainer.appendChild(commentContainer);
+
+        activeCommentContainer = commentContainer;
+
+        setTimeout(function () {
+          document.addEventListener("click", handleClickOutside);
+        }, 0);
+
+        function handleClickOutside(event) {
+          if (
+            activeCommentContainer &&
+            !commentContainer.contains(event.target)
+          ) {
+            commentContainer.remove();
+            activeCommentContainer = null;
+            document.removeEventListener("click", handleClickOutside);
+          }
+        }
+      }
+
+      // Send message when Enter is pressed in the input
+      var messageInput = document.getElementById("messageText");
+      messageInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+
+      // Graph modal handlers
+      (function () {
+        var modal = document.getElementById("graphModal");
+        var modalClose = document.getElementById("graphModalClose");
+        var aviatorTitle = document.getElementById("aviatorTitle");
+
+        function openModal() {
+          if (!modal) return;
+          modal.style.display = "flex";
+        }
+
+        function closeModal() {
+          if (!modal) return;
+          modal.style.display = "none";
+        }
+
+        // Click header/title to open modal
+        if (aviatorTitle) {
+          aviatorTitle.addEventListener("click", function (e) {
+            e.stopPropagation();
+            openModal();
+          });
+        }
+
+        // Close button
+        if (modalClose) {
+          modalClose.addEventListener("click", function (e) {
+            e.stopPropagation();
+            closeModal();
+          });
+        }
+
+        // No floating thinking dialog; in-chat box is used instead.
+
+        // Click outside modal-content to close
+        if (modal) {
+          modal.addEventListener("click", function (e) {
+            if (e.target === modal) closeModal();
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>

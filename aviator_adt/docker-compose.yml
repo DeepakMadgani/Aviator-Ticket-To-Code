@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  db:
+    image: pgvector/pgvector:pg15
+    container_name: pgvector_db
+    shm_size: 2g
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $$POSTGRES_DB -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: rabbitmq_mgmt
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin_pass
+      RABBITMQ_PLUGINS: "rabbitmq_management rabbitmq_consistent_hash_exchange"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./container/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pubsub:
+    image: artifactory.otxlab.net/dockerhub/singularities/pubsub-emulator
+    container_name: pubsub_emulator
+    environment:
+      - PUBSUB_PROJECT_ID=aviator-dev
+      - PUBSUB_LISTEN_ADDRESS=0.0.0.0:8432
+    ports:
+      - "8432:8432"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8432/v1/projects/aviator-dev/topics"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  vault:
+    image: artifactory.otxlab.net/dockerhub/hashicorp/vault:1.14
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=password
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  pgdata:
+  rabbitmq_data:

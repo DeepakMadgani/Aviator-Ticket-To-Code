@@ -1,0 +1,9 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "dependencies": ["."],
+  "graphs": {
+    "agent": "aviator.graph:create_state_graph"
+  },
+  "env": ".env",
+  "image_distro": "wolfi"
+}

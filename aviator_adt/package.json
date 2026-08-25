@@ -1,0 +1,20 @@
+{
+  "private": true,
+  "scripts": {
+    "preprepare": "icd -p src/aviator/statics -a release"
+  },
+  "csui-dependencies": {
+    "dependencies": [
+      "nuc:~25.4.0",
+      "smart:~25.4.0",
+      "csui:~25.4.0",
+      "viewx:25.4.0",
+      "otvideo:~25.4.0",
+      "aie:demo"
+    ],
+    "devDependencies": []
+  },
+  "devDependencies": {
+    "@smartui/csui-dependency-installer": "^7.4.1"
+  }
+}

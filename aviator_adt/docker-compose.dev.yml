@@ -1,0 +1,187 @@
+# Celery worker base config (YAML anchor, not a service)
+x-worker-base: &worker-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  platform: linux/amd64
+  command: ["worker"]
+  environment: &worker-env
+    POSTGRES_DB: postgres
+    POSTGRES_PASSWORD: postgres
+    UV_CACHE_DIR: /aviator_adt/.cache
+    MIGRATION_ENABLED: ${MIGRATION_ENABLED:-false}
+    POSTGRES_CONNECTION: postgresql://postgres:postgres@db:5432/postgres
+    BROKER_URL: amqp://admin:admin_pass@rabbitmq:5672/
+    GOOGLE_APPLICATION_CREDENTIALS: /aviator_adt/credentials/otl-cs-csai.json
+    BROKER_CONSISTENT_HASH_ENABLED: true
+  env_file:
+    - .env
+  depends_on:
+    db:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+  volumes:
+    - ${GOOGLE_APPLICATION_CREDENTIALS:-./otl-cs-csai.json}:/aviator_adt/credentials/otl-cs-csai.json:ro
+  restart: "unless-stopped"
+  healthcheck:
+    test: ["CMD-SHELL", "python /probes/worker-liveness.py && test -f /tmp/worker_ready"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+
+services:
+  # PostgreSQL with pgvector extension
+  db:
+    extends:
+      file: docker-compose.yml
+      service: db
+
+  # RabbitMQ (for Celery)
+  rabbitmq:
+    extends:
+      file: docker-compose.yml
+      service: rabbitmq
+
+  # Aviator application
+  aviator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    container_name: aviator-app
+    command: ["app"]
+    ports:
+      - "3000:3000"
+      - "5678:5678"  # Debug port
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: postgres
+      DEV_TOOLS: true
+      POSTGRES_CONNECTION: postgresql://postgres:postgres@db:5432/postgres
+      BROKER_URL: amqp://admin:admin_pass@rabbitmq:5672/
+      GOOGLE_APPLICATION_CREDENTIALS: /aviator_adt/credentials/otl-cs-csai.json
+      LANGFUSE_HOST: https://observability.dev.ca.opentext.com
+      BROKER_CONSISTENT_HASH_ENABLED: true
+      BROKER_WORKER_QUEUE_COUNT: 2
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./src:/aviator_adt/src # For development hot-reload
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-./otl-cs-csai.json}:/aviator_adt/credentials/otl-cs-csai.json:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/docs || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery workers pinned to specific queues via WORKER_QUEUE_INDEX
+  aviator-worker:
+    <<: *worker-base
+    environment:
+      <<: *worker-env
+      CELERY_WORKER_ROLE: default
+    deploy:
+      mode: replicated
+      replicas: 1
+
+  # ── Migration producer (optional — only needed during CSAI migration) ──
+  # Ensure MIGRATION_SOURCE_DSN is set in .env.
+  # Then run `make up-migration` (or set MIGRATION_ENABLED=true for manual compose runs).
+  migration-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    command: ["migration"]
+    profiles:
+      - migration
+    environment:
+      POSTGRES_CONNECTION: postgresql://postgres:postgres@db:5432/postgres
+      BROKER_URL: amqp://admin:admin_pass@rabbitmq:5672/
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+
+  aviator-summary-worker:
+    <<: *worker-base
+    container_name: aviator-summary-worker
+    entrypoint: []
+    command:
+      [
+        "celery","-A","aviator.celery","worker","-l","info","-P","prefork",
+        "--autoscale=1,0","--hostname=aviator-summary-worker@%h",
+        "--without-mingle","--without-gossip","--without-heartbeat",
+        "--queues=aviator-summaries,csai-adt-summary"
+      ]
+    environment:
+      <<: *worker-env
+      CELERY_WORKER_ROLE: summary
+
+  # ── Summary backfill producer (optional — only needed during CSAI migration) ──
+  # Ensure MIGRATION_SOURCE_DSN is set in .env.
+  summary-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    command: ["summary-backfill"]
+    profiles:
+      - migration
+    environment:
+      POSTGRES_CONNECTION: postgresql://postgres:postgres@db:5432/postgres
+      BROKER_URL: amqp://admin:admin_pass@rabbitmq:5672/
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+
+  # MCP Server
+  aviator-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    container_name: aviator-mcp-server
+    command: ["mcp-server"]
+    ports:
+      - "8100:8100"
+      - "5679:5679"  # Debug port
+    environment:
+      MCP_PORT: 8100
+      UV_CACHE_DIR: /aviator_adt/.cache
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_CONNECTION: postgresql://postgres:postgres@db:5432/postgres
+      BROKER_URL: amqp://admin:admin_pass@rabbitmq:5672/
+      GOOGLE_APPLICATION_CREDENTIALS: /aviator_adt/credentials/otl-cs-csai.json
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./src:/aviator_adt/src # For development hot-reload
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-./otl-cs-csai.json}:/aviator_adt/credentials/otl-cs-csai.json:ro
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  rabbitmq_data:

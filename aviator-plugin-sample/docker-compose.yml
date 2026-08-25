@@ -1,0 +1,118 @@
+name: aviator_adt
+
+services:
+  db:
+    image: pgvector/pgvector:pg15
+    container_name: pgvector_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $$POSTGRES_DB -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: rabbitmq_mgmt
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin_pass
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  otds:
+    image: artifactory.otxlab.net/ot2-paas-dev/core/otds:22.2.3-1
+    hostname: otds
+    container_name: otds_server
+    ports:
+      - "8080:8080"
+    user: root
+    environment:
+      - CATALINA_HOME=/opt/tomcat
+      - OTDS_PASS=Livelink1!
+      - OTDS_DIRECTORY_BOOTSTRAP_INITIALPASSWORD=Livelink1!
+      - OTDS_JAKARTA_PERSISTENCE_JDBC_URL=jdbc:postgresql://db:5432/postgres
+      - OTDS_JAKARTA_PERSISTENCE_JDBC_USER=postgres
+      - OTDS_JAKARTA_PERSISTENCE_JDBC_PASSWORD=postgres
+      - OTDS_DIRECTORY_BOOTSTRAP_CRYPTSECRET=Z2hkN2hyNDBkbWNGcVQ0TA==
+      - enableBootstrapConfig=true
+      - enablePersonalization=true
+    volumes:
+      - otds_data:/opt/otds/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  adt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aviator-app-plugin
+    command: ["aviator"]
+    ports:
+      - "${AVIATOR_APP_PLUGIN_PORT:-3000}:3000"
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_CONNECTION: postgresql://postgres:postgres@db:5432/postgres
+      BROKER_URL: amqp://admin:admin_pass@rabbitmq:5672/
+      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/credentials.json
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-aviator-dev}
+      PYTHONPATH: /app
+      content_system: sample
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-./otl-cs-csai.json}:/app/credentials/credentials.json:ro
+    restart: unless-stopped
+
+  aviator-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    container_name: aviator-worker
+    command: uv run celery -A aviator.celery worker --loglevel=info --without-mingle --without-gossip --without-heartbeat
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: postgres
+      UV_CACHE_DIR: /app/.cache
+      POSTGRES_CONNECTION: postgresql://postgres:postgres@db:5432/postgres
+      BROKER_URL: amqp://admin:admin_pass@rabbitmq:5672/
+      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/otl-cs-csai.json
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-aviator-dev}
+      content_system: sample
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-./otl-cs-csai.json}:/app/credentials/otl-cs-csai.json:ro
+    restart: unless-stopped  
+
+volumes:
+  pgdata:
+  rabbitmq_data:
+  otds_data:
+
+
+

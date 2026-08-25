@@ -1,0 +1,3 @@
+# FastAPI Server
+
+::: aviator.main

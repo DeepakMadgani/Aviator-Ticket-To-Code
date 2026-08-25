@@ -1,0 +1,49 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Nodes
+node_modules/
+/artifacts/
+/lib/
+/src/aviator/statics/lib
+/src/aviator/statics/lang
+/lang/
+site/
+
+# Virtual environments
+.venv
+
+# Environment Variables
+.env
+skaffold.env
+
+# Pytest
+junit.xml
+.coverage
+coverage.xml
+
+# LangGraph Studio
+.langgraph_api
+
+## GCP Authentication files
+otl-cs-csai.json
+gsa.json
+service-account-key-file.json
+
+## Documenation files
+settings_doc.md
+graph_mermaid.md
+docs/openapi.json
+run_aviator.bat
+
+# OTCM deployment files
+otxecm/
+
+./src/aviator/statics/
+.DS_Store
+eccn_output.html

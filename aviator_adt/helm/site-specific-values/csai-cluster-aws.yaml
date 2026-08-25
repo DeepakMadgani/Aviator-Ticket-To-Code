@@ -1,0 +1,26 @@
+app:
+  image: &image-repository
+    repository: 028791545937.dkr.ecr.us-west-2.amazonaws.com/csai
+    name: aviator
+    tag: latest
+    pullPolicy: Always
+
+worker:
+  image: *image-repository
+
+summaryWorker:
+  image: *image-repository
+
+beat:
+  image: *image-repository
+
+mcpServer:
+  image: *image-repository
+
+migration:
+  image: *image-repository
+
+gcp:
+  workloadIdentity:
+    # Disable gsa-credentials secret mounts for AWS cluster deployments.
+    enabled: true

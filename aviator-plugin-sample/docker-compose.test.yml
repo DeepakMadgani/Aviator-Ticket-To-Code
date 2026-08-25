@@ -1,0 +1,60 @@
+name: aviator_adt_test
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+    container_name: aviator-test
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_CONNECTION: postgresql://postgres:postgres@db:5432/postgres
+      BROKER_URL: amqp://admin:admin_pass@rabbitmq:5672/
+      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/credentials.json
+      PYTHONPATH: /app
+      content_system: sample
+    volumes:
+      - ${GOOGLE_APPLICATION_CREDENTIALS:-./otl-cs-csai.json}:/app/credentials/credentials.json:ro
+      - ./tests:/app/tests:ro
+      - ./src:/app/src:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  db:
+    image: pgvector/pgvector:pg15
+    container_name: pgvector_db_test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    tmpfs:
+      - /var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $$POSTGRES_DB -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: rabbitmq_test
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin_pass
+    tmpfs:
+      - /var/lib/rabbitmq
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

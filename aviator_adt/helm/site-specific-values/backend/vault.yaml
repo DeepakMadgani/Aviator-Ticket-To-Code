@@ -1,0 +1,5 @@
+vault:
+  enabled: true
+  # Enable RBAC for Vault Kubernetes authentication in real clusters
+  rbac:
+    create: true

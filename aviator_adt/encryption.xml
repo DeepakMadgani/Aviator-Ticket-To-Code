@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Open Text Encryption Description
+  Product: Content Aviator ADT (Agent Development Toolkit)
+  Module:  aviator_adt
+  Date:    2026-04-14
+-->
+<!DOCTYPE Encryption PUBLIC
+    "-//Open Text//Encryption Description DTD V2//EN"
+    "https://intranet.opentext.com/go/EncryptionDescriptionV2">
+
+<Encryption>
+  <PathToSourceTree>https://gitlab.otxlab.net/csai/aviator_adt/</PathToSourceTree>
+
+  <!-- ================================================================
+       1. TLS — all outbound HTTPS connections to LLM providers,
+          Google Cloud services, OpenTelemetry collector, Sentry,
+          Langfuse, LangSmith, etc.
+       ================================================================ -->
+  <SocketEncryptionUsage protocol="TLS">
+    <Notes>
+      All HTTP client traffic from the application uses HTTPS/TLS.
+      This includes:
+        - LLM API calls to Google GenAI, OpenAI, AWS Bedrock, Anthropic,
+          and Mistral via langchain-* client libraries
+        - Telemetry export via OpenTelemetry OTLP exporter
+        - Sentry SDK error reporting
+        - Langfuse and LangSmith LLM tracing
+        - Google Cloud Secret Manager API calls
+        - HashiCorp Vault API calls (hvac library)
+        - OTDS authentication ticket validation
+        - MCP (Model Context Protocol) server connections including OAuth
+          token endpoint calls
+        - Migration producer/worker secret retrieval calls when
+          SECRETS_MANAGER=google
+      TLS is provided by the operating system's OpenSSL/LibreSSL through
+      Python's built-in ssl module; the application contains no cipher or
+      protocol selection logic of its own.
+    </Notes>
+    <Process name="aviator-api">FastAPI application process (uvicorn); outbound HTTPS requests via httpx / requests.</Process>
+    <Process name="aviator-worker">Celery worker process; outbound HTTPS requests via requests / google-api-core.</Process>
+    <Implementation>
+      <ThirdPartyLocation
+          name="Python ssl module (OpenSSL)"
+          location="Python standard library"
+          publicURL="https://docs.python.org/3/library/ssl.html"
+          ECCN="EAR99"/>
+      <ThirdPartyLocation
+          name="httpx"
+          location="site-packages/httpx"
+          publicURL="https://pypi.org/project/httpx/"
+          ECCN="EAR99"/>
+      <ThirdPartyLocation
+          name="requests"
+          location="site-packages/requests"
+          publicURL="https://pypi.org/project/requests/"
+          ECCN="EAR99"/>
+      <ThirdPartyLocation
+          name="google-api-core"
+          location="site-packages/google/api_core"
+          publicURL="https://pypi.org/project/google-api-core/"
+          ECCN="EAR99"/>
+      <ThirdPartyLocation
+          name="hvac (HashiCorp Vault client)"
+          location="site-packages/hvac"
+          publicURL="https://pypi.org/project/hvac/"
+          ECCN="EAR99"/>
+      <Notes>
+        Source entry points:
+          src/aviator/services/secrets.py       — Google Cloud Secret Manager and Vault HTTPS calls
+          src/aviator/mcp/client/auth/oauth_strategy.py — OAuth token URL (HTTPS POST)
+          src/aviator/services/llm.py           — LLM provider API calls
+          src/aviator/services/embeddings.py    — Embedding provider API calls
+          src/migration/settings.py             — migration source DB password via Secret Manager
+      </Notes>
+    </Implementation>
+  </SocketEncryptionUsage>
+
+  <!-- ================================================================
+       2. TLS — FastAPI server (inbound HTTPS)
+          The uvicorn ASGI server can be configured to terminate TLS;
+          in production deployments this is typically handled by a
+          Kubernetes ingress / load balancer upstream of the pod.
+       ================================================================ -->
+  <SocketEncryptionUsage protocol="TLS">
+    <Notes>
+      The FastAPI application is served by uvicorn which supports TLS
+      termination via the --ssl-keyfile / --ssl-certfile options.
+      In standard Kubernetes deployments, TLS termination is done at
+      the ingress layer; uvicorn is not required to handle it directly.
+      Helm chart configuration defines ingress TLS secrets and HSTS
+      annotations for public endpoints.
+      WebSocket endpoint (/v1/chat/stream) are served by FastAPI;
+      when exposed through TLS-enabled ingress they are used as secure WebSocket
+      connections (wss://).
+      Cipher suite selection is delegated entirely to OpenSSL defaults.
+    </Notes>
+    <Process name="aviator-api">uvicorn ASGI server</Process>
+    <Implementation>
+      <ThirdPartyLocation
+          name="uvicorn"
+          location="site-packages/uvicorn"
+          publicURL="https://pypi.org/project/uvicorn/"
+          ECCN="EAR99"/>
+      <ThirdPartyLocation
+          name="Python ssl module (OpenSSL)"
+          location="Python standard library"
+          publicURL="https://docs.python.org/3/library/ssl.html"
+          ECCN="EAR99"/>
+      <SourceLocation
+          file="src/aviator/main.py"
+          line="450">uvicorn.run invocation (supports optional TLS key/cert arguments)</SourceLocation>
+      <SourceLocation
+          file="helm/aviator/values.yaml"
+          line="74">Ingress TLS hosts and secretName configuration</SourceLocation>
+      <SourceLocation
+          file="helm/aviator/templates/ingress.yaml"
+          line="27">Ingress spec.tls rendering from Helm values</SourceLocation>
+      <SourceLocation
+          file="src/aviator/api/websockets.py"
+          line="45">WebSocket route: /v1/chat/stream</SourceLocation>
+      <Notes>
+        Production TLS termination is defined by Helm ingress configuration.
+      </Notes>
+    </Implementation>
+  </SocketEncryptionUsage>
+
+  <!-- ================================================================
+       4. AMQP broker transport (Celery)
+          Celery uses RabbitMQ as message broker in AMQP mode by default.
+         Default deployment chart values use plain AMQP/TCP;
+          transport-level encryption would require AMQPS/TLS broker setup.
+       ================================================================ -->
+  <SocketEncryptionUsage protocol="Other">
+    <Notes>
+      Celery producer/worker communication uses broker URLs derived from
+      BROKER_URL / broker settings. The default broker URL scheme is amqp://
+      and RabbitMQ chart values configure listeners.tcp.default = 5672.
+      No AMQPS/TLS listener is enabled in default deployment chart values.
+    </Notes>
+    <Process name="aviator-api">Publishes embedding and migration jobs to broker via Celery/Kombu.</Process>
+    <Process name="aviator-worker">Consumes broker messages via Celery/Kombu.</Process>
+    <Implementation>
+      <SourceLocation
+          file="src/aviator/settings.py"
+          line="572">Default broker URL construction uses amqp://</SourceLocation>
+      <SourceLocation
+          file="helm/aviator-backend/charts/rabbitmq/values.yaml"
+          line="142">RabbitMQ default AMQP TCP listener on port 5672</SourceLocation>
+      <ThirdPartyLocation
+          name="Celery/Kombu AMQP transport"
+          location="site-packages/celery, site-packages/kombu"
+          publicURL="https://docs.celeryq.dev/"
+          ECCN="EAR99"/>
+      <ThirdPartyLocation
+          name="RabbitMQ"
+          location="container image / helm/aviator-backend/charts/rabbitmq"
+          publicURL="https://www.rabbitmq.com/"
+          ECCN="EAR99"/>
+    </Implementation>
+  </SocketEncryptionUsage>
+
+  <!-- ================================================================
+       3. TLS — PostgreSQL SSL connections
+          The application connects to PostgreSQL (with pgvector) and
+          optionally enables SSL/TLS for the connection.
+       ================================================================ -->
+  <SocketEncryptionUsage protocol="TLS">
+    <Notes>
+      Database connections to PostgreSQL can be established with SSL
+      enabled. The SSL mode is configurable via the POSTGRES_CONNECTION_ARGS
+      setting (e.g., sslmode=require). TLS is provided by the psycopg
+      and psycopg2 libraries which link against OpenSSL.
+    </Notes>
+    <Process name="aviator-api">FastAPI application — psycopg async engine</Process>
+    <Process name="aviator-worker">Celery worker — psycopg2 sync connection</Process>
+    <Implementation>
+      <ThirdPartyLocation
+          name="psycopg (v3)"
+          location="site-packages/psycopg"
+          publicURL="https://pypi.org/project/psycopg/"
+          ECCN="EAR99"/>
+      <ThirdPartyLocation
+          name="psycopg2-binary"
+          location="site-packages/psycopg2"
+          publicURL="https://pypi.org/project/psycopg2-binary/"
+          ECCN="EAR99"/>
+      <Notes>
+        Source entry points:
+          src/aviator/celery.py                       — Celery broker/backend connection strings
+          src/aviator/database/pg_client.py           — psycopg async pool
+          src/aviator/services/database.py            — SQLAlchemy + psycopg engine
+          src/aviator/services/usage_tracking/db.py  — Usage-tracking engine
+          src/aviator/services/tenant.py              — Tenant schema management
+        SSL mode is supplied via settings.postgres_connection.encoded_string().
+      </Notes>
+    </Implementation>
+  </SocketEncryptionUsage>
+
+    <!-- ================================================================
+      5. OAuth2 — MCP client authentication
+          The MCP client uses OAuth2 client_credentials and password
+          grant flows to obtain bearer tokens for connecting to
+          protected MCP servers. All token exchange traffic is over
+          HTTPS (covered by usage #1 above).
+       ================================================================ -->
+  <AuthEncryptionUsage protocol="Other">
+    <Notes>
+      OAuth 2.0 (RFC 6749) is used by the MCP (Model Context Protocol)
+      client to authenticate to OAuth-protected MCP servers.
+      Supported grant types:
+        - client_credentials
+        - password (resource owner password credentials)
+      Bearer tokens are transmitted over HTTPS only. The implementation
+      performs no cryptographic operations itself; it submits credentials
+      to a configurable token_url and forwards the returned access token
+      as an HTTP Authorization header.
+    </Notes>
+    <Implementation>
+      <SourceLocation
+          file="src/aviator/mcp/client/auth/oauth_strategy.py"
+          line="1">OAuth2ClientCredentialsStrategy — token fetch and refresh</SourceLocation>
+      <SourceLocation
+          file="src/aviator/mcp/client/auth/auth_manager.py"
+          line="1">AuthManager — dispatches to OAuth strategy</SourceLocation>
+      <SourceLocation
+          file="src/aviator/mcp/models.py"
+          line="25">MCPAuthSchema — client_id / client_secret / token_url configuration model</SourceLocation>
+      <ThirdPartyLocation
+          name="requests"
+          location="site-packages/requests"
+          publicURL="https://pypi.org/project/requests/"
+          ECCN="EAR99">HTTP POST to token endpoint over TLS</ThirdPartyLocation>
+      <Notes>
+        OAuth is selected as "Other" protocol because the DTD does not list
+        OAuth explicitly. The underlying transport security (TLS) is covered
+        separately in SocketEncryptionUsage entry #1.
+      </Notes>
+    </Implementation>
+  </AuthEncryptionUsage>
+
+    <!-- ================================================================
+      6. SHA-256 — content hashing / deduplication
+          SHA-256 is used to produce fingerprints of document chunks
+          for deduplication and for generating deterministic short
+          suffixes in schema names. This is a hashing use, not a
+          confidentiality/encryption use.
+       ================================================================ -->
+  <DataEncryptionUsage>
+    <Data nature="content">
+      Document chunk text content is hashed with SHA-256 to produce a
+      deterministic fingerprint used for deduplication when upserting
+      vectors into the pgvector store. Tenant IDs are also hashed to
+      derive short identifier suffixes for PostgreSQL schema names.
+      No data is encrypted for confidentiality purposes; the hash is
+      one-way and non-secret.
+    </Data>
+    <Algorithm name="SHA-256" keyStrength="256">
+      <Notes>
+        Used solely as a one-way hash (data integrity / deduplication),
+        not for encryption or key derivation. Python standard library
+        hashlib.sha256().
+      </Notes>
+    </Algorithm>
+    <Implementation>
+      <SourceLocation
+          file="src/aviator/utils/chunk_hash.py"
+          line="38">compute_chunk_hash() — SHA-256 of normalised chunk text</SourceLocation>
+      <SourceLocation
+          file="src/aviator/vector_store/adapters/pgvector.py"
+          line="855">text_hash = hashlib.sha256(normalized_content.encode()).hexdigest()</SourceLocation>
+      <SourceLocation
+          file="src/aviator/services/usage_tracking/db.py"
+          line="230">hash_suffix = hashlib.sha256(tenant_id.encode()).hexdigest()[:8]</SourceLocation>
+        <SourceLocation
+          file="src/migration/producer.py"
+          line="46">_producer_lock_key() — SHA-256-derived advisory lock key</SourceLocation>
+        <SourceLocation
+          file="src/migration/consumer.py"
+          line="141">_advisory_lock_key() — SHA-256-derived advisory lock key</SourceLocation>
+      <ThirdPartyLocation
+          name="Python hashlib (SHA-256 via OpenSSL)"
+          location="Python standard library"
+          publicURL="https://docs.python.org/3/library/hashlib.html"
+          ECCN="EAR99"/>
+    </Implementation>
+  </DataEncryptionUsage>
+
+</Encryption>

@@ -1,0 +1,9 @@
+
+pubsub:
+  enabled: false
+rabbitmq:
+  enabled: true
+pgvector:
+  enabled: true
+vault:
+  enabled: false

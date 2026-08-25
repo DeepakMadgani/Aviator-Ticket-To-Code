@@ -1,0 +1,17 @@
+{{- if .Values.mcpServer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aviator.name" . }}-mcp
+  labels:
+    app: {{ include "aviator.name" . }}-mcpserver
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8100
+      targetPort: 8100
+      protocol: TCP
+  selector:
+    app: {{ include "aviator.name" . }}-mcpserver
+{{- end }}

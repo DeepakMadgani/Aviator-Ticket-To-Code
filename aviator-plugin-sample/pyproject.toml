@@ -1,0 +1,142 @@
+[project]
+name = "aviator-plugin-sample"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "Kai Gatzweiler", email = "kgatzweiler@opentext.com" }]
+requires-python = ">=3.13"
+dependencies = [
+    "aviator",
+    "gitpython>=3.1.59",
+    "httpx>=0.27.0",
+    "tree-sitter>=0.23.0",
+    "tree-sitter-java>=0.23.0",
+    "tree-sitter-typescript>=0.23.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.13,<0.10.0"]
+build-backend = "uv_build"
+
+
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.7",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.entry-points."aviator.startup_extensions"]
+"sample" = "aviator_plugin_sample.extensions:startup_extension"
+
+[project.entry-points."aviator.tool_modifiers"]
+"sample" = "aviator_plugin_sample.extensions:tool_extension"
+
+[project.entry-points."aviator.graph_extensions"]
+"sample" = "aviator_plugin_sample.extensions:graph_extension"
+
+[project.entry-points."aviator.prompt_modifiers"]
+"sample" = "aviator_plugin_sample.extensions:prompt_extension"
+
+[project.entry-points."aviator.auth_handlers"]
+"sample" = "aviator_plugin_sample.auth:get_auth_plugin"
+
+[project.entry-points."aviator.rag_permission_filters"]
+# Must match the CONTENT_SYSTEM environment variable ("sample")
+"sample" = "aviator_plugin_sample.auth:sample_permission_filter"
+
+[project.entry-points."aviator.routers"]
+"sample" = "aviator_plugin_sample.extensions:router"
+
+[project.entry-points."aviator.auth_handlers_ws"]
+"sample" = "aviator_plugin_sample.auth:get_auth_plugin_ws"
+
+[project.entry-points."aviator.embedding_extensions"]
+"sample" = "aviator_plugin_sample.extensions:embedding_extension"
+
+[project.entry-points."aviator.celery_imports"]
+"sample_tasks" = "aviator_plugin_sample.tasks"
+
+[tool.ruff.lint]
+# https://docs.astral.sh/ruff/rules/
+select = ["ALL"]
+
+ignore = [
+    "FIX002",
+    "TD002",
+    "TD003",
+    "BLE001",
+    "ERA001",
+    "S105",
+    "S106",
+    "S107",
+    "S113",
+    "S311",
+    "S314",
+    "S603",
+    "S608",
+    "RUF005",
+    "RUF012",
+    "E501",
+    "PERF203",
+    "PLW2901",
+    "PD002",
+    "UP032",
+    "D202",
+    "D203",
+    "D213",
+    "PLC0415",
+    "PLR0911",
+    "PLR0912",
+    "PLR0913",
+    "PLR0915",
+    "PLR2004",
+    "PTH",
+    "PTH123",
+    "PTH103",
+    "PTH104",
+    "PTH107",
+    "PTH110",
+    "PTH112",
+    "PTH113",
+    "PTH118",
+    "PTH119",
+    "PTH120",
+    "PTH122",
+    "FBT001",
+    "FBT002",
+    "RET504",
+    "RET505",
+    "C901",
+    "B019",
+    "TRY300",
+    "TRY400",
+    "COM812",
+]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff]
+line-length = 120
+include = ["src/**/*.py", "tests/**/*.py"]
+exclude = []
+
+[tool.ruff.lint.extend-per-file-ignores]
+"**/tests/*.py" = ["INP001", "D100", "D103", "ANN", "S101", "ARG", "S311"]
+"**/**/test_*.py" = [
+    "INP001",
+    "D100",
+    "D103",
+    "ANN",
+    "S101",
+    "ARG",
+    "FBT",
+    "PLR2004",
+    "S311",
+    "D102",
+]
+"**/__init__.py" = ["D104"]
+
+[tool.uv.sources]
+aviator = { path = "../aviator_adt", editable = true }

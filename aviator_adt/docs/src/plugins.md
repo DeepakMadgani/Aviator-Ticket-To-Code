@@ -1,0 +1,3 @@
+# Plugins
+
+::: aviator.plugins

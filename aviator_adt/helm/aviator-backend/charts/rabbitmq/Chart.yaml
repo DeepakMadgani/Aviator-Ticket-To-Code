@@ -1,0 +1,16 @@
+apiVersion: v2
+name: rabbitmq
+description: A Helm chart for RabbitMQ with custom configuration
+type: application
+version: 0.1.0
+appVersion: "4.0.6"
+keywords:
+  - rabbitmq
+  - message broker
+  - amqp
+home: https://www.rabbitmq.com/
+sources:
+  - https://github.com/rabbitmq/rabbitmq-server
+maintainers:
+  - name: Your Name
+    email: your.email@example.com

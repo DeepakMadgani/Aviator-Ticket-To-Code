@@ -1,0 +1,7 @@
+initContainers:
+  containers:
+    - name: plugin-init-sample
+      image:
+        repository: artifactory.otxlab.net/cs-csai-docker-dev
+        name: aviator-plugin-sample
+        tag: latest

@@ -1,0 +1,20 @@
+config:
+  AZURE_OPENAI_INSTANCE_NAME: instancename
+  AZURE_OPENAI_API_VERSION: 2024-10-21
+  LLM_PROVIDER: azure_openai
+  LLM_MODEL: &openai_model gpt-5-nano
+  AZURE_OPENAI_DEPLOYMENT_NAME: *openai_model
+  AZURE_OPENAI_DEPLOYMENT_NAME_ASSISTANT: *openai_model
+  EMBEDDINGS_MODEL: &openai_embedding_model text-embedding-ada-002
+  AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT_NAME: *openai_embedding_model
+  SECRETS_AZURE_OPENAI_API_SECRET_KEY: AZURE_OPENAI_API_KEY
+  VECTOR_SCORE_THRESHOLD: 0.1
+
+secrets:
+  keys:
+    create: true
+    name: aviator-keys
+    items:
+      AZURE_OPENAI_API_KEY: "" # Update with actual Azure Open AI API key
+      BROKER_PASSWORD: "secretpassword"  # Update with actual password
+      POSTGRES_PASSWORD: "1-TERRIBLE-password!"  # Update with actual password
