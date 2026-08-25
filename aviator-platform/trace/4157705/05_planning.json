@@ -1,0 +1,837 @@
+{
+  "node": "Architectural Planning",
+  "system_message": "You are a Precise Software Planner working on a real production codebase.\n\nYOUR ONLY JOB:\nGiven a ticket and a ranked list of candidate files, produce the minimal set of tasks needed.\nDo NOT hallucinate file paths. Do NOT invent classes. Use ONLY the exact paths shown in CANDIDATE FILES.\n\n\nFILE SELECTION RULES (in priority order):\n1. HIGH CONFIDENCE FILES (listed above) → evaluate carefully, but only include if they actually require changes\n2. SHALLOW CONTEXT FILES → include if they match the structural pattern you are implementing\n3. Files with STYLE role (*.scss, *.css) → only include if ticket is a CSS/styling ticket\n4. LOCK_FILE / GENERATED files → NEVER include\n5. TEST files (*.spec.ts) → only include if ticket explicitly requires test changes\n6. EVIDENCE-BASED SELECTION: You MUST verify the candidate file contents in the CODE FACTS section before selecting them. Do NOT blindly accept files just because they are ranked highly. If a top-ranked file's contents do not match the ticket's functional requirements, IGNORE IT and look for better matches.\n\nTASK DECOMPOSITION RULES:\n- Each task modifies ONE file\n- Max 10 writable tasks total. For version bumps: 2-4 tasks (all files containing the version).\n- Tasks must be in dependency order (infrastructure first)\n- `selection_reason` must explain WHY this file needs changing (not just \"it exists\")\n- `allowed_methods` must list SPECIFIC method or property names to change\n\nGROUNDED IMPLEMENTATION DECISION RULES:\n- If a GROUNDED IMPLEMENTATION DECISION section is present in the context, you MUST obey it:\n  - MODIFIABLE FILES → must become REQUIRED tasks (they are the canonical source of the change)\n  - VERIFICATION TARGETS → must NOT become tasks (they are downstream consumers — verify, don't modify)\n  - BLOCKED FILES → MUST NEVER be modified (generated code, locks, swagger)\n  - IGNORED FILES → must NEVER appear as tasks\n  - SUPPORTING FILES → may be included ONLY if needed for consistency (imports, interfaces)\n- A VERIFICATION TARGET or BLOCKED file CANNOT be a REQUIRED task\n- MODIFIABLE files take priority — create tasks for them first\n\n\nLANGUAGE MAP:\n- .ts, .html → typescript\n- .js → javascript\n- .java, .kt → java\n- .py → python\n- .sh, .bash, .ps1, .bat → shell\n- .json, .yml, .yaml, .xml → json\n- .scss, .css, .less → scss\n\nRESPOND with JSON ONLY:\n{\n  \"pattern\": \"Layered Architecture\",\n  \"affected_modules\": [\"UI Layer\"],\n  \"tasks\": [\n    {\n      \"id\": \"task-1\",\n      \"title\": \"Update version in app.component.ts\",\n      \"description\": \"Change helpVersion from 260200 to 260300\",\n      \"file_path\": \"<exact-path-from-candidates>\",\n      \"task_type\": \"modify\",\n      \"language\": \"typescript\",\n      \"selection_reason\": \"Stores the helpVersion constant that needs updating from 260200 to 260300\",\n      \"target_class\": \"AppComponent\",\n      \"allowed_methods\": [\"helpVersion\"],\n      \"new_file_creation_allowed\": false,\n      \"dependencies\": [],\n      \"estimated_complexity\": 1,\n      \"requires_testing\": false\n    }\n  ],\n  \"api_changes\": [],\n  \"database_changes\": [],\n  \"external_dependencies\": []\n}\n\nNO markdown, NO explanations, ONLY valid JSON.",
+  "user_message": "TICKET: 4157705\nTITLE: Core for Supplier Exchange - Make user email address case insensitive\nPRIORITY: High\n\nREQUIREMENTS:\nFunctional: - The API shall perform case-insensitive comparisons for user email addresses.\n- The API shall not change existing behavior for valid users when email comparison is performed.\nTechnical:  - Modify the server-side logic that handles user email validation and lookup to convert email addresses to a consistent case (e.g., lowercase) before comparison.\n- Ensure that the database query or comparison mechanism for user emails is updated to be case-insensitive.\nAffected:   - User authentication module\n- User registration module\n- Email validation service\n- Database interaction layer for user data\n\n\nDISCOVERED CANDIDATE FILES (RANKED BY CONFIDENCE, YOU MUST SELECT FROM THESE):\n[\n  {\n    \"rank\": 1,\n    \"path\": \"xchange-ui/src/app/modules/shared/services/user-preferences/user-preferences.service.ts\",\n    \"confidence\": 0.86,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 2,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterVersionsController.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: VERSION_SOURCE\"\n    ]\n  },\n  {\n    \"rank\": 3,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/GenericConstants.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: VERSION_SOURCE\"\n    ]\n  },\n  {\n    \"rank\": 4,\n    \"path\": \"area-service/src/main/java/com/opentext/ene/transmittals/constants/CmsTransmittalRecipientType.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 5,\n    \"path\": \"area-service/src/main/java/com/opentext/ene/transmittals/constants/TransmittalRecipientSagaRequestParams.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 6,\n    \"path\": \"area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipient.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 7,\n    \"path\": \"area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipientDTO.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 8,\n    \"path\": \"area-service/src/main/java/com/opentext/ene/transmittals/services/TransmittalService.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 9,\n    \"path\": \"area-service/src/main/java/com/opentext/ene/transmittals/services/UsersService.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 10,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/commons/gql/client/transmittal/model/GQL_TransmittalRecipient.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 11,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterEntry.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 12,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterInput.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 13,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterValidationController.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 14,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegistersCollectionController.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 15,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/RegisterDocumentService.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 16,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/MembersServiceImpl.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 17,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/RegisterDocumentServiceImpl.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 18,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/entity/RoleMembership.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 19,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/exception/UnAuthorizedUserForAreaException.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 20,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/saga/handler/CustomEmailNotificationHandler.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 21,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/service/NotificationsService.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 22,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/service/UsersService.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 23,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/service/impl/NotificationsServiceImpl.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 24,\n    \"path\": \"area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 25,\n    \"path\": \"ene-load-service/src/main/java/com/opentext/bim/loadservice/services/impl/NotificationsService.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 26,\n    \"path\": \"ene-load-service/src/main/java/db/migration/V1_7__UpdateProjectReplica_DataMigration.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 27,\n    \"path\": \"issues-service/src/main/java/com/opentext/solutions/services/issues/entity/TenantUser.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 28,\n    \"path\": \"issues-service/src/main/java/com/opentext/solutions/services/issues/repositories/TenantUserRepository.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 29,\n    \"path\": \"issues-service/src/main/java/com/opentext/solutions/services/issues/rest/model/UserInfo.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 30,\n    \"path\": \"issues-service/src/main/java/com/opentext/solutions/services/issues/service/ITenantUserService.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 31,\n    \"path\": \"issues-service/src/main/java/com/opentext/solutions/services/issues/service/impl/IssuesAuthorizationServiceImpl.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 32,\n    \"path\": \"issues-service/src/main/java/com/opentext/solutions/services/issues/service/impl/TenantUserServiceImpl.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 33,\n    \"path\": \"project-service/src/main/java/com/opentext/bim/projectservice/model/UserPreferences.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 34,\n    \"path\": \"project-service/src/main/java/com/opentext/bim/projectservice/sagas/handlers/UpdateProjectUserHandler.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 35,\n    \"path\": \"project-service/src/main/java/com/opentext/bim/projectservice/service/OrganizationValidationService.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 36,\n    \"path\": \"project-service/src/main/java/com/opentext/bim/projectservice/service/ParticipatingMemberService.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 37,\n    \"path\": \"project-service/src/main/java/com/opentext/bim/projectservice/service/ProjectValidationService.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 38,\n    \"path\": \"project-service/src/main/java/com/opentext/bim/projectservice/service/UserPreferencesService.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 39,\n    \"path\": \"project-service/src/main/java/com/opentext/bim/projectservice/validators/OrgAndProjectUserValidator.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 40,\n    \"path\": \"project-service/src/main/java/com/opentext/bim/projectservice/validators/OrganizationValidator.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 41,\n    \"path\": \"project-service/src/main/java/com/opentext/bim/projectservice/validators/ProjectValidator.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 42,\n    \"path\": \"project-service/src/main/java/com/opentext/bim/projectservice/validators/UserValidator.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 43,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/ErrorMessages.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 44,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/model/TransmittalRecipientDto.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 45,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/NotificationServiceConnector.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 46,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/RegisterServiceConnector.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 47,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/UserServiceConnector.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 48,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/UsersService.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 49,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/constants/V2ErrorCode.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 50,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/contract/model/ContractV2.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 51,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/exceptionhandler/GenericExceptionHandler.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 52,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/issue/controllers/IssueController.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 53,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/library/model/LibraryFolderUserRoleV2.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 54,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/notification/controllers/NotificationController.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 55,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/notification/model/NotificationV2.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 56,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/register/controllers/RegisterController.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 57,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/response/model/UserIdentity.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 58,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/rolemembers/controllers/RoleMemberController.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 59,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/rolemembers/model/MemberV2.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 60,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/controllers/UserController.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 61,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/model/UserV2.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  },\n  {\n    \"rank\": 62,\n    \"path\": \"se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/utils/CommonUtils.java\",\n    \"confidence\": 0.56,\n    \"reasons\": [\n      \"Role: UNKNOWN\"\n    ]\n  }\n]\n\nBLACKLISTED FILES (DO NOT USE):\nse-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/UserService.java\n\n\n\n\nNow produce the JSON plan. Select from CANDIDATE FILES only. Must_use files must appear in tasks.",
+  "input": {
+    "evidence": "from pipeline",
+    "discovered_files": [
+      {
+        "path": "xchange-ui/src/app/modules/shared/services/user-preferences/user-preferences.service.ts",
+        "confidence": 0.86,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.86"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterVersionsController.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "VERSION_SOURCE"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/GenericConstants.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "VERSION_SOURCE"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/ene/transmittals/constants/CmsTransmittalRecipientType.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/ene/transmittals/constants/TransmittalRecipientSagaRequestParams.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipient.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipientDTO.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/ene/transmittals/services/TransmittalService.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/ene/transmittals/services/UsersService.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/commons/gql/client/transmittal/model/GQL_TransmittalRecipient.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterEntry.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterInput.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterValidationController.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegistersCollectionController.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/RegisterDocumentService.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/MembersServiceImpl.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/RegisterDocumentServiceImpl.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/entity/RoleMembership.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/exception/UnAuthorizedUserForAreaException.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/saga/handler/CustomEmailNotificationHandler.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/service/NotificationsService.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/service/UsersService.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/NotificationsServiceImpl.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "ene-load-service/src/main/java/com/opentext/bim/loadservice/services/impl/NotificationsService.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "ene-load-service/src/main/java/db/migration/V1_7__UpdateProjectReplica_DataMigration.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "issues-service/src/main/java/com/opentext/solutions/services/issues/entity/TenantUser.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "issues-service/src/main/java/com/opentext/solutions/services/issues/repositories/TenantUserRepository.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "issues-service/src/main/java/com/opentext/solutions/services/issues/rest/model/UserInfo.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "issues-service/src/main/java/com/opentext/solutions/services/issues/service/ITenantUserService.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "issues-service/src/main/java/com/opentext/solutions/services/issues/service/impl/IssuesAuthorizationServiceImpl.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "issues-service/src/main/java/com/opentext/solutions/services/issues/service/impl/TenantUserServiceImpl.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "project-service/src/main/java/com/opentext/bim/projectservice/model/UserPreferences.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "project-service/src/main/java/com/opentext/bim/projectservice/sagas/handlers/UpdateProjectUserHandler.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "project-service/src/main/java/com/opentext/bim/projectservice/service/OrganizationValidationService.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "project-service/src/main/java/com/opentext/bim/projectservice/service/ParticipatingMemberService.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "project-service/src/main/java/com/opentext/bim/projectservice/service/ProjectValidationService.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "project-service/src/main/java/com/opentext/bim/projectservice/service/UserPreferencesService.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/OrgAndProjectUserValidator.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/OrganizationValidator.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/ProjectValidator.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/UserValidator.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/ErrorMessages.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/model/TransmittalRecipientDto.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/NotificationServiceConnector.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/RegisterServiceConnector.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/UserServiceConnector.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/UsersService.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/constants/V2ErrorCode.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/contract/model/ContractV2.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/exceptionhandler/GenericExceptionHandler.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/issue/controllers/IssueController.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/library/model/LibraryFolderUserRoleV2.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/notification/controllers/NotificationController.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/notification/model/NotificationV2.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/register/controllers/RegisterController.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/response/model/UserIdentity.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/rolemembers/controllers/RoleMemberController.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/rolemembers/model/MemberV2.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/controllers/UserController.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/model/UserV2.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      },
+      {
+        "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/utils/CommonUtils.java",
+        "confidence": 0.56,
+        "features": {},
+        "signals": [
+          "evidence_match:vector",
+          "score:0.56"
+        ],
+        "candidate_role": "UNKNOWN"
+      }
+    ]
+  },
+  "reasoning": {
+    "action": "Emit tasks, module divisions, and roles"
+  },
+  "output": {
+    "plan": {
+      "pattern": "Layered Architecture",
+      "affected_modules": [
+        "User Authentication Module",
+        "User Registration Module",
+        "Email Validation Service",
+        "Database Interaction Layer"
+      ],
+      "tasks": [
+        {
+          "id": "task-1",
+          "title": "Add email normalization utility method",
+          "description": "Create a static utility method in CommonUtils to convert email addresses to a consistent lowercase format for case-insensitive comparisons.",
+          "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/utils/CommonUtils.java",
+          "task_type": "modify",
+          "artifact_type": null,
+          "language": "java",
+          "dependencies": [],
+          "estimated_complexity": 2,
+          "requires_testing": true,
+          "selection_reason": "This utility class is a suitable place to centralize a reusable method for email normalization, which will be consumed by other services and controllers.",
+          "target_method": null,
+          "target_class": "CommonUtils",
+          "allowed_methods": [
+            "add new static method `normalizeEmail`"
+          ],
+          "new_file_creation_allowed": false,
+          "localization_confidence": 0.0,
+          "localization_reason": null,
+          "file_candidates": [],
+          "ownership_type": null
+        },
+        {
+          "id": "task-2",
+          "title": "Normalize incoming emails in UserController",
+          "description": "Modify methods in UserController that receive user email addresses (e.g., for registration, login, or updates) to normalize them to lowercase using the new utility method before further processing.",
+          "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/controllers/UserController.java",
+          "task_type": "modify",
+          "artifact_type": null,
+          "language": "java",
+          "dependencies": [
+            "task-1"
+          ],
+          "estimated_complexity": 3,
+          "requires_testing": true,
+          "selection_reason": "As a primary entry point for user-related API requests, this controller needs to ensure that all incoming email addresses are normalized for case-insensitive comparison at the earliest possible stage.",
+          "target_method": null,
+          "target_class": "UserController",
+          "allowed_methods": [
+            "registerUser",
+            "login",
+            "updateUserEmail",
+            "*"
+          ],
+          "new_file_creation_allowed": false,
+          "localization_confidence": 0.0,
+          "localization_reason": null,
+          "file_candidates": [],
+          "ownership_type": null
+        },
+        {
+          "id": "task-3",
+          "title": "Apply email normalization in TenantUserServiceImpl",
+          "description": "Update methods within TenantUserServiceImpl that perform user lookups or comparisons based on email to use the normalized (lowercase) email address.",
+          "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/service/impl/TenantUserServiceImpl.java",
+          "task_type": "modify",
+          "artifact_type": null,
+          "language": "java",
+          "dependencies": [
+            "task-1"
+          ],
+          "estimated_complexity": 3,
+          "requires_testing": true,
+          "selection_reason": "This service implementation handles core business logic for tenant user management, including email-based lookups and validation, which must now be case-insensitive.",
+          "target_method": null,
+          "target_class": "TenantUserServiceImpl",
+          "allowed_methods": [
+            "findByEmail",
+            "createUser",
+            "updateUser",
+            "authenticateUser",
+            "*"
+          ],
+          "new_file_creation_allowed": false,
+          "localization_confidence": 0.0,
+          "localization_reason": null,
+          "file_candidates": [],
+          "ownership_type": null
+        },
+        {
+          "id": "task-4",
+          "title": "Apply email normalization in UsersServiceImpl (area-service)",
+          "description": "Modify methods in the area-service's UsersServiceImpl that perform user lookups or comparisons by email to use the normalized (lowercase) email address.",
+          "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+          "task_type": "modify",
+          "artifact_type": null,
+          "language": "java",
+          "dependencies": [
+            "task-1"
+          ],
+          "estimated_complexity": 3,
+          "requires_testing": true,
+          "selection_reason": "This service provides user management within the 'area-service' context and needs to ensure all email-based operations are case-insensitive.",
+          "target_method": null,
+          "target_class": "UsersServiceImpl",
+          "allowed_methods": [
+            "getUserByEmail",
+            "findUser",
+            "*"
+          ],
+          "new_file_creation_allowed": false,
+          "localization_confidence": 0.0,
+          "localization_reason": null,
+          "file_candidates": [],
+          "ownership_type": null
+        },
+        {
+          "id": "task-5",
+          "title": "Update UserValidator for case-insensitive email checks",
+          "description": "Adjust the UserValidator to perform email format validation and uniqueness checks using normalized (lowercase) email addresses.",
+          "file_path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/UserValidator.java",
+          "task_type": "modify",
+          "artifact_type": null,
+          "language": "java",
+          "dependencies": [
+            "task-1"
+          ],
+          "estimated_complexity": 2,
+          "requires_testing": true,
+          "selection_reason": "This validator is responsible for user data integrity, including email validation and uniqueness, which now requires case-insensitive handling.",
+          "target_method": null,
+          "target_class": "UserValidator",
+          "allowed_methods": [
+            "validateEmail",
+            "isEmailUnique",
+            "*"
+          ],
+          "new_file_creation_allowed": false,
+          "localization_confidence": 0.0,
+          "localization_reason": null,
+          "file_candidates": [],
+          "ownership_type": null
+        },
+        {
+          "id": "task-6",
+          "title": "Ensure case-insensitive email queries in TenantUserRepository",
+          "description": "Modify database query methods in TenantUserRepository that use email addresses to ensure they perform case-insensitive comparisons, potentially by using `LOWER()` in JPQL/SQL or by ensuring the input email is already normalized.",
+          "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/repositories/TenantUserRepository.java",
+          "task_type": "modify",
+          "artifact_type": null,
+          "language": "java",
+          "dependencies": [
+            "task-3"
+          ],
+          "estimated_complexity": 4,
+          "requires_testing": true,
+          "selection_reason": "This repository directly interacts with the database for TenantUser entities. Database queries for user emails must be updated to perform case-insensitive comparisons as per requirements.",
+          "target_method": null,
+          "target_class": "TenantUserRepository",
+          "allowed_methods": [
+            "findByEmail",
+            "existsByEmail",
+            "*"
+          ],
+          "new_file_creation_allowed": false,
+          "localization_confidence": 0.0,
+          "localization_reason": null,
+          "file_candidates": [],
+          "ownership_type": null
+        },
+        {
+          "id": "grounded-owner-7",
+          "title": "Modify grounded owner: se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/UserService.java",
+          "description": "Mandatory owner task injected by grounded-decision enforcement. This file is the canonical source and must be modified.",
+          "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/UserService.java",
+          "task_type": "modify",
+          "artifact_type": null,
+          "language": "java",
+          "dependencies": [],
+          "estimated_complexity": 2,
+          "requires_testing": true,
+          "selection_reason": "Injected by workflow grounded guard because planner omitted a required owner.",
+          "target_method": null,
+          "target_class": null,
+          "allowed_methods": [],
+          "new_file_creation_allowed": false,
+          "localization_confidence": 1.0,
+          "localization_reason": "Required owner from grounded implementation decision",
+          "file_candidates": [],
+          "ownership_type": "PRIMARY_OWNER"
+        }
+      ],
+      "api_changes": [],
+      "database_changes": [],
+      "external_dependencies": [],
+      "estimated_total_complexity": 0
+    }
+  },
+  "metrics": {
+    "duration_ms": 4000,
+    "prompt_tokens": 2000,
+    "completion_tokens": 600
+  }
+}

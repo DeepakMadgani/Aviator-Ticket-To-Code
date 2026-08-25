@@ -1,0 +1,30 @@
+[
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/utils/CommonUtils.java",
+    "task_type": "modify"
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/controllers/UserController.java",
+    "task_type": "modify"
+  },
+  {
+    "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/service/impl/TenantUserServiceImpl.java",
+    "task_type": "modify"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+    "task_type": "modify"
+  },
+  {
+    "file_path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/UserValidator.java",
+    "task_type": "modify"
+  },
+  {
+    "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/repositories/TenantUserRepository.java",
+    "task_type": "modify"
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/UserService.java",
+    "task_type": "modify"
+  }
+]

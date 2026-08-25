@@ -1,0 +1,44 @@
+# Ignore node modules and build artifacts
+node_modules/
+dist/
+build/
+.npm/
+target/
+
+# Ignore Python cache and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.venv-1/
+.env
+
+# Ignore IDE settings
+.vscode/
+.idea/
+*.sln
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore root level temporary and log files
+/*.log
+/*.txt
+/*.json
+/*.py
+/*.bat
+
+# Ignore all markdown files in root directory EXCEPT important guides
+/*.md
+!/STARTUP_GUIDE.md
+!/index.md
+!/README.md
+
+# Make sure we don't accidentally ignore our core directories if they match something above
+!/CC4E/
+!/aviator-full-stack/
+!/aviator-platform/
+!/aviator-plugin-sample/
+!/aviator_adt/
+!/enhancement-test-project/

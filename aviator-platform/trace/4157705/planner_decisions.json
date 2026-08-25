@@ -1,0 +1,436 @@
+[
+  {
+    "file_path": "xchange-ui/src/app/modules/shared/services/user-preferences/user-preferences.service.ts",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.86
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterVersionsController.java",
+    "role": "VERSION_SOURCE",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/GenericConstants.java",
+    "role": "VERSION_SOURCE",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/constants/CmsTransmittalRecipientType.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/constants/TransmittalRecipientSagaRequestParams.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipient.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipientDTO.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/services/TransmittalService.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/services/UsersService.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/commons/gql/client/transmittal/model/GQL_TransmittalRecipient.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterEntry.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterInput.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterValidationController.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegistersCollectionController.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/RegisterDocumentService.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/MembersServiceImpl.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/RegisterDocumentServiceImpl.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/entity/RoleMembership.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/exception/UnAuthorizedUserForAreaException.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/saga/handler/CustomEmailNotificationHandler.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/NotificationsService.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/UsersService.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/NotificationsServiceImpl.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+    "role": "UNKNOWN",
+    "decision": "REQUIRED",
+    "reason": "Planner created a modify/create task for this file",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "ene-load-service/src/main/java/com/opentext/bim/loadservice/services/impl/NotificationsService.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "ene-load-service/src/main/java/db/migration/V1_7__UpdateProjectReplica_DataMigration.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/entity/TenantUser.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/repositories/TenantUserRepository.java",
+    "role": "UNKNOWN",
+    "decision": "REQUIRED",
+    "reason": "Planner created a modify/create task for this file",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/rest/model/UserInfo.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/service/ITenantUserService.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/service/impl/IssuesAuthorizationServiceImpl.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/service/impl/TenantUserServiceImpl.java",
+    "role": "UNKNOWN",
+    "decision": "REQUIRED",
+    "reason": "Planner created a modify/create task for this file",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "project-service/src/main/java/com/opentext/bim/projectservice/model/UserPreferences.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "project-service/src/main/java/com/opentext/bim/projectservice/sagas/handlers/UpdateProjectUserHandler.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "project-service/src/main/java/com/opentext/bim/projectservice/service/OrganizationValidationService.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "project-service/src/main/java/com/opentext/bim/projectservice/service/ParticipatingMemberService.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "project-service/src/main/java/com/opentext/bim/projectservice/service/ProjectValidationService.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "project-service/src/main/java/com/opentext/bim/projectservice/service/UserPreferencesService.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/OrgAndProjectUserValidator.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/OrganizationValidator.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/ProjectValidator.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/UserValidator.java",
+    "role": "UNKNOWN",
+    "decision": "REQUIRED",
+    "reason": "Planner created a modify/create task for this file",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/ErrorMessages.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/model/TransmittalRecipientDto.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/NotificationServiceConnector.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/RegisterServiceConnector.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/UserServiceConnector.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/UsersService.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/constants/V2ErrorCode.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/contract/model/ContractV2.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/exceptionhandler/GenericExceptionHandler.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/issue/controllers/IssueController.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/library/model/LibraryFolderUserRoleV2.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/notification/controllers/NotificationController.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/notification/model/NotificationV2.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/register/controllers/RegisterController.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/response/model/UserIdentity.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/rolemembers/controllers/RoleMemberController.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/rolemembers/model/MemberV2.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/controllers/UserController.java",
+    "role": "UNKNOWN",
+    "decision": "REQUIRED",
+    "reason": "Planner created a modify/create task for this file",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/model/UserV2.java",
+    "role": "UNKNOWN",
+    "decision": "IGNORE",
+    "reason": "Planner evaluated this candidate and did not select it",
+    "confidence": 0.56
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/utils/CommonUtils.java",
+    "role": "UNKNOWN",
+    "decision": "REQUIRED",
+    "reason": "Planner created a modify/create task for this file",
+    "confidence": 0.56
+  }
+]

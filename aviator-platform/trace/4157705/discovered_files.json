@@ -1,0 +1,622 @@
+[
+  {
+    "path": "xchange-ui/src/app/modules/shared/services/user-preferences/user-preferences.service.ts",
+    "confidence": 0.86,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.86"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterVersionsController.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "VERSION_SOURCE"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/GenericConstants.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "VERSION_SOURCE"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/ene/transmittals/constants/CmsTransmittalRecipientType.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/ene/transmittals/constants/TransmittalRecipientSagaRequestParams.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipient.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipientDTO.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/ene/transmittals/services/TransmittalService.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/ene/transmittals/services/UsersService.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/commons/gql/client/transmittal/model/GQL_TransmittalRecipient.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterEntry.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterInput.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterValidationController.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegistersCollectionController.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/RegisterDocumentService.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/MembersServiceImpl.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/RegisterDocumentServiceImpl.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/entity/RoleMembership.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/exception/UnAuthorizedUserForAreaException.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/saga/handler/CustomEmailNotificationHandler.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/service/NotificationsService.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/service/UsersService.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/NotificationsServiceImpl.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "ene-load-service/src/main/java/com/opentext/bim/loadservice/services/impl/NotificationsService.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "ene-load-service/src/main/java/db/migration/V1_7__UpdateProjectReplica_DataMigration.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "issues-service/src/main/java/com/opentext/solutions/services/issues/entity/TenantUser.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "issues-service/src/main/java/com/opentext/solutions/services/issues/repositories/TenantUserRepository.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "issues-service/src/main/java/com/opentext/solutions/services/issues/rest/model/UserInfo.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "issues-service/src/main/java/com/opentext/solutions/services/issues/service/ITenantUserService.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "issues-service/src/main/java/com/opentext/solutions/services/issues/service/impl/IssuesAuthorizationServiceImpl.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "issues-service/src/main/java/com/opentext/solutions/services/issues/service/impl/TenantUserServiceImpl.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "project-service/src/main/java/com/opentext/bim/projectservice/model/UserPreferences.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "project-service/src/main/java/com/opentext/bim/projectservice/sagas/handlers/UpdateProjectUserHandler.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "project-service/src/main/java/com/opentext/bim/projectservice/service/OrganizationValidationService.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "project-service/src/main/java/com/opentext/bim/projectservice/service/ParticipatingMemberService.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "project-service/src/main/java/com/opentext/bim/projectservice/service/ProjectValidationService.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "project-service/src/main/java/com/opentext/bim/projectservice/service/UserPreferencesService.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/OrgAndProjectUserValidator.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/OrganizationValidator.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/ProjectValidator.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/UserValidator.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/ErrorMessages.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/model/TransmittalRecipientDto.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/NotificationServiceConnector.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/RegisterServiceConnector.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/UserServiceConnector.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/service/UsersService.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/constants/V2ErrorCode.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/contract/model/ContractV2.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/exceptionhandler/GenericExceptionHandler.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/issue/controllers/IssueController.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/library/model/LibraryFolderUserRoleV2.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/notification/controllers/NotificationController.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/notification/model/NotificationV2.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/register/controllers/RegisterController.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/response/model/UserIdentity.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/rolemembers/controllers/RoleMemberController.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/rolemembers/model/MemberV2.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/controllers/UserController.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/model/UserV2.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  },
+  {
+    "path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/utils/CommonUtils.java",
+    "confidence": 0.56,
+    "features": {},
+    "signals": [
+      "evidence_match:vector",
+      "score:0.56"
+    ],
+    "candidate_role": "UNKNOWN"
+  }
+]

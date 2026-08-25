@@ -1,0 +1,20 @@
+{
+  "executive_summary": "Ticket processed with strategy 'unknown'. Generated 0 code artifact(s).",
+  "step_by_step": [
+    "investigate: Node 'investigate' completed",
+    "grounded_resolution: Node 'grounded_resolution' completed",
+    "plan: Generated architectural plan with 5 task(s)",
+    "plan: Generated architectural plan with 4 task(s)",
+    "plan: Generated architectural plan with 7 task(s)"
+  ],
+  "change_ledger": [],
+  "validation_ledger": [
+    "semantic_requirements_count=0",
+    "build_status=unknown",
+    "workflow_status=failed",
+    "evidence_items_count=68"
+  ],
+  "unresolved_risks": [
+    "Build not cleanly successful"
+  ]
+}

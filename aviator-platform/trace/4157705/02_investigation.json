@@ -1,0 +1,105 @@
+{
+  "node": "Investigation",
+  "system_message": "You are an expert software requirements analyst with deep knowledge of:\n- Software development lifecycle (SDLC)\n- User story analysis\n- Acceptance criteria decomposition\n- Edge case identification\n- Test-driven development\n\nYOUR TASK:\nAnalyze the provided user story/ticket and extract structured requirements.\n\nEXTRACT:\n1. Functional Requirements - What the system should DO\n2. Technical Requirements - HOW to implement (specific code changes, APIs, components)\n3. Edge Cases - Error scenarios, boundary conditions, unexpected inputs\n4. Acceptance Tests - Test cases to verify functionality\n5. Affected Components - Which modules/files will change  5. Affected Components - Which modules/files will change\n  6. Non-Functional Requirements - Performance, security, scalability needs\n  7. Risk - (low, medium, high)\n  8. Complexity - (low, medium, high)\n  9. Ticket Category - (Feature, Bug, Config, Refactor)\n  10. Expected Files - Specific file paths expected\n  11. Estimated Work - (small, medium, large)\n\n\nRULES:\n- Be SPECIFIC - avoid vague requirements like \"improve performance\"\n- Include file paths if mentioned (e.g., \"Update src/components/CheckoutForm.tsx\")\n- Extract ALL edge cases mentioned or implied\n- Generate testable acceptance criteria\n- Identify ALL affected components\n\nRESPOND with JSON ONLY using this exact structure:\n{\n  \"functional_requirements\": [\"Req 1\", \"Req 2\"],\n  \"technical_requirements\": [\"Tech req 1\", \"Tech req 2\"],\n  \"edge_cases\": [\"Edge case 1\", \"Edge case 2\"],\n  \"acceptance_tests\": [\"Test 1\", \"Test 2\"],\n  \"affected_components\": [\"Component 1\", \"Component 2\"],\n  \"non_functional_requirements\": [\"NFR 1\", \"NFR 2\"]\n}\n\nNO markdown, NO explanations, ONLY JSON.",
+  "user_message": "TICKET ID: 4157705\nTITLE: Core for Supplier Exchange - Make user email address case insensitive\nPRIORITY: High\n\nDESCRIPTION:\nAPI currently treats email case as sensitive and returns 400 for different casing. Fix server-side behavior.\n\nACCEPTANCE CRITERIA:\n- Email comparison is case-insensitive\n- Existing behavior unchanged for valid users\n\nLABELS: backend, api, bug\n\nNow extract structured requirements in JSON format.",
+  "input": {
+    "ticket": {
+      "ticket_id": "4157705",
+      "title": "Core for Supplier Exchange - Make user email address case insensitive",
+      "description": "API currently treats email case as sensitive and returns 400 for different casing. Fix server-side behavior.",
+      "acceptance_criteria": [
+        "Email comparison is case-insensitive",
+        "Existing behavior unchanged for valid users"
+      ],
+      "labels": [
+        "backend",
+        "api",
+        "bug"
+      ],
+      "priority": "High",
+      "assignee": null,
+      "created_date": null
+    }
+  },
+  "reasoning": {
+    "action": "Extract intent, entities, literals, routes"
+  },
+  "output": {
+    "investigation": {
+      "ticket_type": "bug_fix",
+      "requires_code_changes": true,
+      "root_cause_hypothesis": "The email address comparison logic in the API is currently case-sensitive, leading to incorrect 400 responses when the casing differs.",
+      "affected_systems": [
+        "Supplier Exchange API"
+      ],
+      "core_subjects": [
+        "user email address"
+      ],
+      "context_locations": [
+        "API endpoint handling user registration/login/lookup"
+      ],
+      "investigation_areas": [
+        "Email validation/comparison logic",
+        "User authentication/registration endpoints"
+      ],
+      "possible_causes": [
+        "Direct string comparison of email addresses without case normalization.",
+        "Database schema might be case-sensitive for email fields, requiring application-level normalization before comparison."
+      ],
+      "goal": null,
+      "constraints": [],
+      "literal_values": [],
+      "expected_outcome": null,
+      "clarification_needed": false,
+      "explanation": "The ticket explicitly states that the API 'currently treats email case as sensitive and returns 400 for different casing', which is a clear description of a bug. The acceptance criteria also confirm the desired behavior is case-insensitive comparison. Therefore, it's a bug fix requiring code changes.",
+      "needs_more_context": false,
+      "current_state_literals": [
+        "400"
+      ],
+      "desired_state_literals": [
+        "case-insensitive email comparison"
+      ],
+      "recommended_action": "Modify the API's server-side logic to perform case-insensitive comparisons for user email addresses. This likely involves converting email addresses to a consistent case (e.g., lowercase) before comparison.",
+      "confidence": 0.95
+    },
+    "requirements": {
+      "functional_requirements": [
+        "The API shall perform case-insensitive comparisons for user email addresses.",
+        "The API shall not change existing behavior for valid users when email comparison is performed."
+      ],
+      "technical_requirements": [
+        "Modify the server-side logic that handles user email validation and lookup to convert email addresses to a consistent case (e.g., lowercase) before comparison.",
+        "Ensure that the database query or comparison mechanism for user emails is updated to be case-insensitive."
+      ],
+      "edge_cases": [
+        "User attempts to log in with an email address that differs only in casing from their registered email.",
+        "User attempts to register with an email address that differs only in casing from an already registered email.",
+        "API endpoint receives an email address with mixed casing (e.g., 'TestUser@Example.com').",
+        "API endpoint receives an email address with all uppercase or all lowercase characters."
+      ],
+      "acceptance_tests": [
+        "Given a user is registered with 'TestUser@Example.com', when the user attempts to log in with 'testuser@example.com', then the login should be successful and a 200 OK response should be returned.",
+        "Given a user is registered with 'TestUser@Example.com', when the user attempts to log in with 'TESTUSER@EXAMPLE.COM', then the login should be successful and a 200 OK response should be returned.",
+        "Given no user is registered with 'NewUser@Example.com', when a new user attempts to register with 'newuser@example.com', then the registration should be successful.",
+        "Given no user is registered with 'NewUser@Example.com', when a new user attempts to register with 'NEWUSER@EXAMPLE.COM', then the registration should be successful.",
+        "Given a user is registered with 'TestUser@Example.com', when an API call is made to retrieve user details using 'testuser@example.com', then the correct user details should be returned.",
+        "Given a user is registered with 'TestUser@Example.com', when an API call is made to retrieve user details using 'TESTUSER@EXAMPLE.COM', then the correct user details should be returned."
+      ],
+      "affected_components": [
+        "User authentication module",
+        "User registration module",
+        "Email validation service",
+        "Database interaction layer for user data"
+      ],
+      "non_functional_requirements": [
+        "The change should not introduce any performance degradation in user authentication or registration processes.",
+        "The solution should maintain the security of user credentials and data."
+      ]
+    }
+  },
+  "metrics": {
+    "duration_ms": 2500,
+    "prompt_tokens": 500,
+    "completion_tokens": 150
+  }
+}

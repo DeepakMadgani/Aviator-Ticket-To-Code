@@ -1,0 +1,148 @@
+{
+  "node": "Localization",
+  "system_message": null,
+  "user_message": null,
+  "input": {
+    "plan": "tasks"
+  },
+  "reasoning": {
+    "action": "Extract specific symbols and methods for code modification"
+  },
+  "output": {
+    "localized_tasks": [
+      {
+        "id": "task-1",
+        "title": "Normalize email input in UserController",
+        "description": "Modify methods in UserController that accept user email as input (e.g., for registration, login, or lookup) to convert the email address to lowercase before further processing. This ensures consistent case handling at the API entry point.",
+        "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/controllers/UserController.java",
+        "task_type": "modify",
+        "artifact_type": null,
+        "language": "java",
+        "dependencies": [],
+        "estimated_complexity": 2,
+        "requires_testing": true,
+        "selection_reason": "This file is an API controller responsible for handling user-related requests. Email addresses received here must be normalized to lowercase to ensure case-insensitive comparison throughout the system.",
+        "target_method": null,
+        "target_class": "UserController",
+        "allowed_methods": [
+          "registerUser",
+          "loginUser",
+          "getUserByEmail",
+          "updateUser"
+        ],
+        "new_file_creation_allowed": false,
+        "localization_confidence": 0.0,
+        "localization_reason": "No existing file found. CREATE at planner-suggested path: se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/controllers/UserController.java",
+        "file_candidates": [],
+        "ownership_type": null
+      },
+      {
+        "id": "task-2",
+        "title": "Ensure case-insensitive email lookup in TenantUserServiceImpl",
+        "description": "Update methods within TenantUserServiceImpl that perform user lookups or authentication based on email. Ensure that the email address is converted to lowercase before being passed to the repository layer for querying, or that the lookup mechanism itself is case-insensitive.",
+        "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/service/impl/TenantUserServiceImpl.java",
+        "task_type": "modify",
+        "artifact_type": null,
+        "language": "java",
+        "dependencies": [
+          "task-1"
+        ],
+        "estimated_complexity": 3,
+        "requires_testing": true,
+        "selection_reason": "This is a service layer implementation for user management. It will contain business logic for user authentication and retrieval, which needs to perform case-insensitive email comparisons.",
+        "target_method": null,
+        "target_class": "TenantUserServiceImpl",
+        "allowed_methods": [
+          "findByEmail",
+          "authenticateUser",
+          "createUser",
+          "updateUser"
+        ],
+        "new_file_creation_allowed": false,
+        "localization_confidence": 0.0,
+        "localization_reason": "No existing file found. CREATE at planner-suggested path: issues-service/src/main/java/com/opentext/solutions/services/issues/service/impl/TenantUserServiceImpl.java",
+        "file_candidates": [],
+        "ownership_type": null
+      },
+      {
+        "id": "task-3",
+        "title": "Implement case-insensitive database queries in TenantUserRepository",
+        "description": "Modify repository methods that query users by email to ensure case-insensitive comparison at the database level. This can be achieved by converting both the stored email and the query parameter to lowercase before comparison (e.g., using SQL LOWER() function or JPA/Hibernate specific annotations/methods).",
+        "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/repositories/TenantUserRepository.java",
+        "task_type": "modify",
+        "artifact_type": null,
+        "language": "java",
+        "dependencies": [
+          "task-2"
+        ],
+        "estimated_complexity": 3,
+        "requires_testing": true,
+        "selection_reason": "This file represents the data access layer for TenantUser entities. Database queries for user emails must be updated here to be case-insensitive, fulfilling the technical requirement for the database interaction layer.",
+        "target_method": null,
+        "target_class": "TenantUserRepository",
+        "allowed_methods": [
+          "findByEmail",
+          "existsByEmail"
+        ],
+        "new_file_creation_allowed": false,
+        "localization_confidence": 0.0,
+        "localization_reason": "No existing file found. CREATE at planner-suggested path: issues-service/src/main/java/com/opentext/solutions/services/issues/repositories/TenantUserRepository.java",
+        "file_candidates": [],
+        "ownership_type": null
+      },
+      {
+        "id": "task-4",
+        "title": "Normalize email in AuthUtils for authentication flows",
+        "description": "Review and modify methods within AuthUtils that handle user authentication or validation using email addresses. Ensure that any email used for comparison or lookup is first converted to lowercase to maintain case-insensitivity.",
+        "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/utils/AuthUtils.java",
+        "task_type": "modify",
+        "artifact_type": null,
+        "language": "java",
+        "dependencies": [
+          "task-1"
+        ],
+        "estimated_complexity": 2,
+        "requires_testing": true,
+        "selection_reason": "This utility class likely contains shared authentication logic. If email is used as part of authentication, it must be normalized here to ensure consistent case-insensitive behavior across all authentication paths.",
+        "target_method": null,
+        "target_class": "AuthUtils",
+        "allowed_methods": [
+          "validateUserCredentials",
+          "authenticate",
+          "generateToken"
+        ],
+        "new_file_creation_allowed": false,
+        "localization_confidence": 0.0,
+        "localization_reason": "No existing file found. CREATE at planner-suggested path: se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/utils/AuthUtils.java",
+        "file_candidates": [],
+        "ownership_type": null
+      },
+      {
+        "id": "grounded-owner-5",
+        "title": "Modify grounded owner: area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+        "description": "Mandatory owner task injected by grounded-decision enforcement. This file is the canonical source and must be modified.",
+        "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+        "task_type": "modify",
+        "artifact_type": null,
+        "language": "java",
+        "dependencies": [],
+        "estimated_complexity": 2,
+        "requires_testing": true,
+        "selection_reason": "Injected by workflow grounded guard because planner omitted a required owner.",
+        "target_method": null,
+        "target_class": null,
+        "allowed_methods": [],
+        "new_file_creation_allowed": false,
+        "localization_confidence": 0.0,
+        "localization_reason": "No existing file found. CREATE at planner-suggested path: area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+        "file_candidates": [],
+        "ownership_type": "PRIMARY_OWNER"
+      }
+    ]
+  },
+  "metrics": {
+    "duration_ms": 1000,
+    "prompt_tokens": 500,
+    "completion_tokens": 200
+  }
+}

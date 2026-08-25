@@ -1,0 +1,101 @@
+```json
+{
+  "pattern": "Layered Architecture",
+  "affected_modules": ["User Authentication Module", "User Registration Module", "Email Validation Service", "Database Interaction Layer"],
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Add email normalization utility method",
+      "description": "Create a static utility method in CommonUtils to convert email addresses to a consistent lowercase format for case-insensitive comparisons.",
+      "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/utils/CommonUtils.java",
+      "task_type": "modify",
+      "language": "java",
+      "selection_reason": "This utility class is a suitable place to centralize a reusable method for email normalization, which will be consumed by other services and controllers.",
+      "target_class": "CommonUtils",
+      "allowed_methods": ["add new static method `normalizeEmail`"],
+      "new_file_creation_allowed": false,
+      "dependencies": [],
+      "estimated_complexity": 2,
+      "requires_testing": true
+    },
+    {
+      "id": "task-2",
+      "title": "Normalize incoming emails in UserController",
+      "description": "Modify methods in UserController that receive user email addresses (e.g., for registration, login, or updates) to normalize them to lowercase using the new utility method before further processing.",
+      "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/controllers/UserController.java",
+      "task_type": "modify",
+      "language": "java",
+      "selection_reason": "As a primary entry point for user-related API requests, this controller needs to ensure that all incoming email addresses are normalized for case-insensitive comparison at the earliest possible stage.",
+      "target_class": "UserController",
+      "allowed_methods": ["registerUser", "login", "updateUserEmail", "*"],
+      "new_file_creation_allowed": false,
+      "dependencies": ["task-1"],
+      "estimated_complexity": 3,
+      "requires_testing": true
+    },
+    {
+      "id": "task-3",
+      "title": "Apply email normalization in TenantUserServiceImpl",
+      "description": "Update methods within TenantUserServiceImpl that perform user lookups or comparisons based on email to use the normalized (lowercase) email address.",
+      "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/service/impl/TenantUserServiceImpl.java",
+      "task_type": "modify",
+      "language": "java",
+      "selection_reason": "This service implementation handles core business logic for tenant user management, including email-based lookups and validation, which must now be case-insensitive.",
+      "target_class": "TenantUserServiceImpl",
+      "allowed_methods": ["findByEmail", "createUser", "updateUser", "authenticateUser", "*"],
+      "new_file_creation_allowed": false,
+      "dependencies": ["task-1"],
+      "estimated_complexity": 3,
+      "requires_testing": true
+    },
+    {
+      "id": "task-4",
+      "title": "Apply email normalization in UsersServiceImpl (area-service)",
+      "description": "Modify methods in the area-service's UsersServiceImpl that perform user lookups or comparisons by email to use the normalized (lowercase) email address.",
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+      "task_type": "modify",
+      "language": "java",
+      "selection_reason": "This service provides user management within the 'area-service' context and needs to ensure all email-based operations are case-insensitive.",
+      "target_class": "UsersServiceImpl",
+      "allowed_methods": ["getUserByEmail", "findUser", "*"],
+      "new_file_creation_allowed": false,
+      "dependencies": ["task-1"],
+      "estimated_complexity": 3,
+      "requires_testing": true
+    },
+    {
+      "id": "task-5",
+      "title": "Update UserValidator for case-insensitive email checks",
+      "description": "Adjust the UserValidator to perform email format validation and uniqueness checks using normalized (lowercase) email addresses.",
+      "file_path": "project-service/src/main/java/com/opentext/bim/projectservice/validators/UserValidator.java",
+      "task_type": "modify",
+      "language": "java",
+      "selection_reason": "This validator is responsible for user data integrity, including email validation and uniqueness, which now requires case-insensitive handling.",
+      "target_class": "UserValidator",
+      "allowed_methods": ["validateEmail", "isEmailUnique", "*"],
+      "new_file_creation_allowed": false,
+      "dependencies": ["task-1"],
+      "estimated_complexity": 2,
+      "requires_testing": true
+    },
+    {
+      "id": "task-6",
+      "title": "Ensure case-insensitive email queries in TenantUserRepository",
+      "description": "Modify database query methods in TenantUserRepository that use email addresses to ensure they perform case-insensitive comparisons, potentially by using `LOWER()` in JPQL/SQL or by ensuring the input email is already normalized.",
+      "file_path": "issues-service/src/main/java/com/opentext/solutions/services/issues/repositories/TenantUserRepository.java",
+      "task_type": "modify",
+      "language": "java",
+      "selection_reason": "This repository directly interacts with the database for TenantUser entities. Database queries for user emails must be updated to perform case-insensitive comparisons as per requirements.",
+      "target_class": "TenantUserRepository",
+      "allowed_methods": ["findByEmail", "existsByEmail", "*"],
+      "new_file_creation_allowed": false,
+      "dependencies": ["task-3"],
+      "estimated_complexity": 4,
+      "requires_testing": true
+    }
+  ],
+  "api_changes": [],
+  "database_changes": [],
+  "external_dependencies": []
+}
+```

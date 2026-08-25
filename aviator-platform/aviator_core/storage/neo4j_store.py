@@ -23,7 +23,7 @@ from aviator_core.models import Edge, EdgeKind, FileRecord, Symbol, SymbolKind
 class Neo4jStore:
     """Optional graph database backend using Neo4j."""
     
-    def __init__(self, uri: Optional[str] = None, user: Optional[str] = None, password: Optional[str] = None):
+    def __init__(self, workspace_path: str, uri: Optional[str] = None, user: Optional[str] = None, password: Optional[str] = None):
         """Initialize Neo4j connection.
         
         Args:
@@ -50,15 +50,27 @@ class Neo4jStore:
             )
         
         self.driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
+        self.workspace_path = workspace_path
         self._create_constraints()
     
     def _create_constraints(self) -> None:
         """Create uniqueness constraints and indexes."""
         with self.driver.session() as session:
-            # Constraints for uniqueness
+            # Drop old single-property constraints that conflict with multi-workspace
+            old_constraints = [
+                "DROP CONSTRAINT symbol_id_unique IF EXISTS",
+                "DROP CONSTRAINT file_path_unique IF EXISTS",
+            ]
+            for old in old_constraints:
+                try:
+                    session.run(old)
+                except Exception:
+                    pass
+            
+            # Composite constraints for multi-workspace isolation
             constraints = [
-                "CREATE CONSTRAINT symbol_id_unique IF NOT EXISTS FOR (s:Symbol) REQUIRE s.id IS UNIQUE",
-                "CREATE CONSTRAINT file_path_unique IF NOT EXISTS FOR (f:File) REQUIRE f.path IS UNIQUE",
+                "CREATE CONSTRAINT symbol_ws_id_unique IF NOT EXISTS FOR (s:Symbol) REQUIRE (s.workspace, s.id) IS UNIQUE",
+                "CREATE CONSTRAINT file_ws_path_unique IF NOT EXISTS FOR (f:File) REQUIRE (f.workspace, f.path) IS UNIQUE",
             ]
             
             # Indexes for performance
@@ -68,6 +80,8 @@ class Neo4jStore:
                 "CREATE INDEX symbol_kind IF NOT EXISTS FOR (s:Symbol) ON (s.kind)",
                 "CREATE INDEX symbol_stereotype IF NOT EXISTS FOR (s:Symbol) ON (s.spring_stereotype)",
                 "CREATE INDEX file_package IF NOT EXISTS FOR (f:File) ON (f.package)",
+                "CREATE INDEX symbol_workspace IF NOT EXISTS FOR (s:Symbol) ON (s.workspace)",
+                "CREATE INDEX file_workspace IF NOT EXISTS FOR (f:File) ON (f.workspace)",
             ]
             
             for constraint in constraints:
@@ -91,7 +105,7 @@ class Neo4jStore:
         with self.driver.session() as session:
             session.run(
                 """
-                MERGE (f:File {path: $path})
+                MERGE (f:File {workspace: $workspace, path: $path})
                 SET f.language = $language,
                     f.package = $package,
                     f.sha256 = $sha256,
@@ -100,6 +114,7 @@ class Neo4jStore:
                     f.parse_error = $parse_error
                 """,
                 path=file.path,
+                workspace=str(self.workspace_path),
                 language=file.language,
                 package=file.package,
                 sha256=file.sha256,
@@ -124,7 +139,7 @@ class Neo4jStore:
                 sess.run(
                     """
                     UNWIND $rows AS r
-                    MERGE (s:Symbol {id: r.id})
+                    MERGE (s:Symbol {workspace: $workspace, id: r.id})
                     SET s.kind = r.kind,
                         s.name = r.name,
                         s.qualified_name = r.qualified_name,
@@ -141,21 +156,23 @@ class Neo4jStore:
                         s.is_feign_client = r.is_feign_client,
                         s.feign_service_name = r.feign_service_name
                     WITH s, r
-                    MERGE (f:File {path: r.path})
+                    MERGE (f:File {workspace: $workspace, path: r.path})
                     MERGE (f)-[:CONTAINS]->(s)
                     """,
                     rows=batch,
+                    workspace=str(self.workspace_path),
                 )
                 batch.clear()
             if parent_batch:
                 sess.run(
                     """
                     UNWIND $rows AS r
-                    MATCH (parent:Symbol {id: r.parent_id})
-                    MATCH (child:Symbol {id: r.child_id})
+                    MATCH (parent:Symbol {workspace: $workspace, id: r.parent_id})
+                    MATCH (child:Symbol {workspace: $workspace, id: r.child_id})
                     MERGE (parent)-[:CONTAINS]->(child)
                     """,
                     rows=parent_batch,
+                    workspace=str(self.workspace_path),
                 )
                 parent_batch.clear()
 
@@ -221,14 +238,20 @@ class Neo4jStore:
                     session.run(
                         f"""
                         UNWIND $rows AS r
-                        MATCH (src:Symbol {{id: r.src_id}})
-                        MATCH (dst:Symbol {{id: r.dst_id}})
+                        MATCH (src:Symbol {{workspace: $workspace, id: r.src_id}})
+                        MATCH (dst:Symbol {{workspace: $workspace, id: r.dst_id}})
                         MERGE (src)-[:{rel_type} {{dst_name: r.dst_name}}]->(dst)
                         """,
                         rows=chunk,
+                        workspace=str(self.workspace_path),
                     )
 
             # Batch unresolved edges
+            # Design decision: External nodes are intentionally NOT workspace-scoped.
+            # They represent third-party/stdlib references (e.g., java.util.List)
+            # that are semantically identical across workspaces. Only the source
+            # Symbol MATCH is scoped, so relationships are workspace-bound but the
+            # target External node is shared globally.
             for i in range(0, len(unresolved), self._BATCH_SIZE):
                 chunk = unresolved[i:i + self._BATCH_SIZE]
                 session.run(
@@ -236,10 +259,11 @@ class Neo4jStore:
                     UNWIND $rows AS r
                     MERGE (ext:External {name: r.dst_name})
                     WITH ext, r
-                    MATCH (src:Symbol {id: r.src_id})
+                    MATCH (src:Symbol {workspace: $workspace, id: r.src_id})
                     MERGE (src)-[:REFERENCES {kind: r.kind}]->(ext)
                     """,
                     rows=chunk,
+                        workspace=str(self.workspace_path),
                 )
     
     def find_call_chain(self, start_symbol_id: str, max_depth: int = 3) -> list[dict]:
@@ -255,7 +279,7 @@ class Neo4jStore:
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH path = (start:Symbol {id: $start_id})-[:CALLS*1..%d]->(end:Symbol)
+                MATCH path = (start:Symbol {workspace: $workspace, id: $start_id})-[:CALLS*1..%d]->(end:Symbol {workspace: $workspace})
                 RETURN [node in nodes(path) | {
                     id: node.id,
                     name: node.name,
@@ -265,6 +289,7 @@ class Neo4jStore:
                 LIMIT 50
                 """ % max_depth,
                 start_id=start_symbol_id,
+                workspace=str(self.workspace_path),
             )
             return [record["chain"] for record in result]
     
@@ -287,7 +312,7 @@ class Neo4jStore:
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH path = (start:Symbol {id: $entry})-[:CALLS*1..%d]->(end:Symbol)
+                MATCH path = (start:Symbol {workspace: $workspace, id: $entry})-[:CALLS*1..%d]->(end:Symbol {workspace: $workspace})
                 WHERE start.spring_stereotype IN ['Controller', 'RestController']
                 AND end.spring_stereotype IN ['Service', 'Repository']
                 RETURN [node in nodes(path) | {
@@ -299,6 +324,7 @@ class Neo4jStore:
                 LIMIT 30
                 """ % max_depth,
                 entry=entry_point,
+                workspace=str(self.workspace_path),
             )
             return [record["layers"] for record in result]
     
@@ -314,7 +340,7 @@ class Neo4jStore:
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (f:File {package: $service})-[:CONTAINS]->(s:Symbol)
+                MATCH (f:File {workspace: $workspace, package: $service})-[:CONTAINS]->(s:Symbol {workspace: $workspace})
                 WHERE s.is_feign_client = true
                 RETURN s.name as client_name,
                        s.feign_service_name as target_service,
@@ -322,6 +348,7 @@ class Neo4jStore:
                 LIMIT 50
                 """,
                 service=service_name,
+                workspace=str(self.workspace_path),
             )
             return [dict(record) for record in result]
     
@@ -332,16 +359,29 @@ class Neo4jStore:
             repo_path: Repository path prefix to delete
         """
         with self.driver.session() as session:
-            # Delete all symbols and files matching the repo path
+            # Delete all symbols and files matching the repo path — scoped to this workspace only
             session.run(
                 """
-                MATCH (n)
+                MATCH (n {workspace: $workspace})
                 WHERE n.path STARTS WITH $prefix
                 DETACH DELETE n
                 """,
                 prefix=repo_path,
+                workspace=str(self.workspace_path),
             )
     
+    
+    def query(self, query_string: str, parameters: Optional[dict] = None) -> list[dict]:
+        if parameters is None:
+            parameters = {}
+        if hasattr(self, 'workspace_path') and self.workspace_path:
+            parameters['workspace'] = str(self.workspace_path)
+            if '$workspace' not in query_string:
+                raise ValueError('SECURITY REJECTION: All Neo4j queries must be scoped with {workspace: $workspace}')
+        with self.driver.session() as session:
+            result = session.run(query_string, parameters)
+            return [record.data() for record in result]
+
     def close(self) -> None:
         """Close the Neo4j driver connection."""
         self.driver.close()

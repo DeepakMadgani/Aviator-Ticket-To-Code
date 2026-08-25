@@ -26,6 +26,7 @@ from typing import Callable, Optional
 from aviator_core.models import IndexStats
 from aviator_core.parsers import JavaParser
 from aviator_core.parsers.typescript_parser import TypeScriptParser
+from aviator_core.parsers.python_parser import PythonParser
 from aviator_core.storage import SqliteStore
 
 
@@ -65,6 +66,17 @@ def discover_typescript_files(repo_root: Path, ignore: Optional[set[str]] = None
             if any(part in ignore for part in parts):
                 continue
             out.append(path)
+    return out
+
+
+def discover_python_files(repo_root: Path, ignore: Optional[set[str]] = None) -> list[Path]:
+    """Walk `repo_root` and return every `.py` file outside ignored directories."""
+    ignore = set(_DEFAULT_IGNORES) | (ignore or set())
+    out: list[Path] = []
+    for path in repo_root.rglob("*.py"):
+        if any(part in ignore for part in path.relative_to(repo_root).parts[:-1]):
+            continue
+        out.append(path)
     return out
 
 
@@ -415,11 +427,13 @@ def index_repository(
     # This turns method→External stubs into proper method→method edges in Neo4j.
     stats.resolved_calls = resolve_call_edges(store)
 
-    # Phase D: index TypeScript / Angular files.
+    # Phase D: index TypeScript / Angular / Python files.
     ts_files = discover_typescript_files(repo_root)
     template_files = discover_template_files(repo_root)
-    stats.files_scanned += len(ts_files) + len(template_files)
+    py_files = discover_python_files(repo_root)
+    stats.files_scanned += len(ts_files) + len(template_files) + len(py_files)
     ts_parser = TypeScriptParser(cache_dir=repo_root / ".aviator")
+    py_parser = PythonParser()
 
     with store.transaction():
         # Register HTML/SCSS/CSS files as bare FileRecord rows so that
@@ -457,5 +471,57 @@ def index_repository(
             else:
                 stats.files_failed += 1
 
+        # Parse Python files with ast.NodeVisitor.
+        for i, py_path in enumerate(py_files, start=1):
+            try:
+                result = py_parser.parse_file(py_path, repo_root)
+            except Exception as exc:
+                stats.files_failed += 1
+                continue
+            store.upsert_file(result.file)
+            store.insert_symbols(result.symbols)
+            store.insert_edges(result.edges)
+            stats.symbols += len(result.symbols)
+            stats.edges += len(result.edges)
+            if result.file.parse_ok:
+                stats.files_parsed += 1
+            else:
+                stats.files_failed += 1
+
     stats.duration_seconds = round(time.monotonic() - started, 3)
     return stats
+
+
+def index_file(file_path, sqlite_store, neo4j_store=None, repo_root=None) -> dict:
+    from aviator_core.parsers.java_parser import JavaParser
+    from aviator_core.parsers.typescript_parser import TypeScriptParser
+    from aviator_core.parsers.python_parser import PythonParser
+    from pathlib import Path
+    
+    file_path = Path(file_path)
+    repo_root = Path(repo_root) if repo_root else file_path.parent
+    store = sqlite_store
+    
+    if str(file_path).endswith('.java'):
+        parser = JavaParser()
+        result = parser.parse_file(file_path, repo_root)
+        store.upsert_file(result.file)
+        store.insert_symbols(result.symbols)
+        store.insert_edges(result.edges)
+        return {'symbols': len(result.symbols)}
+    elif str(file_path).endswith(('.ts', '.tsx', '.js', '.jsx')):
+        parser = TypeScriptParser(cache_dir=repo_root / ".aviator")
+        result = parser.parse_file(file_path, repo_root)
+        store.upsert_file(result.file)
+        store.insert_symbols(result.symbols)
+        store.insert_edges(result.edges)
+        return {'symbols': len(result.symbols)}
+    elif str(file_path).endswith('.py'):
+        parser = PythonParser()
+        result = parser.parse_file(file_path, repo_root)
+        store.upsert_file(result.file)
+        store.insert_symbols(result.symbols)
+        store.insert_edges(result.edges)
+        return {'symbols': len(result.symbols)}
+    return {}
+

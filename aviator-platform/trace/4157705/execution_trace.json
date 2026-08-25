@@ -1,0 +1,3466 @@
+{
+  "ticket": {
+    "id": "4157705",
+    "title": "Core for Supplier Exchange - Make user email address case insensitive"
+  },
+  "discovered_files": [
+    {
+      "path": "aviator_core/ticket_solver/reasoning.py",
+      "confidence": 0.131,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20",
+        "verified:SUPPORTING"
+      ],
+      "raw_score": 4.0,
+      "unified_score": 0.13052,
+      "features": {
+        "s_fs": 1.0,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.004,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.6,
+        "ownership_type": "SUPPORTING",
+        "ownership_reason": "participates: calculates=5, persists=0",
+        "inv_defines": 0,
+        "inv_displays": 5,
+        "inv_calculates": 5,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.6,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "constant",
+          "text": "This is the core intelligence layer that replaces the static Planner \u2192 Executor \u2192 Reasoner",
+          "line_no": 3
+        },
+        {
+          "type": "literal",
+          "text": "\u2502      \u2502              (normalize, score)        \u2502",
+          "line_no": 15
+        },
+        {
+          "type": "literal",
+          "text": "# Evidence \u2014 normalized, scored claims extracted from Observations",
+          "line_no": 84
+        },
+        {
+          "type": "literal",
+          "text": "\"\"\"A normalized, scored claim derived from one or more Observations.",
+          "line_no": 102
+        },
+        {
+          "type": "literal",
+          "text": "- A confidence score (how reliable?)",
+          "line_no": 106
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/models.py",
+      "confidence": 0.126,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.33",
+        "verified:READ_ONLY"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.12564655172413794,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.3333333333333333,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.005172413793103448,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.6,
+        "ownership_type": "READ_ONLY",
+        "ownership_reason": "references keywords (defines=0, calculates=0, displays=0)",
+        "inv_defines": 0,
+        "inv_displays": 0,
+        "inv_calculates": 0,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.6,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "# Core models",
+          "line_no": 57
+        },
+        {
+          "type": "literal",
+          "text": "default_factory=list, description=\"REST endpoints like GET:/api/users\"",
+          "line_no": 100
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/indexer.py",
+      "confidence": 0.125,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.33",
+        "verified:SUPPORTING"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.12549867021276595,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.3333333333333333,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.003989361702127659,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.6,
+        "ownership_type": "SUPPORTING",
+        "ownership_reason": "participates: calculates=9, persists=0",
+        "inv_defines": 0,
+        "inv_displays": 8,
+        "inv_calculates": 9,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.6,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.models import IndexStats",
+          "line_no": 26
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.parsers import JavaParser",
+          "line_no": 27
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.parsers.typescript_parser import TypeScriptParser",
+          "line_no": 28
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.storage import SqliteStore",
+          "line_no": 29
+        },
+        {
+          "type": "literal",
+          "text": "score = 0",
+          "line_no": 261
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/cli.py",
+      "confidence": 0.125,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.50",
+        "verified:READ_ONLY"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.12521929824561404,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.5,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0017543859649122805,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.8,
+        "ownership_type": "READ_ONLY",
+        "ownership_reason": "references keywords (defines=0, calculates=0, displays=0)",
+        "inv_defines": 0,
+        "inv_displays": 0,
+        "inv_calculates": 0,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.8,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "\"\"\"`aviator` CLI \u2014 Repository Intelligence Core entry point.",
+          "line_no": 1
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.indexer import index_repository",
+          "line_no": 24
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.query import callers as _callers",
+          "line_no": 25
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.query import find_symbols, neighbors",
+          "line_no": 26
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.storage import SqliteStore",
+          "line_no": 27
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/parsers/enhanced_patch_engine.py",
+      "confidence": 0.125,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.17",
+        "verified:SUPPORTING"
+      ],
+      "raw_score": 4.0,
+      "unified_score": 0.12509640102827763,
+      "features": {
+        "s_fs": 1.0,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.16666666666666666,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0007712082262210796,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.6,
+        "ownership_type": "SUPPORTING",
+        "ownership_reason": "participates: calculates=3, persists=0",
+        "inv_defines": 0,
+        "inv_displays": 0,
+        "inv_calculates": 3,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.6,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.models import SourceLocation",
+          "line_no": 26
+        },
+        {
+          "type": "literal",
+          "text": "repo_path = Path(\"C:/Supplier_exchange/area-service\")",
+          "line_no": 449
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/policy_engine.py",
+      "confidence": 0.125,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.17",
+        "verified:READ_ONLY"
+      ],
+      "raw_score": 4.0,
+      "unified_score": 0.12508823529411764,
+      "features": {
+        "s_fs": 1.0,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.16666666666666666,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0007058823529411764,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.6,
+        "ownership_type": "READ_ONLY",
+        "ownership_reason": "references keywords (defines=0, calculates=1, displays=3)",
+        "inv_defines": 0,
+        "inv_displays": 3,
+        "inv_calculates": 1,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.6,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from langchain_core.language_models.chat_models import BaseChatModel",
+          "line_no": 18
+        },
+        {
+          "type": "literal",
+          "text": "from langchain_core.messages import HumanMessage, SystemMessage",
+          "line_no": 19
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.budget import TicketBudget",
+          "line_no": 21
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.gates import GateMode, GateResult",
+          "line_no": 22
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.gates.simplicity_first import SimplicityGate",
+          "line_no": 23
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/adaptive_orchestrator.py",
+      "confidence": 0.125,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.17",
+        "verified:SUPPORTING"
+      ],
+      "raw_score": 4.0,
+      "unified_score": 0.12505108991825614,
+      "features": {
+        "s_fs": 1.0,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.16666666666666666,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0004087193460490463,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.6,
+        "ownership_type": "SUPPORTING",
+        "ownership_reason": "participates: calculates=1, persists=1",
+        "inv_defines": 0,
+        "inv_displays": 0,
+        "inv_calculates": 1,
+        "inv_persists": 1
+      },
+      "consensus_confidence": 0.6,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "3. Evidence Layer normalizes raw observations into scored claims",
+          "line_no": 9
+        },
+        {
+          "type": "literal",
+          "text": "from langchain_core.language_models.chat_models import BaseChatModel",
+          "line_no": 21
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.budget import TicketBudget",
+          "line_no": 23
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.evidence_layer import EvidenceExtractor, TheoryManager",
+          "line_no": 24
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.experience_store import ExperienceStore",
+          "line_no": 25
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/llm/adt_client.py",
+      "confidence": 0.125,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.33",
+        "verified:SUPPORTING"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.125,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.3333333333333333,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.6,
+        "ownership_type": "SUPPORTING",
+        "ownership_reason": "participates: calculates=3, persists=0",
+        "inv_defines": 0,
+        "inv_displays": 0,
+        "inv_calculates": 3,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.6,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "prompt = f\"\"\"You are a code change classifier for the Supplier Exchange platform.",
+          "line_no": 80
+        },
+        {
+          "type": "literal",
+          "text": "prompt = f\"\"\"You are a Java code generator for the Supplier Exchange platform.",
+          "line_no": 107
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/gates/think_before_coding.py",
+      "confidence": 0.121,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.12",
+        "verified:PRIMARY_OWNER"
+      ],
+      "raw_score": 4.0,
+      "unified_score": 0.12065000000000001,
+      "features": {
+        "s_fs": 1.0,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.125,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.016,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.8,
+        "ownership_type": "PRIMARY_OWNER",
+        "ownership_reason": "defines 1 symbol(s), calculates 4 value(s)",
+        "inv_defines": 1,
+        "inv_displays": 2,
+        "inv_calculates": 4,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.8,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.gates import BaseGate, GateResult",
+          "line_no": 7
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.models import ExecutionPlan, TicketInput",
+          "line_no": 8
+        },
+        {
+          "type": "method",
+          "text": "def score_ambiguity(self, ticket: TicketInput, plan: ExecutionPlan) -> tuple[float, list[str]]:",
+          "line_no": 30
+        },
+        {
+          "type": "literal",
+          "text": "\"\"\"Returns (score, signal_descriptions).",
+          "line_no": 31
+        },
+        {
+          "type": "literal",
+          "text": "Score ranges from 0.0 (crystal clear) to 1.0 (completely ambiguous).",
+          "line_no": 33
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/parsers/java_parser.py",
+      "confidence": 0.113,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.25",
+        "verified:PRIMARY_OWNER"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.11250000000000002,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.25,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.6,
+        "ownership_type": "PRIMARY_OWNER",
+        "ownership_reason": "defines 1 symbol(s), calculates 1 value(s)",
+        "inv_defines": 1,
+        "inv_displays": 0,
+        "inv_calculates": 1,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.6,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.models import (",
+          "line_no": 28
+        },
+        {
+          "type": "literal",
+          "text": "file_symbol = self._make_symbol(",
+          "line_no": 100
+        },
+        {
+          "type": "literal",
+          "text": "imp_symbol = self._make_symbol(",
+          "line_no": 116
+        },
+        {
+          "type": "literal",
+          "text": "type_symbol = self._make_symbol(",
+          "line_no": 181
+        },
+        {
+          "type": "literal",
+          "text": "method_symbol = self._make_symbol(",
+          "line_no": 327
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/localizer/spring_filter.py",
+      "confidence": 0.106,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20",
+        "verified:SUPPORTING"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.10590430622009571,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.00861244019138756,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0,
+        "ownership_type": "SUPPORTING",
+        "ownership_reason": "participates: calculates=3, persists=0",
+        "inv_defines": 0,
+        "inv_displays": 0,
+        "inv_calculates": 3,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.models import Symbol",
+          "line_no": 15
+        },
+        {
+          "type": "literal",
+          "text": "candidates: List of file candidates with 'path' and 'score'",
+          "line_no": 97
+        },
+        {
+          "type": "literal",
+          "text": "Candidates with updated scores based on Spring intelligence",
+          "line_no": 102
+        },
+        {
+          "type": "literal",
+          "text": "candidate['score'] = min(1.0, candidate['score'] + (boost * boost_weight))",
+          "line_no": 131
+        },
+        {
+          "type": "literal",
+          "text": "# Re-sort by updated scores",
+          "line_no": 135
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/localizer/keyword_search.py",
+      "confidence": 0.105,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20",
+        "verified:PRIMARY_OWNER"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.10532474226804124,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.003092783505154639,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0,
+        "ownership_type": "PRIMARY_OWNER",
+        "ownership_reason": "defines 1 symbol(s), calculates 3 value(s)",
+        "inv_defines": 1,
+        "inv_displays": 4,
+        "inv_calculates": 3,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "method",
+          "text": "def __init__(self, path: str, score: float, reason: str,",
+          "line_no": 12
+        },
+        {
+          "type": "literal",
+          "text": "self.score = score",
+          "line_no": 15
+        },
+        {
+          "type": "literal",
+          "text": "self.selected = score > 0.7  # Auto-select high confidence",
+          "line_no": 20
+        },
+        {
+          "type": "literal",
+          "text": "# Group by file and calculate scores",
+          "line_no": 55
+        },
+        {
+          "type": "literal",
+          "text": "# Calculate score",
+          "line_no": 114
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/localizer/symbol_search.py",
+      "confidence": 0.105,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20",
+        "verified:PRIMARY_OWNER"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.10519325153374234,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0018404907975460123,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0,
+        "ownership_type": "PRIMARY_OWNER",
+        "ownership_reason": "defines 1 symbol(s), calculates 5 value(s)",
+        "inv_defines": 1,
+        "inv_displays": 0,
+        "inv_calculates": 5,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "score = self._calculate_score(file_symbols, search_terms)",
+          "line_no": 120
+        },
+        {
+          "type": "config",
+          "text": "score=score,",
+          "line_no": 126
+        },
+        {
+          "type": "literal",
+          "text": "candidates.sort(key=lambda c: c.score, reverse=True)",
+          "line_no": 134
+        },
+        {
+          "type": "method",
+          "text": "def _calculate_score(self, symbols: List, search_terms: List[str]) -> float:",
+          "line_no": 137
+        },
+        {
+          "type": "literal",
+          "text": "\"\"\"Calculate relevance score based on exact matches.\"\"\"",
+          "line_no": 138
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/storage/neo4j_store.py",
+      "confidence": 0.105,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20",
+        "verified:SUPPORTING"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.1050969230769231,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0009230769230769231,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0,
+        "ownership_type": "SUPPORTING",
+        "ownership_reason": "participates: calculates=2, persists=0",
+        "inv_defines": 0,
+        "inv_displays": 0,
+        "inv_calculates": 2,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.models import Edge, EdgeKind, FileRecord, Symbol, SymbolKind",
+          "line_no": 20
+        },
+        {
+          "type": "literal",
+          "text": "Configure with: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD",
+          "line_no": 11
+        },
+        {
+          "type": "method",
+          "text": "def __init__(self, uri: Optional[str] = None, user: Optional[str] = None, password: Optional[str] = None):",
+          "line_no": 26
+        },
+        {
+          "type": "literal",
+          "text": "user: Neo4j username (default: env NEO4J_USER or neo4j)",
+          "line_no": 31
+        },
+        {
+          "type": "literal",
+          "text": "self.user = user or os.getenv(\"NEO4J_USER\", \"neo4j\")",
+          "line_no": 43
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/parsers/typescript_parser.py",
+      "confidence": 0.105,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20",
+        "verified:PRIMARY_OWNER"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.10500000000000001,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0,
+        "ownership_type": "PRIMARY_OWNER",
+        "ownership_reason": "defines 1 symbol(s), calculates 1 value(s)",
+        "inv_defines": 1,
+        "inv_displays": 2,
+        "inv_calculates": 1,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.models import (",
+          "line_no": 39
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.parsers.java_parser import ParseResult  # reuse same dataclass",
+          "line_no": 47
+        },
+        {
+          "type": "literal",
+          "text": "# Split hyphen/underscore-separated selector tokens for keyword matching",
+          "line_no": 303
+        },
+        {
+          "type": "method",
+          "text": "def _make_id(path: str, kind: str, qname: str) -> str:",
+          "line_no": 59
+        },
+        {
+          "type": "literal",
+          "text": "file_sym_id = _make_id(rel_path, \"file\", rel_path)",
+          "line_no": 331
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/planner.py",
+      "confidence": 0.105,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20",
+        "verified:PRIMARY_OWNER"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.10500000000000001,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0,
+        "ownership_type": "PRIMARY_OWNER",
+        "ownership_reason": "defines 1 symbol(s), calculates 3 value(s)",
+        "inv_defines": 1,
+        "inv_displays": 0,
+        "inv_calculates": 3,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from langchain_core.language_models.chat_models import BaseChatModel",
+          "line_no": 13
+        },
+        {
+          "type": "literal",
+          "text": "from langchain_core.messages import HumanMessage, SystemMessage",
+          "line_no": 14
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.models import (",
+          "line_no": 16
+        },
+        {
+          "type": "literal",
+          "text": "user_message = self._build_user_message(ticket)",
+          "line_no": 52
+        },
+        {
+          "type": "config",
+          "text": "HumanMessage(content=user_message),",
+          "line_no": 56
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/reasoner.py",
+      "confidence": 0.105,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20",
+        "verified:PRIMARY_OWNER"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.10500000000000001,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0,
+        "ownership_type": "PRIMARY_OWNER",
+        "ownership_reason": "defines 1 symbol(s), calculates 3 value(s)",
+        "inv_defines": 1,
+        "inv_displays": 0,
+        "inv_calculates": 3,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from langchain_core.language_models.chat_models import BaseChatModel",
+          "line_no": 13
+        },
+        {
+          "type": "literal",
+          "text": "from langchain_core.messages import HumanMessage, SystemMessage",
+          "line_no": 14
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.models import (",
+          "line_no": 16
+        },
+        {
+          "type": "literal",
+          "text": "user_message = self._build_user_message(ticket, plan, context, build_errors)",
+          "line_no": 65
+        },
+        {
+          "type": "config",
+          "text": "HumanMessage(content=user_message),",
+          "line_no": 69
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/reporter.py",
+      "confidence": 0.105,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20",
+        "verified:PRIMARY_OWNER"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.10500000000000001,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0,
+        "ownership_type": "PRIMARY_OWNER",
+        "ownership_reason": "defines 1 symbol(s), calculates 3 value(s)",
+        "inv_defines": 1,
+        "inv_displays": 0,
+        "inv_calculates": 3,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from langchain_core.language_models.chat_models import BaseChatModel",
+          "line_no": 11
+        },
+        {
+          "type": "literal",
+          "text": "from langchain_core.messages import HumanMessage, SystemMessage",
+          "line_no": 12
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.models import (",
+          "line_no": 14
+        },
+        {
+          "type": "literal",
+          "text": "user_message = self._build_user_message(",
+          "line_no": 53
+        },
+        {
+          "type": "config",
+          "text": "HumanMessage(content=user_message),",
+          "line_no": 59
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/recovery_engine.py",
+      "confidence": 0.1,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.17",
+        "verified:READ_ONLY"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.10044117647058824,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.16666666666666666,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.004411764705882353,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0,
+        "ownership_type": "READ_ONLY",
+        "ownership_reason": "references keywords (defines=0, calculates=0, displays=0)",
+        "inv_defines": 0,
+        "inv_displays": 0,
+        "inv_calculates": 0,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.models import BuildError, RecoveryDecision",
+          "line_no": 7
+        },
+        {
+          "type": "literal",
+          "text": "\"\"\"Decide whether another retry makes sense.\"\"\"",
+          "line_no": 22
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/experience_store.py",
+      "confidence": 0.1,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.17",
+        "verified:READ_ONLY"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.10022222222222221,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.16666666666666666,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0022222222222222222,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0,
+        "ownership_type": "READ_ONLY",
+        "ownership_reason": "references keywords (defines=0, calculates=1, displays=0)",
+        "inv_defines": 0,
+        "inv_displays": 0,
+        "inv_calculates": 1,
+        "inv_persists": 0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.reasoning import BeliefState, TicketExperience",
+          "line_no": 15
+        },
+        {
+          "type": "config",
+          "text": "\"deliverable-service\", \"transmittal-service\", \"email-service\",",
+          "line_no": 23
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/query.py",
+      "confidence": 0.1,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.33"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.1,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.3333333333333333,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.storage import SqliteStore",
+          "line_no": 13
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/__init__.py",
+      "confidence": 0.1,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.33"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.1,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.3333333333333333,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "\"\"\"Aviator Platform \u2014 Repository Intelligence Core.",
+          "line_no": 1
+        },
+        {
+          "type": "literal",
+          "text": "- :mod:`aviator_core.models`    \u2014 Pydantic data models for symbols, edges, files.",
+          "line_no": 5
+        },
+        {
+          "type": "literal",
+          "text": "- :mod:`aviator_core.parsers`   \u2014 Language parsers (currently: Java via tree-sitter).",
+          "line_no": 6
+        },
+        {
+          "type": "literal",
+          "text": "- :mod:`aviator_core.storage`   \u2014 Persistent stores (SQLite, optional Neo4j).",
+          "line_no": 7
+        },
+        {
+          "type": "literal",
+          "text": "- :mod:`aviator_core.indexer`   \u2014 Orchestrates parse \u2192 store.",
+          "line_no": 8
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/gates/__init__.py",
+      "confidence": 0.1,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.17"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.1,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.16666666666666666,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "method",
+          "text": "def _make_result(self, issues: list[str], **metadata: Any) -> GateResult:",
+          "line_no": 60
+        },
+        {
+          "type": "constant",
+          "text": "CALIBRATED = \"calibrated\"    # Soft-block, user can override",
+          "line_no": 18
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/gates/surgical_changes.py",
+      "confidence": 0.097,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.14"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.09707142857142857,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.14285714285714285,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.006666666666666667,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.gates import BaseGate, GateResult",
+          "line_no": 5
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.models import Patch",
+          "line_no": 6
+        },
+        {
+          "type": "literal",
+          "text": "return self._make_result(",
+          "line_no": 51
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/gates/goal_driven.py",
+      "confidence": 0.097,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.14"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.09672991071428572,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.14285714285714285,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0031249999999999997,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.gates import BaseGate, GateResult",
+          "line_no": 7
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.models import (",
+          "line_no": 8
+        },
+        {
+          "type": "literal",
+          "text": "return self._make_result(",
+          "line_no": 81
+        },
+        {
+          "type": "literal",
+          "text": "return self._make_result(",
+          "line_no": 108
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/gates/simplicity_first.py",
+      "confidence": 0.096,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.14"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.09642857142857143,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.14285714285714285,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.gates import BaseGate, GateResult",
+          "line_no": 7
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.models import Patch, TicketComplexity",
+          "line_no": 8
+        },
+        {
+          "type": "literal",
+          "text": "return self._make_result(",
+          "line_no": 79
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/skill_blocks/grep_codebase.py",
+      "confidence": 0.094,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.12"
+      ],
+      "raw_score": 3.0,
+      "unified_score": 0.09375000000000001,
+      "features": {
+        "s_fs": 0.75,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.125,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks import SkillBlock",
+          "line_no": 11
+        },
+        {
+          "type": "literal",
+          "text": "matches.append(self._make_match(file_path, i, line))",
+          "line_no": 100
+        },
+        {
+          "type": "literal",
+          "text": "matches.append(self._make_match(file_path, i, line))",
+          "line_no": 103
+        },
+        {
+          "type": "method",
+          "text": "def _make_match(self, file_path: Path, line_num: int, line_content: str) -> dict[str, Any]:",
+          "line_no": 112
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/parsers/__init__.py",
+      "confidence": 0.087,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.25"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.0875,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.25,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.parsers.java_parser import JavaParser, ParseResult",
+          "line_no": 3
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.parsers.typescript_parser import TypeScriptParser",
+          "line_no": 4
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/storage/__init__.py",
+      "confidence": 0.087,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.25"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.0875,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.25,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.storage.sqlite_store import SqliteStore",
+          "line_no": 3
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/localizer/hybrid_localizer.py",
+      "confidence": 0.08,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.08048730964467005,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0060913705583756335,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "# Score files based on edge types",
+          "line_no": 84
+        },
+        {
+          "type": "literal",
+          "text": "path_scores = defaultdict(lambda: {'score': 0.0, 'reasons': []})",
+          "line_no": 92
+        },
+        {
+          "type": "literal",
+          "text": "path_scores[path]['score'] += weight",
+          "line_no": 95
+        },
+        {
+          "type": "literal",
+          "text": "path_scores[path]['reasons'].append(f\"{edge_kind}: {qname}\")",
+          "line_no": 96
+        },
+        {
+          "type": "literal",
+          "text": "for path, data in path_scores.items():",
+          "line_no": 99
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/storage/vector_store.py",
+      "confidence": 0.08,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.08043504531722055,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.005438066465256798,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.models import Symbol, SourceLocation",
+          "line_no": 20
+        },
+        {
+          "type": "config",
+          "text": "score_threshold: float = 0.5,",
+          "line_no": 186
+        },
+        {
+          "type": "literal",
+          "text": "score_threshold: Minimum similarity score (0.0 to 1.0)",
+          "line_no": 194
+        },
+        {
+          "type": "literal",
+          "text": "List of matching symbols with scores",
+          "line_no": 198
+        },
+        {
+          "type": "config",
+          "text": "score_threshold=score_threshold,",
+          "line_no": 208
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/storage/sqlite_store.py",
+      "confidence": 0.08,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.08,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": ":mod:`aviator_core.models` to keep the persistence layer thin.",
+          "line_no": 9
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.models import Edge, FileRecord, Symbol",
+          "line_no": 20
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/executor.py",
+      "confidence": 0.08,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.08,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.budget import TicketBudget",
+          "line_no": 8
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.models import (",
+          "line_no": 9
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks import SkillRegistry",
+          "line_no": 14
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/orchestrator.py",
+      "confidence": 0.08,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.20"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.08,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from langchain_core.language_models.chat_models import BaseChatModel",
+          "line_no": 13
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.budget import TicketBudget",
+          "line_no": 15
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.executor import Executor",
+          "line_no": 16
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.gates import GateMode",
+          "line_no": 17
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.gates.goal_driven import GoalDrivenGate",
+          "line_no": 18
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/evidence_layer.py",
+      "confidence": 0.075,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.17"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.0750760135135135,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.16666666666666666,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0010135135135135136,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "\"\"\"Evidence Layer \u2014 converts raw Observations into scored Evidence and Theories.",
+          "line_no": 1
+        },
+        {
+          "type": "literal",
+          "text": "Observation (raw) \u2192 EvidenceExtractor \u2192 Evidence[] (scored) \u2192 TheoryManager \u2192 Theory updates",
+          "line_no": 7
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.reasoning import (",
+          "line_no": 16
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/llm/__init__.py",
+      "confidence": 0.075,
+      "signals": [
+        "keyword_path",
+        "path_own:0.33"
+      ],
+      "raw_score": 1.0,
+      "unified_score": 0.075,
+      "features": {
+        "s_fs": 0.25,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.3333333333333333,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": []
+    },
+    {
+      "path": "aviator_core/ticket_solver/skill_blocks/config_reader.py",
+      "confidence": 0.071,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.14"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.07142857142857142,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.14285714285714285,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks import SkillBlock",
+          "line_no": 8
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/skill_blocks/git_diff.py",
+      "confidence": 0.071,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.14"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.07142857142857142,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.14285714285714285,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks import SkillBlock",
+          "line_no": 8
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/skill_blocks/pom_parser.py",
+      "confidence": 0.071,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.14"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.07142857142857142,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.14285714285714285,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks import SkillBlock",
+          "line_no": 9
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/skill_blocks/__init__.py",
+      "confidence": 0.071,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.14"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.07142857142857142,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.14285714285714285,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks.build_runner import BuildRunnerSkill",
+          "line_no": 50
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks.file_reader import BatchFileReaderSkill, FileReaderSkill",
+          "line_no": 51
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks.grep_codebase import GrepCodebaseSkill",
+          "line_no": 52
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks.patch_applier import PatchApplierSkill",
+          "line_no": 53
+        },
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks.config_reader import ConfigReaderSkill",
+          "line_no": 54
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/skill_blocks/directory_walker.py",
+      "confidence": 0.069,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.12"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.0694491525423729,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.125,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.010169491525423728,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks import SkillBlock",
+          "line_no": 7
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/skill_blocks/patch_applier.py",
+      "confidence": 0.069,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.12"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.0689940828402367,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.125,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0035502958579881655,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks import SkillBlock",
+          "line_no": 14
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/skill_blocks/build_runner.py",
+      "confidence": 0.069,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.12"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.06875,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.125,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks import SkillBlock",
+          "line_no": 14
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/skill_blocks/file_reader.py",
+      "confidence": 0.069,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.12"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.06875,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.125,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks import SkillBlock",
+          "line_no": 9
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/ticket_solver/skill_blocks/neo4j_query.py",
+      "confidence": 0.069,
+      "signals": [
+        "keyword_path",
+        "keyword_content",
+        "path_own:0.12"
+      ],
+      "raw_score": 2.0,
+      "unified_score": 0.06875,
+      "features": {
+        "s_fs": 0.5,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.125,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": [
+        {
+          "type": "literal",
+          "text": "from aviator_core.ticket_solver.skill_blocks import SkillBlock",
+          "line_no": 6
+        }
+      ]
+    },
+    {
+      "path": "aviator_core/context_expander.py",
+      "confidence": 0.062,
+      "signals": [
+        "keyword_path",
+        "path_own:0.25"
+      ],
+      "raw_score": 1.0,
+      "unified_score": 0.0625,
+      "features": {
+        "s_fs": 0.25,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.25,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": []
+    },
+    {
+      "path": "aviator_core/patch_applicator.py",
+      "confidence": 0.062,
+      "signals": [
+        "keyword_path",
+        "path_own:0.25"
+      ],
+      "raw_score": 1.0,
+      "unified_score": 0.0625,
+      "features": {
+        "s_fs": 0.25,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.25,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": []
+    },
+    {
+      "path": "aviator_core/localizer/__init__.py",
+      "confidence": 0.062,
+      "signals": [
+        "keyword_path",
+        "path_own:0.25"
+      ],
+      "raw_score": 1.0,
+      "unified_score": 0.0625,
+      "features": {
+        "s_fs": 0.25,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.25,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": []
+    },
+    {
+      "path": "aviator_core/ticket_solver/budget.py",
+      "confidence": 0.055,
+      "signals": [
+        "keyword_path",
+        "path_own:0.20"
+      ],
+      "raw_score": 1.0,
+      "unified_score": 0.055,
+      "features": {
+        "s_fs": 0.25,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": []
+    },
+    {
+      "path": "aviator_core/ticket_solver/models.py",
+      "confidence": 0.055,
+      "signals": [
+        "keyword_path",
+        "path_own:0.20"
+      ],
+      "raw_score": 1.0,
+      "unified_score": 0.055,
+      "features": {
+        "s_fs": 0.25,
+        "s_sql": 0.0,
+        "s_sym": 0.0,
+        "s_path": 0.2,
+        "s_gr": 0.0,
+        "s_vec": 0.0,
+        "s_own": 0.0,
+        "s_content": 0.0,
+        "s_loc": 0.0,
+        "s_semantic": 0.0,
+        "s_workflow": 0.0,
+        "s_history": 0.0,
+        "s_rkb": 0.0,
+        "s_ja": 0.0,
+        "s_ts": 0.0,
+        "s_rel": 0.0,
+        "cluster_id": null,
+        "cluster_role": "isolated",
+        "cluster_score": 0.0,
+        "_primary_score": 0.0,
+        "rel_evidence": [],
+        "consensus_score": 0.0
+      },
+      "consensus_confidence": 0.0,
+      "candidate_origin": {
+        "literal_match": true,
+        "graph_expansion": false,
+        "brain_match": false,
+        "multi_source": false,
+        "cluster_id": null
+      },
+      "ownership_signals": {
+        "literal_matches": [],
+        "symbol_matches": [],
+        "routing_matches": [],
+        "graph_edges": [],
+        "brain_matches": []
+      },
+      "matched_snippets": []
+    }
+  ]
+}

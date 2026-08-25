@@ -1,0 +1,66 @@
+name: aviator-full-stac
+
+services:
+  pgvector_db:
+    image: pgvector/pgvector:pg15
+    container_name: pgvector_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  aviator-neo4j:
+    image: neo4j:5.20-community
+    container_name: aviator-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/aviator-dev
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+    volumes:
+      - neo4j-data:/data
+    restart: unless-stopped
+
+  aviator-qdrant:
+    image: qdrant/qdrant:latest
+    container_name: aviator-qdran
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+
+  rabbitmq_mgmt:
+    image: rabbitmq:4-management
+    container_name: rabbitmq_mg
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin_pass
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+    name: pgdata
+    external: true
+  neo4j-data:
+    name: neo4j-data
+    external: true
+  qdrant-data:
+    name: qdrant-data
+    external: true
+  rabbitmq_data:
+    name: rabbitmq_data
+    external: true

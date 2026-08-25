@@ -1,0 +1,142 @@
+[
+  {
+    "file_path": "xchange-ui/src/app/modules/shared/services/user-preferences/user-preferences.service.ts",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterVersionsController.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/GenericConstants.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/constants/CmsTransmittalRecipientType.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/constants/TransmittalRecipientSagaRequestParams.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipient.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipientDTO.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/services/TransmittalService.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/services/UsersService.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/commons/gql/client/transmittal/model/GQL_TransmittalRecipient.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterEntry.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterInput.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegistersCollectionController.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterValidationController.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/MembersServiceImpl.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/RegisterDocumentServiceImpl.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/RegisterDocumentService.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/entity/RoleMembership.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/exception/UnAuthorizedUserForAreaException.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  },
+  {
+    "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/saga/handler/CustomEmailNotificationHandler.java",
+    "ranking_score": 1.0,
+    "semantic_relevance_score": 1.0,
+    "decision": "ACCEPT",
+    "reason": "Semantic verification bypassed (auto-accept)"
+  }
+]

@@ -1,0 +1,723 @@
+{
+  "modifiable_files": [
+    "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/UserService.java"
+  ],
+  "verification_targets": [
+    "xchange-ui/src/app/modules/shared/services/user-preferences/user-preferences.service.ts"
+  ],
+  "supporting_files": [
+    "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/service/UsersService.java"
+  ],
+  "ignored_files": [
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterVersionsController.java",
+    "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/GenericConstants.java",
+    "area-service/src/main/java/com/opentext/ene/transmittals/constants/CmsTransmittalRecipientType.java",
+    "area-service/src/main/java/com/opentext/ene/transmittals/constants/TransmittalRecipientSagaRequestParams.java",
+    "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipient.java",
+    "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipientDTO.java",
+    "area-service/src/main/java/com/opentext/ene/transmittals/services/TransmittalService.java",
+    "area-service/src/main/java/com/opentext/solutions/commons/gql/client/transmittal/model/GQL_TransmittalRecipient.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterEntry.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterInput.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegistersCollectionController.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterValidationController.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/MembersServiceImpl.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/RegisterDocumentServiceImpl.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/RegisterDocumentService.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/entity/RoleMembership.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/exception/UnAuthorizedUserForAreaException.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/saga/handler/CustomEmailNotificationHandler.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/service/NotificationsService.java",
+    "ene-load-service/src/main/java/com/opentext/bim/loadservice/services/impl/NotificationsService.java"
+  ],
+  "blocked_files": [],
+  "file_resolutions": [
+    {
+      "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/UserService.java",
+      "strategy": "DIRECT_OWNER",
+      "reasoning": "This file is likely the core API endpoint responsible for user creation or update, as indicated by the hypothesis and the 'se-connector-apis' path. Modifications here will directly address the case-sensitive email comparison.",
+      "confidence": 0.95,
+      "evidence_ids": []
+    },
+    {
+      "file_path": "xchange-ui/src/app/modules/shared/services/user-preferences/user-preferences.service.ts",
+      "strategy": "VERIFICATION_TARGET",
+      "reasoning": "This UI service likely interacts with the backend API to fetch or display user information, including email addresses. It needs to be verified to ensure it correctly handles the case-insensitive emails after the backend fix.",
+      "confidence": 0.86,
+      "evidence_ids": [
+        "xchange-ui/src/app/modules/shared/services/user-preferences/user-preferences.service.ts"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+      "strategy": "SUPPLEMENTARY",
+      "reasoning": "This service might be involved in user management and could be calling the se-connector-apis. It may need to be updated to ensure it passes emails in a consistent case if it performs any pre-processing.",
+      "confidence": 0.7,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/UsersService.java",
+      "strategy": "SUPPLEMENTARY",
+      "reasoning": "This is the interface for UsersServiceImpl. If UsersServiceImpl needs changes, this interface might also need adjustments for consistency, although it's less likely to contain the direct logic for email comparison.",
+      "confidence": 0.7,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/service/UsersService.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterVersionsController.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file is a REST controller and is unlikely to contain the core logic for email case sensitivity. It's a reference to how the API might be used.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterVersionsController.java"
+      ]
+    },
+    {
+      "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/GenericConstants.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file defines constants and is not directly involved in the email comparison logic.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/GenericConstants.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/constants/CmsTransmittalRecipientType.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file defines constants related to transmittals and is not directly involved in user email case sensitivity.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/ene/transmittals/constants/CmsTransmittalRecipientType.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/constants/TransmittalRecipientSagaRequestParams.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file defines constants related to transmittal recipient saga requests and is not directly involved in user email case sensitivity.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/ene/transmittals/constants/TransmittalRecipientSagaRequestParams.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipient.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file defines a model for transmittal recipients and is not directly involved in user email case sensitivity.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipient.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipientDTO.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file defines a DTO for transmittal recipients and is not directly involved in user email case sensitivity.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipientDTO.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/services/TransmittalService.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This service handles transmittals and is unlikely to be the direct owner of user email case sensitivity logic.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/ene/transmittals/services/TransmittalService.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/commons/gql/client/transmittal/model/GQL_TransmittalRecipient.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file defines a GraphQL model for transmittal recipients and is not directly involved in user email case sensitivity.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/commons/gql/client/transmittal/model/GQL_TransmittalRecipient.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterEntry.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file defines a model for register entries and is not directly involved in user email case sensitivity.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterEntry.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterInput.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file defines an input model for registration and is not directly involved in user email case sensitivity.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterInput.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegistersCollectionController.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file is a REST controller and is unlikely to contain the core logic for email case sensitivity.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegistersCollectionController.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterValidationController.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file is a REST controller and is unlikely to contain the core logic for email case sensitivity.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterValidationController.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/MembersServiceImpl.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This service handles members and is unlikely to be the direct owner of user email case sensitivity logic.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/MembersServiceImpl.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/RegisterDocumentServiceImpl.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This service handles register documents and is unlikely to be the direct owner of user email case sensitivity logic.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/RegisterDocumentServiceImpl.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/RegisterDocumentService.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This is the interface for RegisterDocumentServiceImpl and is unlikely to contain the direct logic for email case sensitivity.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/RegisterDocumentService.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/entity/RoleMembership.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file defines an entity for role membership and is not directly involved in user email case sensitivity.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/entity/RoleMembership.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/exception/UnAuthorizedUserForAreaException.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file defines an exception and is not directly involved in user email case sensitivity.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/exception/UnAuthorizedUserForAreaException.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/saga/handler/CustomEmailNotificationHandler.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This file handles email notifications and is unlikely to be the direct owner of user email case sensitivity logic.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/saga/handler/CustomEmailNotificationHandler.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/NotificationsServiceImpl.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This service handles notifications and is unlikely to be the direct owner of user email case sensitivity logic.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/NotificationsServiceImpl.java"
+      ]
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/NotificationsService.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This is the interface for NotificationsServiceImpl and is unlikely to contain the direct logic for email case sensitivity.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "area-service/src/main/java/com/opentext/solutions/services/area/service/NotificationsService.java"
+      ]
+    },
+    {
+      "file_path": "ene-load-service/src/main/java/com/opentext/bim/loadservice/services/impl/NotificationsService.java",
+      "strategy": "READ_ONLY",
+      "reasoning": "This service handles notifications in a different module and is unlikely to be the direct owner of user email case sensitivity logic for the Supplier Exchange.",
+      "confidence": 0.56,
+      "evidence_ids": [
+        "ene-load-service/src/main/java/com/opentext/bim/loadservice/services/impl/NotificationsService.java"
+      ]
+    }
+  ],
+  "propagation_expectations": [
+    {
+      "source": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/UserService.java",
+      "target": "xchange-ui/src/app/modules/shared/services/user-preferences/user-preferences.service.ts",
+      "expectation": "The UI will be able to successfully create or update users with email addresses of any casing, and existing user data will be retrieved and displayed correctly regardless of the original casing.",
+      "requires_code_change": false
+    },
+    {
+      "source": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/UserService.java",
+      "target": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+      "expectation": "If UsersServiceImpl makes direct calls to the modified API for user operations, those operations will now succeed with case-insensitive emails. If it performs any pre-processing of emails, it should continue to do so consistently.",
+      "requires_code_change": false
+    },
+    {
+      "source": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchangev2/user/UserService.java",
+      "target": "area-service/src/main/java/com/opentext/solutions/services/area/service/UsersService.java",
+      "expectation": "The interface contract remains the same, but the underlying implementation (UsersServiceImpl) will now interact with the case-insensitive API.",
+      "requires_code_change": false
+    }
+  ],
+  "accepted_hypothesis": "The API endpoint responsible for user creation or update is performing a direct, case-sensitive comparison of the provided email address against existing records.",
+  "rejected_hypotheses": [],
+  "edit_strategy_summary": "Modify the user creation/update API endpoint in se-connector-apis to perform case-insensitive email comparisons. Verify the UI service to ensure it correctly handles the updated backend behavior.",
+  "owner_reason": "The 'se-connector-apis' module is the most likely place for the core API logic handling user operations, making it the authoritative source for fixing the case-sensitive email comparison.",
+  "verification_reason": "The UI service is a consumer of the API. It needs to be verified to ensure it functions correctly with the modified backend behavior, but it should not be modified directly to fix the core issue.",
+  "supporting_reason": "These services might interact with the user API and could require minor adjustments or simply need to be aware of the change for consistency, but they are not the primary source of the bug.",
+  "confidence": 0.9,
+  "reasoning": [
+    "The ticket explicitly states to fix server-side behavior for the Supplier Exchange API, pointing towards the 'se-connector-apis' module.",
+    "Hypothesis 1 with high confidence (0.90) directly implicates the API endpoint responsible for user creation/update.",
+    "The 'xchange-ui' service is a clear verification target as it consumes the API and needs to be checked for correct behavior post-fix.",
+    "Other 'area-service' files are less directly related to the core user API and are classified as supplementary or read-only based on their function."
+  ],
+  "deterministic_signals": [
+    {
+      "file_path": "xchange-ui/src/app/modules/shared/services/user-preferences/user-preferences.service.ts",
+      "evidence_score": 0.86,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 0,
+      "outgoing_ref_count": 0,
+      "defines_symbol": false,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# xchange-ui/src/app/modules/shared/services/user-preferences/user-preferences.service.ts::UserPreferencesService (@Inje"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterVersionsController.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 0,
+      "outgoing_ref_count": 0,
+      "defines_symbol": false,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.solutions.services.area.domain.engineering.rest.RegisterVersionsController (@RestController)\nFile: area-s"
+    },
+    {
+      "file_path": "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/GenericConstants.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 2,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.solutions.services.xchange.constants.GenericConstants\nFile: se-connector-apis/src/main/java/com/opentext/"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/constants/CmsTransmittalRecipientType.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 0,
+      "outgoing_ref_count": 0,
+      "defines_symbol": false,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.ene.transmittals.constants.CmsTransmittalRecipientType\nFile: area-service/src/main/java/com/opentext/ene/"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/constants/TransmittalRecipientSagaRequestParams.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 5,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.ene.transmittals.constants.TransmittalRecipientSagaRequestParams\nFile: area-service/src/main/java/com/ope"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipient.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 24,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.ene.transmittals.model.TransmittalRecipient\nFile: area-service/src/main/java/com/opentext/ene/transmittal"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipientDTO.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 6,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.ene.transmittals.model.TransmittalRecipientDTO\nFile: area-service/src/main/java/com/opentext/ene/transmit"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/services/TransmittalService.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 24,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.ene.transmittals.services.TransmittalService (@Service)\nFile: area-service/src/main/java/com/opentext/ene"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/ene/transmittals/services/UsersService.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 9,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.ene.transmittals.services.UsersService (@Service)\nFile: area-service/src/main/java/com/opentext/ene/trans"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/commons/gql/client/transmittal/model/GQL_TransmittalRecipient.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 0,
+      "outgoing_ref_count": 0,
+      "defines_symbol": false,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.solutions.commons.gql.client.transmittal.model.GQL_TransmittalRecipient\nFile: area-service/src/main/java/"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterEntry.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 8,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.solutions.services.area.domain.engineering.api.model.RegisterEntry.ValidationResult\nFile: area-service/sr"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterInput.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 12,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.solutions.services.area.domain.engineering.api.model.RegisterInput\nFile: area-service/src/main/java/com/o"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegistersCollectionController.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 0,
+      "outgoing_ref_count": 0,
+      "defines_symbol": false,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.solutions.services.area.domain.engineering.rest.RegistersCollectionController (@RestController)\nFile: are"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterValidationController.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 0,
+      "outgoing_ref_count": 0,
+      "defines_symbol": false,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.solutions.services.area.domain.engineering.rest.RegisterValidationController (@RestController)\nFile: area"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/MembersServiceImpl.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 2,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.solutions.services.area.domain.engineering.service.impl.MembersServiceImpl (@Service)\nFile: area-service/"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/RegisterDocumentServiceImpl.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 1,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.solutions.services.area.domain.engineering.service.impl.RegisterDocumentServiceImpl (@Service)\nFile: area"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/RegisterDocumentService.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 5,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.solutions.services.area.domain.engineering.service.RegisterDocumentService\nFile: area-service/src/main/ja"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/entity/RoleMembership.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 59,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.solutions.services.area.entity.RoleMembership\nFile: area-service/src/main/java/com/opentext/solutions/ser"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/exception/UnAuthorizedUserForAreaException.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 11,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.solutions.services.area.exception.UnAuthorizedUserForAreaException\nFile: area-service/src/main/java/com/o"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/saga/handler/CustomEmailNotificationHandler.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 0,
+      "outgoing_ref_count": 0,
+      "defines_symbol": false,
+      "semantic_verification_decision": "ACCEPT",
+      "snippet_preview": "# com.opentext.solutions.services.area.saga.handler.CustomEmailNotificationHandler (@Component)\nFile: area-service/src/m"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/NotificationsServiceImpl.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 0,
+      "outgoing_ref_count": 0,
+      "defines_symbol": false,
+      "semantic_verification_decision": "UNKNOWN",
+      "snippet_preview": "# com.opentext.solutions.services.area.service.impl.NotificationsServiceImpl (@Service)\nFile: area-service/src/main/java"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 0,
+      "outgoing_ref_count": 0,
+      "defines_symbol": false,
+      "semantic_verification_decision": "UNKNOWN",
+      "snippet_preview": "# com.opentext.solutions.services.area.service.impl.UsersServiceImpl (@Service)\nFile: area-service/src/main/java/com/ope"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/NotificationsService.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 15,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "UNKNOWN",
+      "snippet_preview": "# com.opentext.solutions.services.area.service.NotificationsService\nFile: area-service/src/main/java/com/opentext/soluti"
+    },
+    {
+      "file_path": "area-service/src/main/java/com/opentext/solutions/services/area/service/UsersService.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 9,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "UNKNOWN",
+      "snippet_preview": "# com.opentext.solutions.services.area.service.UsersService\nFile: area-service/src/main/java/com/opentext/solutions/serv"
+    },
+    {
+      "file_path": "ene-load-service/src/main/java/com/opentext/bim/loadservice/services/impl/NotificationsService.java",
+      "evidence_score": 0.56,
+      "evidence_count": 1,
+      "has_literal_match": false,
+      "is_config_file": false,
+      "is_ui_component": false,
+      "is_test_file": false,
+      "is_style_file": false,
+      "is_blocked": false,
+      "incoming_ref_count": 15,
+      "outgoing_ref_count": 0,
+      "defines_symbol": true,
+      "semantic_verification_decision": "UNKNOWN",
+      "snippet_preview": "# com.opentext.bim.loadservice.services.impl.NotificationsService (@Service)\nFile: ene-load-service/src/main/java/com/op"
+    }
+  ],
+  "evidence_used": [
+    "xchange-ui/src/app/modules/shared/services/user-preferences/user-preferences.service.ts",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterVersionsController.java",
+    "se-connector-apis/src/main/java/com/opentext/solutions/services/xchange/constants/GenericConstants.java",
+    "area-service/src/main/java/com/opentext/ene/transmittals/constants/CmsTransmittalRecipientType.java",
+    "area-service/src/main/java/com/opentext/ene/transmittals/constants/TransmittalRecipientSagaRequestParams.java",
+    "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipient.java",
+    "area-service/src/main/java/com/opentext/ene/transmittals/model/TransmittalRecipientDTO.java",
+    "area-service/src/main/java/com/opentext/ene/transmittals/services/TransmittalService.java",
+    "area-service/src/main/java/com/opentext/ene/transmittals/services/UsersService.java",
+    "area-service/src/main/java/com/opentext/solutions/commons/gql/client/transmittal/model/GQL_TransmittalRecipient.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterEntry.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/api/model/RegisterInput.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegistersCollectionController.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/rest/RegisterValidationController.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/MembersServiceImpl.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/impl/RegisterDocumentServiceImpl.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/domain/engineering/service/RegisterDocumentService.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/entity/RoleMembership.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/exception/UnAuthorizedUserForAreaException.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/saga/handler/CustomEmailNotificationHandler.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/NotificationsServiceImpl.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/service/impl/UsersServiceImpl.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/service/NotificationsService.java",
+    "area-service/src/main/java/com/opentext/solutions/services/area/service/UsersService.java",
+    "ene-load-service/src/main/java/com/opentext/bim/loadservice/services/impl/NotificationsService.java"
+  ],
+  "ticket_id": "4157705"
+}

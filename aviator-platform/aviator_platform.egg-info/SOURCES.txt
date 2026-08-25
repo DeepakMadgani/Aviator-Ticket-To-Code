@@ -17,6 +17,7 @@ aviator_core/localizer/symbol_search.py
 aviator_core/parsers/__init__.py
 aviator_core/parsers/enhanced_patch_engine.py
 aviator_core/parsers/java_parser.py
+aviator_core/parsers/typescript_parser.py
 aviator_core/storage/__init__.py
 aviator_core/storage/neo4j_store.py
 aviator_core/storage/sqlite_store.py
