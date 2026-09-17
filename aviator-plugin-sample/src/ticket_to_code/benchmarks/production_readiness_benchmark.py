@@ -185,6 +185,10 @@ def _to_ticket(row: Dict[str, Any], index: int) -> ValueEdgeTicket:
     labels = [str(x) for x in (row.get("labels") or []) if str(x).strip()]
     acceptance = [str(x) for x in (row.get("acceptance_criteria") or []) if str(x).strip()]
 
+    _expected = [str(x).replace("\\", "/") for x in (row.get("expected_changed_files") or []) if str(x).strip()]
+    _owner = [str(x).replace("\\", "/") for x in (row.get("expected_owner_files") or []) if str(x).strip()]
+    _forbidden = [str(x).replace("\\", "/") for x in (row.get("forbidden_files") or []) if str(x).strip()]
+
     return ValueEdgeTicket(
         ticket_id=ticket_id,
         title=title[:180],
@@ -192,6 +196,9 @@ def _to_ticket(row: Dict[str, Any], index: int) -> ValueEdgeTicket:
         priority=_priority(row.get("priority")),
         labels=labels,
         acceptance_criteria=acceptance,
+        expected_changed_files=_expected,
+        expected_owner_files=_owner,
+        forbidden_files=_forbidden,
     )
 
 

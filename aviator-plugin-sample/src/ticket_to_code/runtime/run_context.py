@@ -22,7 +22,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +64,56 @@ class BudgetExceeded(RuntimeError):
 
 
 # ============================================================================
+# TOKEN TRACKING — per-call and per-phase telemetry (observational only)
+# ============================================================================
+
+@dataclass
+class TokenCallRecord:
+    """
+    Record of a single LLM call's token usage.
+
+    Every field is observational telemetry — never affects workflow decisions.
+    The ``source`` fields distinguish provider-reported actuals from estimates.
+    """
+    call_id:        int   = 0
+    phase:          str   = "unknown"
+    model:          str   = "unknown"
+
+    input_tokens:   int   = 0
+    output_tokens:  int   = 0
+    total_tokens:   int   = 0
+
+    input_source:   str   = "none"     # "provider" | "usage_metadata" | "estimated" | "none"
+    output_source:  str   = "none"     # "provider" | "usage_metadata" | "estimated" | "none"
+
+    timestamp:      str   = ""
+
+    def to_dict(self) -> dict:
+        import dataclasses
+        return dataclasses.asdict(self)
+
+
+@dataclass
+class PhaseUsage:
+    """Accumulated token usage for a single workflow phase — computed automatically."""
+    tokens_in:   int = 0
+    tokens_out:  int = 0
+    llm_calls:   int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.tokens_in + self.tokens_out
+
+    def to_dict(self) -> dict:
+        return {
+            "tokens_in": self.tokens_in,
+            "tokens_out": self.tokens_out,
+            "total_tokens": self.total_tokens,
+            "llm_calls": self.llm_calls,
+        }
+
+
+# ============================================================================
 # BUDGET
 # ============================================================================
 
@@ -75,8 +125,8 @@ class RunBudget:
     All ceilings are configurable so tests can set them small.
     Budget is charged at the LLM wrapper boundary; nodes only *check*.
     """
-    max_wall_s:   float = 900.0   # 15 min default
-    max_llm_calls: int  = 50
+    max_wall_s:   float = float('inf')   # Wall-clock enforcement disabled — sufficiency controls stopping
+    max_llm_calls: int  = 150
     max_tokens:   int   = 500_000
     max_cost_usd: float = 5.0
 
@@ -89,6 +139,13 @@ class RunBudget:
 
     _start_wall: float = field(default_factory=time.monotonic, init=False, repr=False)
 
+    # ── Token instrumentation (observational — never affects workflow) ─────
+    phase_ledger:    Dict[str, PhaseUsage]   = field(default_factory=dict, init=False, repr=False)
+    _call_log:       List[TokenCallRecord]   = field(default_factory=list, init=False, repr=False)
+    _current_phase:  str                     = field(default="unknown", init=False, repr=False)
+    _call_counter:   int                     = field(default=0, init=False, repr=False)
+    on_charge:       Optional[Callable]      = field(default=None, init=False, repr=False)
+
     def _refresh_elapsed(self) -> None:
         self.elapsed_s = time.monotonic() - self._start_wall
 
@@ -97,6 +154,10 @@ class RunBudget:
         tokens_in:  int   = 0,
         tokens_out: int   = 0,
         cost_usd:   float = 0.0,
+        *,
+        model:          str = "unknown",
+        input_source:   str = "none",
+        output_source:  str = "none",
     ) -> None:
         """
         Record one LLM call's resource consumption and check all ceilings.
@@ -104,6 +165,9 @@ class RunBudget:
         Raises BudgetExceeded if any limit is breached.
         Must be called inside a finally block so partial charges are recorded
         even when the call raises.
+
+        The ``model``, ``input_source``, and ``output_source`` kwargs are
+        purely observational telemetry — they never affect budget checks.
         """
         self._refresh_elapsed()
         self.llm_calls  += 1
@@ -116,8 +180,46 @@ class RunBudget:
             self.llm_calls, self.tokens_in + self.tokens_out, self.cost_usd, self.elapsed_s,
         )
 
-        if self.elapsed_s > self.max_wall_s:
-            raise BudgetExceeded("wall_s", self.max_wall_s, round(self.elapsed_s, 1))
+        # ── Token instrumentation (observational — wrapped in try/except) ──
+        try:
+            from datetime import datetime as _dt
+            phase = self._current_phase or "unknown"
+
+            # Per-phase ledger: auto-creates entry for any new phase
+            if phase not in self.phase_ledger:
+                self.phase_ledger[phase] = PhaseUsage()
+            entry = self.phase_ledger[phase]
+            entry.tokens_in  += tokens_in
+            entry.tokens_out += tokens_out
+            entry.llm_calls  += 1
+
+            # Per-call record
+            self._call_counter += 1
+            call_rec = TokenCallRecord(
+                call_id=self._call_counter,
+                phase=phase,
+                model=model,
+                input_tokens=tokens_in,
+                output_tokens=tokens_out,
+                total_tokens=tokens_in + tokens_out,
+                input_source=input_source,
+                output_source=output_source,
+                timestamp=_dt.now().isoformat(),
+            )
+            self._call_log.append(call_rec)
+
+            # Fire UI callback (if wired)
+            if self.on_charge:
+                try:
+                    self.on_charge(self._snapshot())
+                except Exception:
+                    pass  # Never crash the workflow for UI telemetry
+        except Exception:
+            pass  # Token instrumentation must never affect workflow
+
+        # ── Budget enforcement ──────────────────────────────────────────────
+        # Wall-clock enforcement removed — elapsed_s is tracked for telemetry
+        # only.  Evidence sufficiency is the normal stopping mechanism.
         if self.llm_calls > self.max_llm_calls:
             raise BudgetExceeded("llm_calls", self.max_llm_calls, self.llm_calls)
         if (self.tokens_in + self.tokens_out) > self.max_tokens:
@@ -126,15 +228,13 @@ class RunBudget:
             raise BudgetExceeded("cost_usd", self.max_cost_usd, round(self.cost_usd, 4))
 
     def check(self) -> None:
-        """Check wall-clock limit without charging. Used at node boundaries."""
+        """Refresh elapsed time for telemetry. Wall-clock enforcement removed."""
         self._refresh_elapsed()
-        if self.elapsed_s > self.max_wall_s:
-            raise BudgetExceeded("wall_s", self.max_wall_s, round(self.elapsed_s, 1))
 
     def remaining(self) -> Dict[str, float]:
         self._refresh_elapsed()
         return {
-            "wall_s":    max(0.0, self.max_wall_s   - self.elapsed_s),
+            "wall_s":    max(0.0, self.max_wall_s - self.elapsed_s) if self.max_wall_s != float('inf') else float('inf'),
             "llm_calls": max(0,   self.max_llm_calls - self.llm_calls),
             "tokens":    max(0,   self.max_tokens    - (self.tokens_in + self.tokens_out)),
             "cost_usd":  max(0.0, self.max_cost_usd  - self.cost_usd),
@@ -143,11 +243,33 @@ class RunBudget:
     def budget_exceeded(self) -> bool:
         self._refresh_elapsed()
         return (
-            self.elapsed_s > self.max_wall_s
-            or self.llm_calls > self.max_llm_calls
+            # Wall-clock removed — not a solver constraint
+            self.llm_calls > self.max_llm_calls
             or (self.tokens_in + self.tokens_out) > self.max_tokens
             or self.cost_usd > self.max_cost_usd
         )
+
+    # ── Token instrumentation helpers (observational) ─────────────────────
+
+    def _snapshot(self) -> dict:
+        """Current budget state as a plain dict — safe to serialize for UI."""
+        self._refresh_elapsed()
+        return {
+            "tokens_in": self.tokens_in,
+            "tokens_out": self.tokens_out,
+            "total_tokens": self.tokens_in + self.tokens_out,
+            "llm_calls": self.llm_calls,
+            "elapsed_s": round(self.elapsed_s, 1),
+            "current_phase": self._current_phase or "unknown",
+            "phase_breakdown": {
+                name: usage.to_dict()
+                for name, usage in self.phase_ledger.items()
+            },
+        }
+
+    def get_call_log(self) -> List[dict]:
+        """Return all per-call records as plain dicts."""
+        return [rec.to_dict() for rec in self._call_log]
 
 
 # ============================================================================
@@ -294,6 +416,11 @@ class RunContext:
 
     def start_phase(self, name: str) -> None:
         self._phases[name] = _PhaseTimer(name)
+        # Token instrumentation: tell RunBudget which phase is active
+        try:
+            self.budget._current_phase = name
+        except Exception:
+            pass  # Never crash for instrumentation
         logger.debug("RunContext.start_phase: %s", name)
 
     def end_phase(self, name: str) -> float:
@@ -303,6 +430,12 @@ class RunContext:
             logger.debug("RunContext.end_phase: '%s' had no start — skipped", name)
             return 0.0
         ms = timer.stop()
+        # Token instrumentation: reset current phase to "between_phases"
+        try:
+            if self.budget._current_phase == name:
+                self.budget._current_phase = "between_phases"
+        except Exception:
+            pass  # Never crash for instrumentation
         logger.debug("RunContext.end_phase: %s = %.1f ms", name, ms)
         return ms
 
@@ -342,6 +475,16 @@ class RunContext:
             for name, timer in self._phases.items()
         }
         self.budget._refresh_elapsed()
+        # Token instrumentation: include per-phase and per-call breakdown
+        try:
+            phase_breakdown = {
+                name: usage.to_dict()
+                for name, usage in self.budget.phase_ledger.items()
+            }
+            call_log = self.budget.get_call_log()
+        except Exception:
+            phase_breakdown = {}
+            call_log = []
         return RunRecord(
             run_id=self.run_id,
             ticket_id=self.ticket_id,
@@ -371,6 +514,8 @@ class RunContext:
             retries=self.retries,
             hard_stop=self.hard_stop,
             budget_exceeded=self.budget.budget_exceeded(),
+            phase_token_breakdown=phase_breakdown,
+            call_log=call_log,
         )
 
 
@@ -431,6 +576,10 @@ class RunRecord:
     retries:        int
     hard_stop:      bool
     budget_exceeded: bool
+
+    # Token instrumentation (per-phase and per-call breakdown)
+    phase_token_breakdown: Dict[str, dict] = field(default_factory=dict)
+    call_log:              List[dict]       = field(default_factory=list)
 
     # Derived alerts (computed on to_dict())
     def alerts(self) -> List[str]:

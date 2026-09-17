@@ -596,10 +596,72 @@ def run_gating_logic(plan, discovered_files, ranked_files, evidence_items, works
                     })
                     break
 
+    # ── Pass 1.6: Domain Ownership (advisory — log only) ────────────────────────
+    # Architecture model provides CONTEXT about which service owns which files.
+    # This is advisory intelligence: we log a warning if a task targets files
+    # outside the expected bounded context, but we do NOT hard-block the task.
+    # Reason: architecture ownership is approximation, not absolute truth.
+    # A developer (or AI) may legitimately need to modify cross-service files.
+    _domain_warned: set = set()
+    try:
+        from ticket_to_code.agents.architecture_model import ArchitectureModel
+        from ticket_to_code.agents.domain_resolver import DomainResolver
+        from ticket_to_code.agents.ownership_resolver import OwnershipResolver
+
+        # Load architecture model
+        _arch_model = None
+        for _yaml_loc in [
+            Path(workspace_path) / "brain" / "knowledge" / "architecture_model.yaml",
+            Path(__file__).parent / "config" / "architecture_model.yaml",
+        ]:
+            if _yaml_loc.exists():
+                _arch_model = ArchitectureModel.load_from_yaml(str(_yaml_loc))
+                break
+
+        if _arch_model and _arch_model.services:
+            # Extract ticket text → domains
+            _domain_resolver = DomainResolver(_arch_model)
+            # ticket_text is the combined title + description already
+            _domain_resolution = _domain_resolver.resolve(ticket_text, "")
+
+            if _domain_resolution.has_resolution:
+                _ownership_resolver = OwnershipResolver(_arch_model)
+                _all_domains = _domain_resolution.primary_domains + _domain_resolution.secondary_domains
+
+                for task in active_tasks:
+                    if task.id in boundary_rejected:
+                        continue
+                    _ownership = _ownership_resolver.classify(task.file_path, _all_domains)
+
+                    # Advisory only: log the concern but let the task proceed
+                    if _ownership.is_hard and _ownership.policy.value == "DO_NOT_MODIFY":
+                        _domain_warned.add(task.id)
+                        task_logs.append({
+                            "task": task.file_path,
+                            "type": getattr(task.task_type, "value", str(task.task_type)),
+                            "status": "advisory_warning",
+                            "reason": (
+                                f"Domain ownership advisory: {task.file_path} belongs to "
+                                f"'{_ownership.service_name}' but capability '{_ownership.matched_capability}' "
+                                f"is owned by '{_ownership.expected_service}'. "
+                                f"Task is proceeding — verify this cross-service modification is intentional."
+                            ),
+                            "grounding_type": "domain_ownership_advisory",
+                            "grounding_fact": "; ".join(_ownership.evidence),
+                        })
+                        logger.warning(
+                            f"  🏗️ DOMAIN ADVISORY: {task.file_path} — "
+                            f"service={_ownership.service_name}, expected={_ownership.expected_service} "
+                            f"(task allowed to proceed)"
+                        )
+    except Exception as _domain_err:
+        logger.warning(f"  🏗️ Domain ownership check failed (non-fatal): {_domain_err}")
+
     # ── Pass 2: file-existence gate (AI-IDE style) ────────────────────────────
     for task in active_tasks:
         if task.id in boundary_rejected:
             continue
+
 
         t_type = getattr(task.task_type, "value", str(task.task_type))
 

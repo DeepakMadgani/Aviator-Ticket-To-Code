@@ -101,7 +101,6 @@ class InvestigationAgent:
         """Initialize with Aviator LLM.
         
         Args:
-            workspace_path: Optional path to the workspace root (e.g. 'C:\\CC4E').
             workspace_path: Optional path to the workspace root.
                             When supplied, the agent will load the Macro Architecture
                             Brain from <workspace_path>/brain/knowledge/.

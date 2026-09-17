@@ -114,6 +114,18 @@ DEFAULT_SKILLS: Dict[str, dict] = {
             "Flag risk areas for verification",
         ],
     },
+    "domain-ownership": {
+        "id": "domain-ownership",
+        "title": "Domain Ownership Guard",
+        "rules": [
+            "Each file belongs to exactly one bounded context (service)",
+            "Files marked REFERENCE_ONLY must not be modified — read for context only",
+            "DO_NOT_MODIFY files are hard-rejected at every pipeline layer",
+            "UNKNOWN service ownership → REQUIRE_VERIFICATION, not silent ALLOW",
+            "Relevant ≠ Authorized — a file can be relevant but architecturally wrong",
+            "Check architecture_model.yaml for service ownership definitions",
+        ],
+    },
 }
 
 

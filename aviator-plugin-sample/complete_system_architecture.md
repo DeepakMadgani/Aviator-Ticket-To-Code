@@ -134,3 +134,9 @@ If the system advances to Phase 2 (Architectural Planning) but the generated pla
 
 ### Pre-Seeding (Stage 0)
 On the very first iteration, the "list of files found so far" is usually empty. However, the system runs a pre-seed **Stage 0** phase where it scans the Jira ticket for UI labels. If it finds one, it quickly traces it through i18n files to pre-seed the LLM with the source component before Iteration 1 even begins.
+
+## Token Tracking & Telemetry
+
+The system includes a fully observational token tracking pipeline that monitors LLM usage (input/output tokens, cost, and call counts) across the entire workflow. This telemetry is streamed live to the UI via WebSockets to populate a Token Usage banner.
+
+**Known Limitation:** The very first LLM calls inside the `investigate_node` itself won't be counted (the telemetry callback is wired at the end of that specific node). All subsequent nodes (evidence collection, planning, generation, validation, etc.) will count correctly. The Token Usage banner will appear and update live from the second node onward.

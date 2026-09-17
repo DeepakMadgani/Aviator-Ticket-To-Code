@@ -42,3 +42,11 @@ Thumbs.db
 !/aviator-plugin-sample/
 !/aviator_adt/
 !/enhancement-test-project/
+
+# Scratch and local temporary test artifacts
+scratch/
+.agents/scratch/
+aviator-plugin-sample/scratch/
+**/.aviator/
+*.db-shm
+*.db-wal

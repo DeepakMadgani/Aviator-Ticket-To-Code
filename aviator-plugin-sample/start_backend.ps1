@@ -4,7 +4,7 @@ uv pip install gitpython neo4j 2>$null
 
 Write-Host "Starting Aviator Backend..." -ForegroundColor Green
 $env:POSTGRES_CONNECTION="postgresql://postgres:postgres@127.0.0.1:5433/postgres"
-$env:BROKER_URL="amqp://guest:guest@localhost:5672/"
+$env:BROKER_URL="amqp://admin:admin_pass@localhost:5672/"
 $env:GOOGLE_APPLICATION_CREDENTIALS="C:\Users\dmadgani\Desktop\My_Aviator\aviator-plugin-sample\otl-cs-csai.json"
 $env:content_system="sample"
 $env:BIND_PORT=8002

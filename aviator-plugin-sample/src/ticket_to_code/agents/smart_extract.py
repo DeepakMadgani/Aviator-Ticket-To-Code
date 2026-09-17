@@ -152,9 +152,10 @@ class MethodBoundary:
 _JAVA_TS_METHOD_RE = re.compile(
     r'^\s*(?:@\w+(?:\([^)]*\))?\s*)*'                       # optional annotations
     r'(?:public|private|protected|static|async|abstract|'
-    r'override|final|synchronized|default|native|\s)*'       # modifiers
-    r'(?:[\w<>\[\],\s]+\s+)?'                                # return type (optional)
+    r'override|final|synchronized|default|native|readonly|\s)*' # modifiers
+    r'(?:[\w<>\[\],\s]+\s+)?'                                # return type (optional Java)
     r'(\w+)\s*\([^)]*\)\s*'                                  # method name + params
+    r'(?::\s*[\w<>\[\],\s|&?]+)?\s*'                         # return type (TypeScript)
     r'(?:throws\s+[\w,\s]+)?\s*\{',                          # optional throws + opening brace
     re.MULTILINE
 )
@@ -166,7 +167,7 @@ _JAVA_TS_CLASS_RE = re.compile(
 )
 
 _JAVA_TS_CONSTRUCTOR_RE = re.compile(
-    r'^\s*(?:public|private|protected)\s+(\w+)\s*\([^)]*\)\s*\{',
+    r'^\s*(?:(?:public|private|protected)\s+)?constructor\s*\([^)]*\)\s*\{',
     re.MULTILINE
 )
 
@@ -440,8 +441,11 @@ def smart_extract(
     parts: List[str] = []
 
     # 5a. Always include imports + class header
-    first_method_line = boundaries[0].start_line if boundaries else 80
-    header_end = min(first_method_line, 80)
+    first_callable = next((mb for mb in boundaries if mb.kind in ("method", "constructor", "function")), None)
+    if first_callable is not None:
+        header_end = first_callable.start_line
+    else:
+        header_end = min(boundaries[0].start_line, 80) if boundaries else min(80, total_lines)
     parts.append(f"// === IMPORTS & CLASS HEADER (lines 1-{header_end}) ===")
     parts.append('\n'.join(lines[:header_end]))
 
@@ -611,7 +615,7 @@ def _parse_typescript_boundaries_treesitter(source: str) -> List[MethodBoundary]
                 start_line, start_line, name,
                 lines[start_line].strip() if start_line < len(lines) else "", "class"
             ))
-        elif node.type in ("method_definition", "public_field_definition"):
+        elif node.type == "method_definition":
             name_node = node.child_by_field_name("name")
             if name_node:
                 name = name_node.text.decode("utf-8")
@@ -619,6 +623,16 @@ def _parse_typescript_boundaries_treesitter(source: str) -> List[MethodBoundary]
                 end_line = node.end_point[0]
                 sig = _capture_full_signature(lines, start_line) if start_line < len(lines) else ""
                 kind = "constructor" if name == "constructor" else "method"
+                boundaries.append(MethodBoundary(start_line, end_line, name, sig, kind))
+        elif node.type in ("public_field_definition", "property_definition"):
+            name_node = node.child_by_field_name("name")
+            if name_node:
+                name = name_node.text.decode("utf-8")
+                start_line = node.start_point[0]
+                end_line = node.end_point[0]
+                sig = _capture_full_signature(lines, start_line) if start_line < len(lines) else ""
+                val_node = node.child_by_field_name("value")
+                kind = "method" if (val_node and val_node.type in ("arrow_function", "function_expression")) else "property"
                 boundaries.append(MethodBoundary(start_line, end_line, name, sig, kind))
         elif node.type == "function_declaration":
             name_node = node.child_by_field_name("name")
@@ -751,8 +765,11 @@ def extract_exact_methods(
     parts: List[str] = []
 
     # 4a. Always include imports + class header (verbatim)
-    first_method_line = boundaries[0].start_line if boundaries else 80
-    header_end = min(first_method_line, 80)
+    first_callable = next((mb for mb in boundaries if mb.kind in ("method", "constructor", "function")), None)
+    if first_callable is not None:
+        header_end = first_callable.start_line
+    else:
+        header_end = min(boundaries[0].start_line, 80) if boundaries else min(80, total_lines)
     parts.append('\n'.join(lines[:header_end]))
 
     # 4b. Target methods — VERBATIM content (exact bytes from original file)

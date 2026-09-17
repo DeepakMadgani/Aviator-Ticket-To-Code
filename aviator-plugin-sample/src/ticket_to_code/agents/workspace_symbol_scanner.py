@@ -31,9 +31,15 @@ class SymbolInfo:
     access_level: Optional[str] = None  # "public", "private", "protected", ""
     is_optional: bool = False  # For TS ? properties
     source_line: Optional[int] = None
+    # ── Signature fields (for grounded cross-task contracts) ──
+    owner_class: Optional[str] = None  # Owning class name, e.g. "ContractMemberService"
+    params: Optional[List[str]] = None  # Parameter strings, e.g. ["UUID userId", "UUID projectId"]
+    return_type: Optional[str] = None  # Return type, e.g. "ProjectMembershipResult"
 
     def to_dict(self):
-        return asdict(self)
+        d = asdict(self)
+        # Exclude None fields for backward compat
+        return {k: v for k, v in d.items() if v is not None}
 
 
 @dataclass
@@ -102,6 +108,67 @@ class WorkspaceSymbolScanner:
         ]
         self.max_files = max_files
         self.file_symbols: Dict[str, FileSymbols] = {}  # path → FileSymbols
+
+    # ── In-memory content scanning (for generated artifacts) ─────────────
+
+    def scan_content(self, content: str, file_path: str) -> FileSymbols:
+        """Extract symbols from in-memory content without reading from disk.
+
+        Used by GenerationHandoff to extract grounded symbols/signatures from
+        generated code that is still in ImplementationState.generated_files.
+
+        Returns the same FileSymbols that scan_workspace() produces for on-disk
+        files, so the output can be converted to VerifiedSymbol objects for
+        handoff.exports.
+
+        Args:
+            content: The source code content (string).
+            file_path: Relative or absolute path (used only for language detection).
+
+        Returns:
+            FileSymbols with extracted symbols, class_names, and signatures.
+        """
+        if not content or not content.strip():
+            return FileSymbols(
+                file_path=file_path,
+                language=self._get_language(Path(file_path)),
+                symbols=[],
+                class_names=[],
+                extraction_method="empty",
+            )
+
+        lang = self._get_language(Path(file_path))
+
+        try:
+            if lang in ("typescript", "javascript"):
+                return self._extract_typescript_regex_from_content(file_path, content)
+            elif lang == "java":
+                return self._extract_java_regex_from_content(file_path, content)
+            elif lang == "python":
+                return self._extract_python_ast_from_content(file_path, content)
+            elif lang in ("html", "htm"):
+                return self._extract_html_bindings_from_content(file_path, content)
+            elif lang == "kotlin":
+                # Kotlin shares Java-like syntax for public API
+                return self._extract_java_regex_from_content(file_path, content)
+            else:
+                return FileSymbols(
+                    file_path=file_path,
+                    language=lang,
+                    symbols=[],
+                    class_names=[],
+                    extraction_method="unsupported_language",
+                )
+        except Exception as e:
+            logger.debug(f"  scan_content failed for {file_path}: {e}")
+            return FileSymbols(
+                file_path=file_path,
+                language=lang,
+                symbols=[],
+                class_names=[],
+                extraction_method="scan_content_failed",
+                error=str(e),
+            )
 
     def scan_workspace(self) -> "WorkspaceSymbolIndex":
         """Scan workspace and build index."""
@@ -292,56 +359,7 @@ class WorkspaceSymbolScanner:
         """Extract TS symbols via regex (fallback from LSP)."""
         try:
             content = fpath.read_text(encoding="utf-8", errors="ignore")
-            symbols = []
-
-            # Extract class/interface name
-            class_match = None
-            for line in content.split("\n"):
-                if "export class " in line or "export interface " in line:
-                    parts = line.split()
-                    for i, p in enumerate(parts):
-                        if p in ("class", "interface") and i + 1 < len(parts):
-                            class_match = parts[i + 1].strip("{")
-                            break
-                if class_match:
-                    break
-
-            # Extract properties (simplified)
-            import re
-
-            # Match: property: type; or property = value;
-            prop_pattern = r"^\s+(\w+)\s*[:=]"
-            for line in content.split("\n"):
-                m = re.match(prop_pattern, line)
-                if m:
-                    prop_name = m.group(1)
-                    symbols.append(
-                        SymbolInfo(
-                            name=prop_name, kind="property", extraction_method="regex"
-                        )
-                    )
-
-            # Extract methods
-            method_pattern = r"^\s+(\w+)\s*\("
-            for line in content.split("\n"):
-                m = re.match(method_pattern, line)
-                if m:
-                    method_name = m.group(1)
-                    if method_name not in ("constructor", "ngOnInit", "ngOnDestroy"):
-                        symbols.append(
-                            SymbolInfo(
-                                name=method_name, kind="method", extraction_method="regex"
-                            )
-                        )
-
-            return FileSymbols(
-                file_path=rel_path,
-                language="typescript",
-                symbols=symbols,
-                class_names=[class_match] if class_match else [],
-                extraction_method="regex",
-            )
-
+            return self._extract_typescript_regex_from_content(rel_path, content)
         except Exception as e:
             return FileSymbols(
                 file_path=rel_path,
@@ -351,56 +369,78 @@ class WorkspaceSymbolScanner:
                 extraction_method="regex_failed",
                 error=str(e),
             )
+
+    def _extract_typescript_regex_from_content(
+        self, rel_path: str, content: str
+    ) -> FileSymbols:
+        """Extract TS symbols from in-memory content via regex."""
+        import re
+
+        symbols = []
+
+        # Extract class/interface name
+        class_match = None
+        for line in content.split("\n"):
+            if "export class " in line or "export interface " in line:
+                parts = line.split()
+                for i, p in enumerate(parts):
+                    if p in ("class", "interface") and i + 1 < len(parts):
+                        class_match = parts[i + 1].strip("{")
+                        break
+            if class_match:
+                break
+
+        # Extract properties (simplified)
+        prop_pattern = r"^\s+(\w+)\s*[:=]"
+        for line in content.split("\n"):
+            m = re.match(prop_pattern, line)
+            if m:
+                prop_name = m.group(1)
+                symbols.append(
+                    SymbolInfo(
+                        name=prop_name,
+                        kind="property",
+                        owner_class=class_match,
+                    )
+                )
+
+        # Extract methods with params and return type
+        # Match: methodName(param1: type, param2: type): ReturnType {
+        method_sig_pattern = re.compile(
+            r"^\s+(?:async\s+)?(?:public\s+|private\s+|protected\s+)?"
+            r"(\w+)\s*\(([^)]*)\)\s*(?::\s*([\w<>\[\]|&\s,]+?))?\s*\{",
+            re.MULTILINE,
+        )
+        for m in method_sig_pattern.finditer(content):
+            method_name = m.group(1)
+            raw_params = m.group(2).strip()
+            return_type = (m.group(3) or "void").strip()
+            if method_name in ("constructor", "ngOnInit", "ngOnDestroy", "if", "for", "while"):
+                continue
+            params = [p.strip() for p in raw_params.split(",")] if raw_params else []
+            symbols.append(
+                SymbolInfo(
+                    name=method_name,
+                    kind="method",
+                    owner_class=class_match,
+                    params=params,
+                    return_type=return_type,
+                )
+            )
+
+        return FileSymbols(
+            file_path=rel_path,
+            language="typescript",
+            symbols=symbols,
+            class_names=[class_match] if class_match else [],
+            extraction_method="regex",
+        )
 
     def _extract_java_regex(self, rel_path: str, fpath: Path) -> FileSymbols:
         """Extract Java symbols via regex (fallback from LSP)."""
         try:
             content = fpath.read_text(encoding="utf-8", errors="ignore")
-            symbols = []
-
-            import re
-
-            # Extract class name
-            class_pattern = r"public\s+class\s+(\w+)"
-            class_match = re.search(class_pattern, content)
-            class_name = class_match.group(1) if class_match else None
-
-            # Extract fields
-            field_pattern = r"^\s+(private|public|protected)?\s+(\w+)\s+(\w+)"
-            for line in content.split("\n"):
-                m = re.match(field_pattern, line)
-                if m:
-                    field_type = m.group(2)
-                    field_name = m.group(3)
-                    symbols.append(
-                        SymbolInfo(
-                            name=field_name,
-                            kind="property",
-                            type_hint=field_type,
-                            extraction_method="regex",
-                        )
-                    )
-
-            # Extract methods
-            method_pattern = r"^\s+(public|private|protected)?\s+\w+\s+(\w+)\s*\("
-            for line in content.split("\n"):
-                m = re.match(method_pattern, line)
-                if m:
-                    method_name = m.group(2)
-                    symbols.append(
-                        SymbolInfo(
-                            name=method_name, kind="method", extraction_method="regex"
-                        )
-                    )
-
-            return FileSymbols(
-                file_path=rel_path,
-                language="java",
-                symbols=symbols,
-                class_names=[class_name] if class_name else [],
-                extraction_method="regex",
-            )
-
+            return self._extract_java_regex_from_content(rel_path, content)
         except Exception as e:
             return FileSymbols(
                 file_path=rel_path,
@@ -411,56 +451,118 @@ class WorkspaceSymbolScanner:
                 error=str(e),
             )
 
+    def _extract_java_regex_from_content(
+        self, rel_path: str, content: str
+    ) -> FileSymbols:
+        """Extract Java symbols from in-memory content via regex.
+
+        Enhanced to capture full method signatures: return type, parameters,
+        visibility, and owner class — not just method names.
+        """
+        import re
+
+        symbols = []
+
+        # Extract class/interface/enum names
+        class_names = []
+        class_pattern = re.compile(
+            r"(?:public\s+)?(?:abstract\s+)?(class|interface|enum)\s+(\w+)"
+        )
+        for m in class_pattern.finditer(content):
+            kind, name = m.group(1), m.group(2)
+            class_names.append(name)
+            symbols.append(
+                SymbolInfo(
+                    name=name,
+                    kind=kind,
+                    access_level="public",
+                )
+            )
+
+        # Determine the primary class name (first public class)
+        primary_class = class_names[0] if class_names else None
+
+        # Extract fields with type information
+        field_pattern = re.compile(
+            r"^\s+(private|public|protected)\s+"
+            r"(?:static\s+)?(?:final\s+)?"
+            r"([\w<>\[\],\s]+?)\s+(\w+)\s*[;=]",
+            re.MULTILINE,
+        )
+        for m in field_pattern.finditer(content):
+            access = m.group(1)
+            field_type = m.group(2).strip()
+            field_name = m.group(3)
+            # Skip common false positives
+            if field_name in ("class", "interface", "enum", "return", "new", "throw"):
+                continue
+            symbols.append(
+                SymbolInfo(
+                    name=field_name,
+                    kind="property",
+                    type_hint=field_type,
+                    access_level=access,
+                    owner_class=primary_class,
+                )
+            )
+
+        # Extract methods with FULL signature: visibility, return type, name, params
+        method_pattern = re.compile(
+            r"^\s+(public|private|protected)\s+"
+            r"(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?"
+            r"([\w<>\[\],\s]+?)\s+"  # return type
+            r"(\w+)"                  # method name
+            r"\s*\(([^)]*)\)",        # parameters
+            re.MULTILINE,
+        )
+        for m in method_pattern.finditer(content):
+            access = m.group(1)
+            return_type = m.group(2).strip()
+            method_name = m.group(3)
+            raw_params = m.group(4).strip()
+
+            # Skip constructors and common false positives
+            if method_name in (primary_class, "if", "for", "while", "switch", "catch", "new"):
+                continue
+            # Skip annotations captured as methods
+            if return_type in ("class", "interface", "enum"):
+                continue
+
+            # Parse parameters into list
+            params = []
+            if raw_params:
+                for param in raw_params.split(","):
+                    param = param.strip()
+                    if param:
+                        # Remove annotations like @RequestParam, @PathVariable
+                        param_clean = re.sub(r"@\w+(?:\([^)]*\))?\s*", "", param).strip()
+                        params.append(param_clean)
+
+            symbols.append(
+                SymbolInfo(
+                    name=method_name,
+                    kind="method",
+                    type_hint=return_type,
+                    access_level=access,
+                    owner_class=primary_class,
+                    params=params,
+                    return_type=return_type,
+                )
+            )
+
+        return FileSymbols(
+            file_path=rel_path,
+            language="java",
+            symbols=symbols,
+            class_names=class_names,
+            extraction_method="regex",
+        )
+
     def _extract_python_ast(self, rel_path: str, fpath: Path) -> FileSymbols:
         """Extract Python symbols using ast.parse()."""
         try:
-            import ast
-
             content = fpath.read_text(encoding="utf-8", errors="ignore")
-            tree = ast.parse(content)
-            symbols = []
-            class_names = []
-
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ClassDef):
-                    class_names.append(node.name)
-                    # Extract class members
-                    for item in node.body:
-                        if isinstance(item, ast.FunctionDef):
-                            symbols.append(
-                                SymbolInfo(
-                                    name=item.name,
-                                    kind="method" if item.name != "__init__" else "constructor",
-                                    source_line=item.lineno,
-                                )
-                            )
-                        elif isinstance(item, ast.Assign):
-                            for target in item.targets:
-                                if isinstance(target, ast.Name):
-                                    symbols.append(
-                                        SymbolInfo(
-                                            name=target.id,
-                                            kind="property",
-                                            source_line=item.lineno,
-                                        )
-                                    )
-
-                elif isinstance(node, ast.FunctionDef) and not class_names:
-                    # Top-level function
-                    symbols.append(
-                        SymbolInfo(
-                            name=node.name, kind="function", source_line=node.lineno
-                        )
-                    )
-
-            return FileSymbols(
-                file_path=rel_path,
-                language="python",
-                symbols=symbols,
-                class_names=class_names,
-                extraction_method="ast",
-            )
-
+            return self._extract_python_ast_from_content(rel_path, content)
         except Exception as e:
             return FileSymbols(
                 file_path=rel_path,
@@ -471,53 +573,105 @@ class WorkspaceSymbolScanner:
                 error=str(e),
             )
 
-    def _extract_html_bindings(self, rel_path: str, fpath: Path) -> FileSymbols:
-        """Extract HTML template bindings (properties used in template)."""
-        try:
-            import re
+    def _extract_python_ast_from_content(
+        self, rel_path: str, content: str
+    ) -> FileSymbols:
+        """Extract Python symbols from in-memory content using ast.parse()."""
+        import ast as _ast
 
-            content = fpath.read_text(encoding="utf-8", errors="ignore")
-            symbols = []
+        tree = _ast.parse(content)
+        symbols = []
+        class_names = []
 
-            # Find all Angular bindings: {{ componentProperty }}, [property]=, etc.
-            # Patterns:
-            # {{ propertyName }}
-            # [property]="expression"
-            # (event)="handler()"
-            # *ngIf="propertyName"
-            # etc.
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.ClassDef):
+                class_names.append(node.name)
+                # Extract class members
+                for item in node.body:
+                    if isinstance(item, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                        # Extract parameter names + annotations
+                        params = []
+                        for arg in item.args.args:
+                            if arg.arg == "self":
+                                continue
+                            ann = ""
+                            if arg.annotation:
+                                try:
+                                    ann = _ast.unparse(arg.annotation)
+                                except Exception:
+                                    ann = ""
+                            params.append(
+                                f"{arg.arg}: {ann}" if ann else arg.arg
+                            )
+                        # Extract return type annotation
+                        ret_type = "None"
+                        if item.returns:
+                            try:
+                                ret_type = _ast.unparse(item.returns)
+                            except Exception:
+                                ret_type = "?"
+                        symbols.append(
+                            SymbolInfo(
+                                name=item.name,
+                                kind="method" if item.name != "__init__" else "constructor",
+                                source_line=item.lineno,
+                                owner_class=node.name,
+                                params=params,
+                                return_type=ret_type,
+                            )
+                        )
+                    elif isinstance(item, _ast.Assign):
+                        for target in item.targets:
+                            if isinstance(target, _ast.Name):
+                                symbols.append(
+                                    SymbolInfo(
+                                        name=target.id,
+                                        kind="property",
+                                        source_line=item.lineno,
+                                        owner_class=node.name,
+                                    )
+                                )
 
-            patterns = [
-                r"\{\{\s*(\w+)\s*\}\}",  # {{ property }}
-                r"\[(\w+)\]\s*=",  # [property]=
-                r"\(\w+\)\s*=",  # (event)=
-                r"\*ng\w+\s*=\s*[\"']([^\"']*)[\"']",  # *ngIf="property"
-                r"ngModel\s*=\s*[\"']([^\"']*)[\"']",  # ngModel
-            ]
-
-            found_props = set()
-            for pattern in patterns:
-                for match in re.finditer(pattern, content):
-                    prop_name = match.group(1).split(".")[0].split("[")[0]  # Handle nested
-                    if prop_name and not prop_name.startswith("$"):
-                        found_props.add(prop_name)
-
-            # Convert to symbols
-            for prop_name in sorted(found_props):
+            elif isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)) and not class_names:
+                # Top-level function
+                params = []
+                for arg in node.args.args:
+                    ann = ""
+                    if arg.annotation:
+                        try:
+                            ann = _ast.unparse(arg.annotation)
+                        except Exception:
+                            ann = ""
+                    params.append(f"{arg.arg}: {ann}" if ann else arg.arg)
+                ret_type = "None"
+                if node.returns:
+                    try:
+                        ret_type = _ast.unparse(node.returns)
+                    except Exception:
+                        ret_type = "?"
                 symbols.append(
                     SymbolInfo(
-                        name=prop_name, kind="property", access_level="template"
+                        name=node.name,
+                        kind="function",
+                        source_line=node.lineno,
+                        params=params,
+                        return_type=ret_type,
                     )
                 )
 
-            return FileSymbols(
-                file_path=rel_path,
-                language="html",
-                symbols=symbols,
-                class_names=[],
-                extraction_method="regex",
-            )
+        return FileSymbols(
+            file_path=rel_path,
+            language="python",
+            symbols=symbols,
+            class_names=class_names,
+            extraction_method="ast",
+        )
 
+    def _extract_html_bindings(self, rel_path: str, fpath: Path) -> FileSymbols:
+        """Extract HTML template bindings (properties used in template)."""
+        try:
+            content = fpath.read_text(encoding="utf-8", errors="ignore")
+            return self._extract_html_bindings_from_content(rel_path, content)
         except Exception as e:
             return FileSymbols(
                 file_path=rel_path,
@@ -527,6 +681,44 @@ class WorkspaceSymbolScanner:
                 extraction_method="regex_failed",
                 error=str(e),
             )
+
+    def _extract_html_bindings_from_content(
+        self, rel_path: str, content: str
+    ) -> FileSymbols:
+        """Extract HTML template bindings from in-memory content."""
+        import re
+
+        symbols = []
+
+        patterns = [
+            r"\{\{\s*(\w+)\s*\}\}",  # {{ property }}
+            r"\[(\w+)\]\s*=",  # [property]=
+            r"\(\w+\)\s*=",  # (event)=
+            r"\*ng\w+\s*=\s*[\"']([^\"']*)[\"']",  # *ngIf="property"
+            r"ngModel\s*=\s*[\"']([^\"']*)[\"']",  # ngModel
+        ]
+
+        found_props = set()
+        for pattern in patterns:
+            for match in re.finditer(pattern, content):
+                prop_name = match.group(1).split(".")[0].split("[")[0]
+                if prop_name and not prop_name.startswith("$"):
+                    found_props.add(prop_name)
+
+        for prop_name in sorted(found_props):
+            symbols.append(
+                SymbolInfo(
+                    name=prop_name, kind="property", access_level="template"
+                )
+            )
+
+        return FileSymbols(
+            file_path=rel_path,
+            language="html",
+            symbols=symbols,
+            class_names=[],
+            extraction_method="regex",
+        )
 
 
 class WorkspaceSymbolIndex:

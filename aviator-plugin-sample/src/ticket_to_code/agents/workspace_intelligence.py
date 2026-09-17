@@ -20,6 +20,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
 
+# Lazy import to avoid circular deps — actual usage in _load_architecture_model
+# from ticket_to_code.agents.architecture_model import ArchitectureModel
+
 
 class ServiceInfo(BaseModel):
     """A discovered service or module within the workspace."""
@@ -68,6 +71,12 @@ class WorkspaceKnowledge(BaseModel):
     # Repository Brain JSON path
     repository_brain_path: str = Field(default="")
 
+    # Domain Ownership: Architecture Model (loaded from YAML or auto-generated)
+    architecture_model: Optional[Any] = Field(
+        default=None,
+        description="ArchitectureModel instance for domain ownership gates",
+    )
+
     def to_prompt_block(self) -> str:
         """Returns a compact block for injecting into LLM prompts."""
         lines = [
@@ -100,12 +109,12 @@ class WorkspaceIntelligenceAgent:
     """
     Layer 0: Workspace Intelligence — runs ONCE, caches, feeds everything downstream.
 
-    Scans the CC4E monorepo recursively to discover:
-    - Angular frontend (xchange-ui)
-    - Spring Boot backends (area-service, se-connector-apis, etc.)
-    - Deployment scripts (run-job.sh)
-    - Build/test commands
-    - Angular modules for component discovery
+    Scans the workspace recursively to discover:
+    - Frontend frameworks (Angular, React, Vue, etc.)
+    - Backend frameworks (Spring Boot, Django, Express, etc.)
+    - Build systems (Gradle, Maven, npm, pip, etc.)
+    - Deployment scripts and CI/CD configuration
+    - Module structures for component discovery
 
     Cache invalidation: git SHA (falls back to hash of manifest files).
     """
@@ -207,10 +216,14 @@ class WorkspaceIntelligenceAgent:
         else:
             knowledge.repository_brain_path = str(brain_json)
 
+        # 8. Load Architecture Model (Domain Ownership layer)
+        knowledge.architecture_model = self._load_architecture_model(knowledge)
+
         print(f"[WorkspaceIntelligence] ✅ language={knowledge.language} "
               f"framework={knowledge.framework} backend={knowledge.backend} "
               f"services={[s.name for s in knowledge.services]} "
-              f"scripts={knowledge.deployment_scripts}")
+              f"scripts={knowledge.deployment_scripts} "
+              f"architecture_model={'loaded' if knowledge.architecture_model else 'none'}")
 
         return knowledge
 
@@ -485,6 +498,60 @@ class WorkspaceIntelligenceAgent:
         if knowledge.angular_modules:
             parts.append(f"Angular modules: {', '.join(knowledge.angular_modules[:10])}")
         return ". ".join(parts) if parts else "Standard workspace"
+
+    # -------------------------------------------------------------------------
+    # Architecture Model Loader (Domain Ownership)
+    # -------------------------------------------------------------------------
+
+    def _load_architecture_model(self, knowledge: WorkspaceKnowledge):
+        """Load or auto-generate the ArchitectureModel for domain ownership.
+
+        Search order:
+        1. {workspace}/brain/knowledge/architecture_model.yaml  (workspace-level)
+        2. {plugin}/config/architecture_model.yaml              (plugin default)
+        3. Auto-generate from discovered services               (fallback)
+
+        Returns ArchitectureModel or None on failure.
+        """
+        try:
+            from ticket_to_code.agents.architecture_model import ArchitectureModel
+        except ImportError as e:
+            print(f"[WorkspaceIntelligence] WARNING: Could not import ArchitectureModel: {e}")
+            return None
+
+        # 1. Workspace-level YAML (developer-maintained, highest authority)
+        ws_yaml = self.workspace_path / "brain" / "knowledge" / "architecture_model.yaml"
+        if ws_yaml.exists():
+            print(f"[WorkspaceIntelligence] Loading architecture model from {ws_yaml}")
+            return ArchitectureModel.load_from_yaml(str(ws_yaml))
+
+        # 2. Plugin config directory (default for this plugin)
+        plugin_yaml = Path(__file__).parent.parent / "config" / "architecture_model.yaml"
+        if plugin_yaml.exists():
+            print(f"[WorkspaceIntelligence] Loading architecture model from {plugin_yaml}")
+            return ArchitectureModel.load_from_yaml(str(plugin_yaml))
+
+        # 3. Auto-generate from discovered services (fallback — soft authority only)
+        if knowledge.services:
+            print("[WorkspaceIntelligence] Auto-generating architecture model from discovered services")
+            service_names = [s.name for s in knowledge.services]
+            # Search for any architecture map markdown (project-agnostic)
+            _knowledge_dir = self.workspace_path / "brain" / "knowledge"
+            _arch_map_path = None
+            if _knowledge_dir.exists():
+                # Try generic name first, then any *_architecture_map.md
+                for _pattern in ["architecture_map.md", "*_architecture_map.md"]:
+                    _matches = list(_knowledge_dir.glob(_pattern))
+                    if _matches:
+                        _arch_map_path = _matches[0]
+                        break
+            return ArchitectureModel.from_workspace_knowledge(
+                service_names,
+                str(_arch_map_path) if _arch_map_path else None,
+            )
+
+        print("[WorkspaceIntelligence] No architecture model available (no services discovered)")
+        return None
 
     # -------------------------------------------------------------------------
     # Cache Key

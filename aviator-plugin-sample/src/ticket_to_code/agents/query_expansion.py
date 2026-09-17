@@ -18,7 +18,42 @@ Design principles:
 """
 
 import re
-from typing import Dict, Set
+from typing import Dict, Set, Optional
+
+# Known UI container terms that can be safely stripped during fallback search
+_UI_CONTAINER_TERMS = frozenset({
+    "modal", "dialog", "button", "page", "screen",
+    "view", "popup", "drawer", "dropdown", "tab",
+})
+
+
+def strip_ui_container_term(term: str) -> Optional[str]:
+    """Strip known UI container descriptors from a multi-word search term.
+
+    Only operates if the term has multiple words and ends with or contains
+    a recognized container noun (e.g. 'modal', 'dialog', 'button', etc.).
+    Returns None if no container term was stripped or if stripping would leave empty.
+    """
+    if not term or not term.strip():
+        return None
+    words = term.strip().split()
+    if len(words) <= 1:
+        return None
+
+    # Check if the trailing word is a known container term
+    if words[-1].lower() in _UI_CONTAINER_TERMS:
+        stripped = " ".join(words[:-1]).strip()
+        if stripped:
+            return stripped
+
+    # Also check if any word in the phrase is a container term
+    new_words = [w for w in words if w.lower() not in _UI_CONTAINER_TERMS]
+    if new_words and len(new_words) < len(words):
+        stripped = " ".join(new_words).strip()
+        if stripped:
+            return stripped
+
+    return None
 
 
 class QueryExpansionEngine:

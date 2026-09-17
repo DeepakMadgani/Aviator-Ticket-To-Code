@@ -73,9 +73,10 @@ class SemanticVerificationAgent:
     def _read_file_snippet(self, file_path: str, evidence_lines: Optional[List[int]] = None) -> str:
         """Read the RELEVANT sections of a file for LLM verification.
         
-        Strategy (like top AI IDEs):
+        Strategy (AST/symbol-first resolution with bounded fallback):
         1. File signature (first 30 lines) — imports, class/function declarations
-        2. Evidence-matched regions (±15 lines around each evidence hit)
+        2. AST/symbol-first target resolution — containing symbol/method for each evidence hit
+           (bounded line window strictly as fallback when AST resolution fails)
         3. If no evidence, read the next structural section
         """
         if not self._workspace_path:
@@ -87,9 +88,9 @@ class SemanticVerificationAgent:
             content = full_path.read_text(encoding="utf-8", errors="ignore")
             lines = content.splitlines()
 
-            # Strategy: Read the RELEVANT sections, not just the first N chars.
+            # Strategy: Read RELEVANT sections via AST/symbol-first resolution.
             # 1. File signature (first 30 lines) — imports, class declarations
-            # 2. Evidence-matched regions (±15 lines around each evidence hit)
+            # 2. AST/symbol-first target resolution (containing method/symbol for evidence hits)
             # 3. If no evidence lines, read key structural parts
 
             parts: List[str] = []
@@ -101,21 +102,41 @@ class SemanticVerificationAgent:
             parts.append(f"[FILE SIGNATURE lines 1-{sig_end}]\n{sig}")
             used_chars += len(sig)
 
-            # Part 2: Evidence-matched regions
+            # Part 2: AST/symbol-first target resolution (with bounded fallback)
             if evidence_lines:
+                from ticket_to_code.agents.smart_extract import _get_reliable_boundaries, detect_language
+                lang = detect_language(file_path)
+                boundaries = _get_reliable_boundaries(content, lang) if lang else []
+                
                 for eline in sorted(set(evidence_lines))[:5]:
                     if used_chars >= _MAX_SNIPPET_CHARS:
                         break
-                    start = max(0, eline - 15)
-                    end = min(len(lines), eline + 15)
-                    # Skip if overlaps with signature
-                    if start < sig_end:
-                        start = sig_end
-                    if start >= end:
-                        continue
-                    region = "\n".join(lines[start:end])
-                    parts.append(f"[EVIDENCE REGION lines {start+1}-{end}]\n{region}")
-                    used_chars += len(region)
+                    
+                    matched_boundary = None
+                    for b in boundaries:
+                        if b.start_line <= eline <= b.end_line:
+                            matched_boundary = b
+                            break
+
+                    if matched_boundary:
+                        start = max(0, matched_boundary.start_line - 1)
+                        end = min(len(lines), matched_boundary.end_line)
+                        if start < sig_end:
+                            start = sig_end
+                        if start < end:
+                            region = "\n".join(lines[start:end])
+                            parts.append(f"[TARGET SYMBOL: {matched_boundary.name} lines {start+1}-{end}]\n{region}")
+                            used_chars += len(region)
+                    else:
+                        # Fallback to bounded window only when AST/symbol resolution fails
+                        start = max(0, eline - 15)
+                        end = min(len(lines), eline + 15)
+                        if start < sig_end:
+                            start = sig_end
+                        if start < end:
+                            region = "\n".join(lines[start:end])
+                            parts.append(f"[FALLBACK CONTEXT lines {start+1}-{end}]\n{region}")
+                            used_chars += len(region)
             elif len(lines) > sig_end:
                 # Part 3: No evidence lines — read middle structural section
                 # Look for class/function definitions in the rest of the file
@@ -223,6 +244,63 @@ class SemanticVerificationAgent:
                 decision=decision,
                 reason=reason,
             ))
+
+        # ── Domain Ownership Override ─────────────────────────────────────
+        # If a file passed LLM verification but is architecturally forbidden,
+        # hard-zero its score and force-exclude it.  This is the semantic
+        # layer's contribution to the domain ownership guardrail.
+        try:
+            from ticket_to_code.agents.architecture_model import ArchitectureModel
+            from ticket_to_code.agents.domain_resolver import DomainResolver
+            from ticket_to_code.agents.ownership_resolver import OwnershipResolver
+
+            _arch_model = None
+            if self._workspace_path:
+                for _yaml_loc in [
+                    Path(self._workspace_path) / "brain" / "knowledge" / "architecture_model.yaml",
+                    Path(__file__).parent.parent / "config" / "architecture_model.yaml",
+                ]:
+                    if _yaml_loc.exists():
+                        _arch_model = ArchitectureModel.load_from_yaml(str(_yaml_loc))
+                        break
+
+            if _arch_model and _arch_model.services:
+                _domain_resolver = DomainResolver(_arch_model)
+                _domain_resolution = _domain_resolver.resolve(ticket_title, ticket_desc)
+
+                if _domain_resolution.has_resolution:
+                    _ownership_resolver = OwnershipResolver(_arch_model)
+                    _all_domains = _domain_resolution.primary_domains + _domain_resolution.secondary_domains
+                    _overridden = 0
+
+                    for r in results:
+                        if r.decision != "include":
+                            continue  # Already excluded — skip
+                        _ownership = _ownership_resolver.classify(r.file_path, _all_domains)
+                        if _ownership.policy.value in ("DO_NOT_MODIFY", "REFERENCE_ONLY"):
+                            r.semantic_relevance_score = 0.0
+                            r.decision = "exclude"
+                            r.reason = (
+                                f"Domain ownership: {r.file_path} belongs to "
+                                f"'{_ownership.service_name}', but capability "
+                                f"'{_ownership.matched_capability}' is owned by "
+                                f"'{_ownership.expected_service}' — REFERENCE_ONLY"
+                            )
+                            _overridden += 1
+                            logger.info(
+                                f"  [SemanticVerification] 🏗️ Domain override: "
+                                f"{r.file_path} → excluded (was included by LLM)"
+                            )
+
+                    if _overridden:
+                        logger.info(
+                            f"  [SemanticVerification] 🏗️ {_overridden} file(s) "
+                            f"overridden by domain ownership"
+                        )
+        except Exception as _domain_err:
+            logger.debug(
+                f"[SemanticVerification] Domain ownership check skipped: {_domain_err}"
+            )
 
         included = len([r for r in results if r.decision == "include"])
         excluded = len([r for r in results if r.decision != "include"])

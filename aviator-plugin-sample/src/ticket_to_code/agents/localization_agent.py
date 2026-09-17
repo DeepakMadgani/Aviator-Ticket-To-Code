@@ -47,6 +47,174 @@ from ticket_to_code.models import (
 logger = logging.getLogger(__name__)
 
 
+# ── Ticket-relevance ownership (pure, testable, language/framework agnostic) ──
+# The ticket names a FEATURE ("Add Members modal", "Export widget page"). The
+# file that IMPLEMENTS that feature is the owner — NOT whichever file happens to
+# define/calculate/persist the most symbols. Structural busyness is participation,
+# never ownership. A file becomes a primary target only when it matches the
+# ticket's feature (a "feature anchor") or the ticket declares it.
+
+_UI_ANCHOR_NOUNS = (
+    "modal", "dialog", "page", "screen", "view", "form", "panel", "component",
+    "button", "menu", "tab", "list", "table", "card", "section", "widget",
+    "popup", "drawer", "sidebar", "header", "footer", "banner", "toolbar", "grid",
+)
+_FEATURE_STOP = {
+    "the", "a", "an", "in", "on", "of", "to", "for", "and", "or", "is", "are",
+    "when", "that", "this", "with", "from", "into", "new", "add", "existing",
+}
+_CAMEL_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+
+
+def _split_identifier(s: str) -> list:
+    """Split a filename stem into lowercase tokens (camelCase + separators)."""
+    s = _CAMEL_RE.sub(" ", s or "")
+    return [w.lower() for w in re.split(r"[^A-Za-z0-9]+", s) if w]
+
+
+def extract_feature_phrase(text: str) -> list:
+    """Extract the ticket's primary feature tokens (generic, no hardcoding).
+
+    Prefers the 1-2 content words immediately before a UI-anchor noun
+    (e.g. "Add Members modal" -> ["members"] / ["add","members"]); otherwise the
+    first content words of the text. Works for any feature name/repo/language.
+    """
+    words = [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z0-9]+", text or "")]
+    for i, w in enumerate(words):
+        if w in _UI_ANCHOR_NOUNS and i >= 1:
+            prev = [x for x in words[max(0, i - 3): i] if x not in _FEATURE_STOP and len(x) >= 3]
+            if prev:
+                return prev[-2:]
+    content = [w for w in words if w not in _FEATURE_STOP and len(w) >= 3]
+    return content[:2]
+
+
+def feature_anchor_score(feature_tokens: list, path: str) -> float:
+    """0.0-1.0 measure that a file's NAME matches the ticket's feature phrase.
+
+    High only when the feature phrase appears (contiguously) in the filename stem,
+    so a keyword-dense backend service does NOT anchor to a UI feature ticket.
+    """
+    toks = [t.lower() for t in (feature_tokens or []) if t and len(str(t)) >= 3]
+    if not toks:
+        return 0.0
+    base = str(path).replace("\\", "/").split("/")[-1]
+    stem_tokens = _split_identifier(base.split(".")[0])
+    if not stem_tokens:
+        return 0.0
+    stem_join = "".join(stem_tokens)
+    # Contiguous 2+ token feature phrase present in the stem → strong anchor.
+    contiguous = any(
+        "".join(toks[i:j]) in stem_join
+        for i in range(len(toks)) for j in range(i + 2, len(toks) + 1)
+    )
+    if contiguous:
+        return 0.85
+    # Single distinctive feature token that IS the stem (short, focused filename).
+    tokset = set(toks)
+    if len(stem_tokens) <= 2 and any(w in tokset for w in stem_tokens):
+        matched = sum(1 for w in stem_tokens if w in tokset)
+        return round(min(0.6, 0.3 * matched + 0.2), 3)
+    return 0.0
+
+
+_OWNERSHIP_CONFIG_EXTS = {
+    ".yml", ".yaml", ".json", ".toml", ".ini", ".properties",
+    ".conf", ".cfg", ".xml", ".sh", ".bat", ".ps1",
+}
+
+
+def verify_ownership(path: str, investigation: dict, features: dict) -> tuple:
+    """Discovery-time ownership ROLE (advisory, pure, testable).
+
+    NEVER grants PRIMARY from structural counts, semantic similarity, or the
+    feature anchor. Primary ownership is proven later by inspection-backed
+    behavioral evidence (Phase B), not by discovery. A keyword/symbol/vector-
+    dense backend service therefore lands at SUPPORTING, never PRIMARY.
+
+    Roles:
+      DISPLAY_OWNER — template/style companion of a feature component
+      SUPPORTING    — participates (structural/semantic/config) → inspect to prove
+      READ_ONLY     — references only
+    """
+    investigation = investigation or {}
+    features = features or {}
+    d = investigation.get("defines", 0)
+    di = investigation.get("displays", 0)
+    c = investigation.get("calculates", 0)
+    p = investigation.get("persists", 0)
+    ext = Path(path).suffix.lower()
+    s_vec = features.get("s_vec", 0.0)
+
+    # Template/style files → DISPLAY_OWNER (companions of a feature component).
+    if ext in {".html", ".scss", ".css", ".sass"}:
+        detail = f"{di} display binding(s)" if di else "template/style file"
+        return ("DISPLAY_OWNER", detail)
+
+    # Config/infra: an editable candidate, but change-authorization gates it
+    # downstream (config is READ_ONLY unless the ticket targets config).
+    p_norm = path.replace("\\", "/").lower()
+    name = Path(path).name.lower()
+    _is_config = (
+        ext in _OWNERSHIP_CONFIG_EXTS or name.startswith(".env")
+        or name in {"dockerfile", "makefile"}
+    )
+    _is_locked = (
+        name in {
+            "package-lock.json", "yarn.lock", "shrinkwrap.json",
+            "gradle.lockfile", "poetry.lock", "pipfile.lock", "composer.lock",
+        }
+        or name.endswith(".lock")
+        or "/dist/" in p_norm or "/node_modules/" in p_norm
+        or "/target/" in p_norm or "/build/" in p_norm
+        or "/.venv/" in p_norm or "/venv/" in p_norm
+        or "brain/knowledge/" in p_norm
+    )
+    if _is_config and not _is_locked:
+        return ("SUPPORTING", "config/infrastructure candidate — verify by inspection")
+
+    # Semantic match OR structural participation → SUPPORTING (candidate to
+    # INSPECT). Neither proves ticket ownership on its own.
+    if s_vec >= 0.50:
+        return ("SUPPORTING", f"semantic match (verify by inspection): s_vec={s_vec:.2f}")
+    if d >= 1 or c >= 1 or p >= 1:
+        return ("SUPPORTING",
+                f"participates structurally (defines={d}, calculates={c}, persists={p}) — verify by inspection")
+
+    return ("READ_ONLY", f"references only (defines={d}, calculates={c}, displays={di})")
+
+
+# Surfacing boost weight. Feature-anchor only re-orders candidates so the correct
+# component is INSPECTED — it never grants ownership or write authority.
+_FEATURE_ANCHOR_WEIGHT = 0.5
+
+
+def apply_feature_anchor_boost(candidates: list, feature_tokens: list,
+                               weight: float = _FEATURE_ANCHOR_WEIGHT) -> list:
+    """Raise the rank of candidates whose FILENAME matches the ticket feature
+    phrase so the right component surfaces for inspection.
+
+    Discovery signal ONLY: it changes ordering and records ``feature_anchor`` in
+    features; it never sets ownership_type or authorizes a write. Files with no
+    filename match are untouched (semantic/inspection must surface them). Returns
+    the list re-sorted by ``unified_score`` (desc).
+    """
+    toks = [t for t in (feature_tokens or []) if t]
+    for cand in candidates:
+        anchor = feature_anchor_score(toks, cand.get("path", "")) if toks else 0.0
+        feats = cand.setdefault("features", {})
+        feats["feature_anchor"] = anchor
+        if anchor > 0.0:
+            base = float(cand.get("unified_score", 0.0) or 0.0)
+            cand["unified_score"] = round(min(2.0, base + weight * anchor), 6)
+            cand["confidence"] = round(min(0.95, cand["unified_score"]), 3)
+            sigs = list(cand.get("signals", []))
+            sigs.append(f"feature_anchor:{anchor:.2f}")
+            cand["signals"] = list(dict.fromkeys(sigs))
+    candidates.sort(key=lambda x: -float(x.get("unified_score", 0.0) or 0.0))
+    return candidates
+
+
 class LocalizationAgent:
     """
     Localization Agent - Exact Target Discovery
@@ -1786,94 +1954,10 @@ class LocalizationAgent:
         investigation: dict,
         features: dict,
     ) -> tuple[str, str]:
-        """Classify a file's ownership relationship to the ticket.
-
-        Returns (ownership_type, ownership_reason).
-
-        Types (priority order):
-          PRIMARY_OWNER  — defines AND/OR calculates/persists the concept
-          DISPLAY_OWNER  — displays the concept (templates, styles)
-          SUPPORTING     — participates but does not define
-          READ_ONLY      — references keywords but does not act
-        """
-        d  = investigation.get("defines",    0)
-        di = investigation.get("displays",   0)
-        c  = investigation.get("calculates", 0)
-        p  = investigation.get("persists",   0)
-        ext   = Path(path).suffix.lower()
-        s_own = features.get("s_own", 0.0)
-        s_vec = features.get("s_vec", 0.0)
-
-        # Template/style files → always DISPLAY_OWNER
-        if ext in {".html", ".scss", ".css", ".sass"}:
-            detail = f"{di} display binding(s)" if di else "template/style file"
-            if d:
-                detail += f", {d} local definition(s)"
-            return ("DISPLAY_OWNER", detail)
-
-        # PRIMARY_OWNER: defines + (calculates or persists)
-        if d >= 1 and (c >= 1 or p >= 1):
-            parts = [f"defines {d} symbol(s)"]
-            if c >= 1:
-                parts.append(f"calculates {c} value(s)")
-            if p >= 1:
-                parts.append(f"persists {p} operation(s)")
-            return ("PRIMARY_OWNER", ", ".join(parts))
-
-        # PRIMARY_OWNER: strong ownership score confirms authority
-        if s_own >= 0.35:
-            return ("PRIMARY_OWNER",
-                    f"s_own={s_own:.2f} confirms authority")
-
-        # PRIMARY_OWNER: heavy persistence layer (repositories, state stores)
-        if p >= 3:
-            return ("PRIMARY_OWNER", f"persistence layer: {p} write operation(s)")
-
-        # SUPPORTING: strong vector semantic match
-        if s_vec >= 0.50:
-            return ("SUPPORTING", f"strong semantic vector match: s_vec={s_vec:.2f}")
-
-        # SUPPORTING: calculates or persists but doesn't define
-        if c >= 2 or (c >= 1 and p >= 1):
-            return ("SUPPORTING", f"participates: calculates={c}, persists={p}")
-
-        # Infrastructure / configuration files (YAML, JSON, .env, scripts, Dockerfile)
-        # carry no AST symbols, so every check above misses them and they would default
-        # to READ_ONLY — permanently locking legitimate DevOps/config edits. Treat them
-        # as writable owners UNLESS they are auto-generated locks or agent-internal caches.
-        p_norm = path.replace("\\", "/").lower()
-        name = Path(path).name.lower()
-        _CONFIG_EXTS = {
-            ".yml", ".yaml", ".json", ".toml", ".ini", ".properties",
-            ".conf", ".cfg", ".xml", ".sh", ".bat", ".ps1",
-        }
-        _is_config_file = (
-            ext in _CONFIG_EXTS
-            or name.startswith(".env")
-            or name in {"dockerfile", "makefile"}
-        )
-        _is_locked_artifact = (
-            name in {
-                "package-lock.json", "yarn.lock", "shrinkwrap.json",
-                "gradle.lockfile", "poetry.lock", "pipfile.lock", "composer.lock",
-            }
-            or name.endswith(".lock")
-            or "/dist/" in p_norm or "/node_modules/" in p_norm
-            or "/target/" in p_norm or "/build/" in p_norm
-            or "/.venv/" in p_norm or "/venv/" in p_norm
-            or "brain/knowledge/" in p_norm
-        )
-        if _is_config_file and not _is_locked_artifact:
-            return (
-                "PRIMARY_OWNER",
-                "infrastructure/config file — structurally editable target",
-            )
-
-        # READ_ONLY fallback
-        return (
-            "READ_ONLY",
-            f"references keywords (defines={d}, calculates={c}, displays={di})",
-        )
+        """Discovery-time ownership role (advisory). Delegates to the pure
+        ``verify_ownership``: structure/similarity/feature-anchor never grant
+        PRIMARY — primary ownership is proven by inspection (Phase B)."""
+        return verify_ownership(path, investigation, features)
 
     def _format_cluster_trace(self, cluster: dict) -> dict:
         """Serialize a cluster to a trace/ranking-friendly dict."""
@@ -2285,7 +2369,14 @@ class LocalizationAgent:
                 entry["signals"] = list(dict.fromkeys(sigs))
             enriched.sort(key=lambda x: -x["unified_score"])
 
-        # Step 6: Investigate top-20 — pattern-based code analysis proves ownership.
+        # Step 5.5: Feature-anchor surfacing — raise the correct component into
+        # the inspected set. Discovery signal ONLY: it re-orders candidates and
+        # records feature_anchor; it never sets ownership_type or write authority.
+        _feature_tokens = extract_feature_phrase(ticket_text)
+        apply_feature_anchor_boost(enriched, _feature_tokens)
+
+        # Step 6: Investigate top-20 — assigns an advisory ownership ROLE
+        # (primary ownership is proven later by inspection, not here).
         for entry in enriched[:20]:
             path    = entry["path"]
             content = entry.get("_content", "")
@@ -2345,7 +2436,7 @@ class LocalizationAgent:
             candidates.append(new_candidate)
             existing_paths.add(path)
 
-    def discover_repository_candidates(self, ticket_text: str, top_n: int = 50, evidence_items: list = None, hypotheses: list = None, rag_engine=None, run_ctx=None) -> list:
+    def discover_repository_candidates(self, ticket_text: str, top_n: int = 50, evidence_items: list = None, hypotheses: list = None, rag_engine=None, run_ctx=None, extra_search_terms: list = None) -> list:
         """
         Pre-planning discovery: find real files from the repository that are
         relevant to this ticket, before the planner runs.
@@ -2356,6 +2447,9 @@ class LocalizationAgent:
         ``top_n`` defaults to 30 (raised from 12) to provide the multi-candidate
         analysis pipeline with enough options.  The planner receives only the
         top-5 after analysis.
+
+        ``extra_search_terms`` — optional list of additional keywords injected by
+        the planning recovery system to widen the search after a planning failure.
         """
         from ticket_to_code.models import LocalizationCandidate
 
@@ -2410,6 +2504,13 @@ class LocalizationAgent:
                         if core and core not in concept_keywords:
                             concept_keywords.append(core)
                             logger.info(f"   ⚓ Added core subject anchor: {core}")
+
+        # ── Planning Recovery: inject extra search terms from recovery context ─
+        if extra_search_terms:
+            for term in extra_search_terms:
+                if term and term.lower() not in [k.lower() for k in concept_keywords]:
+                    concept_keywords.append(term)
+                    logger.info(f"   🔄 Added recovery search term: {term}")
 
         # ── Phase 1: path-keyword walk (all keywords for maximum recall) ──────
         # We walk with ALL keywords so that any potentially-relevant file is

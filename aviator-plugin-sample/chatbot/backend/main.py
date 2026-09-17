@@ -20,6 +20,7 @@ import json
 import asyncio
 import logging
 from enum import Enum
+import subprocess
 import sys
 import os
 import uuid
@@ -1065,6 +1066,8 @@ import threading
 # Per-workflow state and WebSocket connections
 workflow_status: Dict[str, Any] = {}
 workflow_connections: Dict[str, List[WebSocket]] = {}
+# Cancellation flags: set workflow_id -> True to request stop
+workflow_cancel_flags: Dict[str, bool] = {}
 
 
 def _extract_workflow_outputs(final_state: Dict[str, Any]) -> Dict[str, Any]:
@@ -1111,6 +1114,26 @@ def _extract_workflow_outputs(final_state: Dict[str, Any]) -> Dict[str, Any]:
     assumptions_invalidated = final_state.get("assumptions_invalidated") or []
     outcome_verification = final_state.get("outcome_verification") or {}
 
+    # ── Build diagnostic classification (written by pre_fix_build_node) ──
+    # These fields carry error-provenance info: was the failure caused by the
+    # ticket changes, by pre-existing repo errors, or by infrastructure?
+    _diag_accept = final_state.get("build_differential_accept")
+    _diag_infra  = final_state.get("build_infrastructure_only")
+    _diag_blocked = final_state.get("build_infrastructure_blocked")
+    _diag_summary = final_state.get("build_diagnostic_summary")
+    _diag_decision = final_state.get("pre_existing_decision")
+    _diag_auth_files = final_state.get("authorized_pre_existing_files")
+    build_diagnostics: Optional[Dict[str, Any]] = None
+    if any(v is not None for v in (_diag_accept, _diag_infra, _diag_blocked, _diag_summary, _diag_decision)):
+        build_diagnostics = {
+            "differential_accept": bool(_diag_accept) if _diag_accept is not None else None,
+            "infrastructure_only": bool(_diag_infra) if _diag_infra is not None else None,
+            "infrastructure_blocked": bool(_diag_blocked) if _diag_blocked is not None else None,
+            "summary": str(_diag_summary or ""),
+            "pre_existing_decision": str(_diag_decision or ""),
+            "authorized_pre_existing_files": list(_diag_auth_files or []),
+        }
+
     return {
         "contracts": contracts[-14:],
         "decision_ledger": decision_ledger[-20:],
@@ -1128,6 +1151,7 @@ def _extract_workflow_outputs(final_state: Dict[str, Any]) -> Dict[str, Any]:
         "build_attribution_reasoning": build_reasoning[:320],
         "learning_update": learning_update if isinstance(learning_update, dict) else {},
         "convergence_stagnation_count": int(final_state.get("convergence_stagnation_count") or 0),
+        "build_diagnostics": build_diagnostics,
     }
 
 
@@ -1255,9 +1279,33 @@ def _build_workflow_explanation(state: Dict[str, Any], workflow_output: Optional
             why = "Node contracts and validation outputs indicate sufficient evidence, grounded owner targeting, and no terminal blockers."
         next_action = "Review generated files and merge after human verification."
     elif status == "failed":
-        summary = "The workflow stopped because it could not converge to a stable solution path."
-        why = blockers[0] if blockers else "A convergence, quality, or runtime budget guard was triggered."
-        next_action = "Refine ticket scope or provide stronger owner-file hints, then rerun."
+        # ── Surface structured build diagnostics in the failed explanation ──
+        _bd = workflow_output.get("build_diagnostics") or {}
+        if _bd.get("infrastructure_only"):
+            summary = (
+                "The workflow stopped because the build failed due to an "
+                "external infrastructure problem (missing dependency, network, registry). "
+                "Source code was NOT the issue."
+            )
+            why = _bd.get("summary") or (blockers[0] if blockers else "Infrastructure failure detected.")
+            next_action = "Resolve the environment/dependency issue, then re-run."
+        elif _bd.get("differential_accept"):
+            summary = (
+                "The workflow stopped because ALL build errors are pre-existing "
+                "(not introduced by this ticket). The generated code is correct."
+            )
+            why = _bd.get("summary") or (blockers[0] if blockers else "Pre-existing errors only.")
+            _user_dec = _bd.get("pre_existing_decision", "leave")
+            if _user_dec == "fix":
+                next_action = "Pre-existing errors were authorized for repair — review the fix."
+            elif _user_dec == "stop":
+                next_action = "User chose to stop. Re-run after addressing pre-existing errors."
+            else:
+                next_action = "Pre-existing errors were left as-is. Review generated code and merge."
+        else:
+            summary = "The workflow stopped because it could not converge to a stable solution path."
+            why = blockers[0] if blockers else "A convergence, quality, or runtime budget guard was triggered."
+            next_action = "Refine ticket scope or provide stronger owner-file hints, then rerun."
     else:
         summary = "The workflow is actively converging on the solution by iterating discovery, planning, and validation."
         why = f"Current phase: {phase}. The system is still collecting or validating evidence."
@@ -1329,17 +1377,27 @@ def _build_workflow_explanation(state: Dict[str, Any], workflow_output: Optional
         "next_action": next_action,
         "phase": phase,
         "status": status,
+        "build_diagnostics": workflow_output.get("build_diagnostics"),
     }
 
 
 async def broadcast_to_workflow(workflow_id: str, message: dict):
     """Broadcast a step update to all WebSocket clients watching this workflow."""
-    # Persist step for late-joining clients
-    if workflow_id in workflow_status:
-        workflow_status[workflow_id].setdefault("steps", []).append(message)
-        # Update current phase
-        if "phase" in message:
-            workflow_status[workflow_id]["current_phase"] = message["phase"]
+    # Token telemetry events are high-frequency and must NOT be persisted in the
+    # steps list (they would flood it and be replayed to late-joining clients).
+    # They also must NOT overwrite current_phase on the backend.
+    is_token_event = (
+        isinstance(message.get("data"), dict)
+        and message["data"].get("event_type") == "token_usage_update"
+    )
+
+    if not is_token_event:
+        # Persist step for late-joining clients
+        if workflow_id in workflow_status:
+            workflow_status[workflow_id].setdefault("steps", []).append(message)
+            # Update current phase
+            if "phase" in message:
+                workflow_status[workflow_id]["current_phase"] = message["phase"]
 
     for ws in list(workflow_connections.get(workflow_id, [])):
         try:
@@ -1529,12 +1587,13 @@ def _serialize_agent_output(node_name: str, state_delta: dict) -> Optional[str]:
                 lines.append(f"  {bar} {ch['score']:.0%}  {fname}{name}")
             return "\n".join(lines)
 
-        elif node_name in ("generate_tests", "generate_code"):
+        elif node_name in ("generate_tests", "generate_code", "edit_loop", "fix_build", "fix_test"):
             key = "generated_tests" if node_name == "generate_tests" else "generated_code"
             gen = state_delta.get(key) or []
             if not gen:
                 return None
-            icon  = "🧪" if node_name == "generate_tests" else "💻"
+            icon_map = {"generate_tests": "🧪", "generate_code": "💻", "edit_loop": "✏️", "fix_build": "🔧", "fix_test": "🔧"}
+            icon = icon_map.get(node_name, "💻")
             lines = [f"{icon} Generated {len(gen)} file(s):"]
             for g in gen:
                 if isinstance(g, dict):
@@ -1548,8 +1607,38 @@ def _serialize_agent_output(node_name: str, state_delta: dict) -> Optional[str]:
                 basename = fpath.split("/")[-1] if "/" in fpath else fpath.split("\\")[-1] if "\\" in fpath else fpath
                 action_icon = "✨" if "create" in str(change).lower() else "✏️"
                 lines.append(f"  {action_icon} {basename}")
+
+            # ── Per-task explanations (new: shows WHY each file was changed) ──
+            task_explanations = state_delta.get("_task_explanations") or []
+            if task_explanations and node_name == "generate_code":
+                lines.append("")
+                lines.append("📋 Per-task breakdown:")
+                for te in task_explanations:
+                    te_basename = te.get("basename", "?")
+                    te_purpose = te.get("purpose", "")[:200]
+                    te_change = te.get("change_type", "").upper()
+                    produces = te.get("produces", [])
+                    consumes = te.get("consumes", [])
+                    lines.append(f"\n  ── {te_basename} ({te_change}) ──")
+                    lines.append(f"    📝 {te_purpose}")
+                    if produces:
+                        lines.append(f"    🔧 Creates: {', '.join(p[:60] for p in produces[:5])}")
+                    if consumes:
+                        lines.append(f"    📥 Uses: {', '.join(c[:60] for c in consumes[:5])}")
+
             lines.append("\n→ View full changes in the Changes tab")
             return "\n".join(lines)
+
+        elif node_name == "context_expand":
+            tier2 = state_delta.get("discovered_files") or []
+            count = len(tier2) if isinstance(tier2, list) else 0
+            return f"🔄 Context expanded: {count} file(s) promoted from Tier 2 backup"
+
+        elif node_name == "outcome_check":
+            result = state_delta.get("outcome_check_result") or {}
+            status = result.get("status", "unknown")
+            icon = "✅" if status in ("CORRECT", "skipped") else "⚠️"
+            return f"{icon} Outcome: {status}"
 
         elif node_name == "build":
             res = state_delta.get("build_result")
@@ -1593,6 +1682,15 @@ def _serialize_agent_output(node_name: str, state_delta: dict) -> Optional[str]:
             failed  = getattr(res, "failed_tests", 0) or 0
             return f"🧪 Tests: {status}  ✅ {passed} passed  ❌ {failed} failed"
 
+        elif node_name == "preflight_check":
+            # The workflow already builds a rich agent_output string — pass it through
+            ao = state_delta.get("agent_output")
+            if ao:
+                return str(ao)
+            verdict = state_delta.get("preflight_verdict", "?")
+            summary = state_delta.get("preflight_summary", "")
+            return f"🚦 Preflight: {verdict}\n{summary[:300]}" if summary else f"🚦 Preflight: {verdict}"
+
     except Exception as exc:
         logger.debug(f"_serialize_agent_output({node_name}) error: {exc}")
     return None
@@ -1633,6 +1731,66 @@ class StartTransparentWorkflowRequest(BaseModel):
     repo_path: str
     execution_mode: ExecutionMode = ExecutionMode.PIPELINE
     attachments: List[str] = Field(default_factory=list)
+    # Per-ticket change authorization: files the ticket explicitly allows
+    # modifying, and files that must NEVER be modified (strictly read-only).
+    # Empty list = no ticket-declared scope (evidence-based authorization only).
+    writable_files: List[str] = Field(default_factory=list)
+    forbidden_files: List[str] = Field(default_factory=list)
+
+
+def _check_workspace_health(repo_path: str) -> Optional[str]:
+    """
+    Fail fast BEFORE burning a run on a broken workspace.
+
+    Detects the "gutted workspace" failure mode (mass tracked-file deletions,
+    e.g. after a bad revert): for each git repo at repo_path or its immediate
+    children, compares deleted tracked files against the total tracked files.
+    Returns an actionable error message, or None when healthy.
+    """
+    root = Path(repo_path)
+    if not root.exists():
+        return f"Workspace path does not exist: {repo_path}"
+    candidates = []
+    if (root / ".git").exists():
+        candidates.append(root)
+    else:
+        try:
+            for child in root.iterdir():
+                if child.is_dir() and (child / ".git").exists():
+                    candidates.append(child)
+        except Exception:
+            pass
+    problems = []
+    for repo in candidates:
+        try:
+            ls = subprocess.run(
+                ["git", "ls-files"], cwd=str(repo),
+                capture_output=True, text=True, timeout=60,
+            )
+            st = subprocess.run(
+                ["git", "status", "--porcelain"], cwd=str(repo),
+                capture_output=True, text=True, timeout=60,
+            )
+            if ls.returncode != 0 or st.returncode != 0:
+                continue
+            tracked = sum(1 for l in (ls.stdout or "").splitlines() if l.strip())
+            deleted = sum(
+                1 for l in (st.stdout or "").splitlines()
+                if len(l) >= 2 and (l[0] == "D" or l[1] == "D")
+            )
+            if tracked > 0 and deleted > 10 and (deleted / tracked) > 0.02:
+                problems.append(
+                    f"{repo.name}: {deleted} of {tracked} tracked files are deleted from disk"
+                )
+        except Exception:
+            continue
+    if problems:
+        return (
+            "Workspace integrity check FAILED — refusing to start the run on a broken workspace. "
+            + " | ".join(problems)
+            + ". Fix with: git -C <repo> restore .  (then verify with git status), and re-check that the project is indexed."
+        )
+    return None
 
 
 class StartReasoningAgentRequest(BaseModel):
@@ -1683,6 +1841,11 @@ async def start_transparent_workflow(request: StartTransparentWorkflowRequest):
     Start autonomous workflow using existing ticket_to_code system.
     """
     try:
+        # Fail fast on a gutted/broken workspace before spending any tokens
+        _health_err = _check_workspace_health(request.repo_path)
+        if _health_err:
+            raise HTTPException(status_code=400, detail=_health_err)
+
         if (
             request.execution_mode == ExecutionMode.REASONING
             and os.getenv("AVIATOR_ENABLE_EXPERIMENTAL_REASONING", "0") != "1"
@@ -1723,7 +1886,12 @@ async def start_transparent_workflow(request: StartTransparentWorkflowRequest):
             description=request.ticket_description,
             priority=TicketPriority.MEDIUM,
             labels=["feature"],
-            attachments=request.attachments or []
+            attachments=request.attachments or [],
+            # Ticket-declared change authorization (strict whitelist when set):
+            # everything outside writable_files is demoted to read-only by
+            # classify_change_role; forbidden_files are rejected outright.
+            expected_changed_files=[f for f in (request.writable_files or []) if f.strip()],
+            forbidden_files=[f for f in (request.forbidden_files or []) if f.strip()],
         )
         
         # Store initial status
@@ -1737,6 +1905,21 @@ async def start_transparent_workflow(request: StartTransparentWorkflowRequest):
             "workflow_output": {},
             "started_at": datetime.now().isoformat()
         }
+        
+        # Immediately record the task in history so it appears in the sidebar
+        try:
+            history_store.record_task(
+                workflow_id=workflow_id,
+                project_id=request.project_id,
+                ticket_id=auto_id,
+                title=request.ticket_description[:100],
+                description=request.ticket_description,
+                status="running",
+                changed_files=[],
+                execution_mode=request.execution_mode.value,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record initial task history: {e}")
         
         # Run the EXISTING autonomous workflow in background
         asyncio.create_task(
@@ -1783,23 +1966,55 @@ async def run_workflow_async(
     # Keys MUST match the names passed to workflow.add_node(...) in workflow.py
     PHASE_MAP = {
         # Actual node names registered in create_ticket_to_code_graph()
+        # ── Investigation & Classification ──
         "investigate":       ("classification",   "🔍 Investigating & classifying ticket"),
-        "runtime_diagnosis": ("classification",   "🩺 Enhancement 1: Analyzing runtime logs"),
+        "runtime_diagnosis": ("classification",   "🩺 Analyzing runtime logs"),
+        # ── Evidence Pipeline ──
+        "discover":          ("localization",     "🗺️ Discovering repository structure"),
+        "hypothesis_investigation": ("localization", "🧪 Generating investigation hypotheses"),
+        "evidence_collection_loop": ("localization", "🔍 Collecting evidence (agentic loop)"),
+        "evidence_ranking":  ("localization",     "📊 Ranking evidence by relevance"),
+        "semantic_verification": ("localization", "✅ Verifying evidence semantically"),
+        "preflight_check":   ("localization",     "🚦 Preflight idempotency check"),
+        # ── Analysis & Planning ──
         "unified_analysis":  ("requirements",     "📋 Analyzing requirements"),
         "plan":              ("planning",         "🗺️ Planning implementation"),
+        "validate_candidates": ("planning",       "🔎 Validating candidate files"),
+        "localize":          ("localization",     "📍 Resolving file paths (SQLite + filesystem)"),
+        "grounded_understanding": ("planning",    "🧠 Building grounded understanding"),
+        "ownership_completeness": ("planning",    "🏗️ Checking ownership completeness"),
+        "dataflow_verification": ("planning",     "🔄 Verifying data flow across services"),
+        # ── Context Loading ──
         "rag_tests":         ("context_loading",  "📂 Loading test-behavior context (RAG)"),
         "rag_code":          ("context_loading",  "📂 Loading architecture context (RAG)"),
+        # ── Code Generation ──
         "generate_tests":    ("patch_generation", "✍️ Generating test cases (TDD)"),
         "generate_code":     ("patch_generation", "✍️ Generating implementation code"),
-        "edit_loop":         ("patch_generation", "✏️ Adaptive edit loop (file-by-file)"),
-        "patch_gate":        ("validation",       "🛡️ Patch safety check"),
-        "angular_module_registration": ("patch_generation", "📦 Angular module registration"),
+        "edit_loop":         ("edit_loop",        "✏️ Adaptive edit loop (file-by-file)"),
+        # ── Post-Generation Validation ──
+        "patch_gate":        ("validation",       "🛡️ Patch safety gate"),
+        "import_validation": ("validation",       "📦 Validating & fixing imports"),
+        "angular_module_registration": ("validation", "📦 Angular module registration"),
         "build":             ("validation",       "🔨 Building project"),
-        "outcome_verification": ("validation",    "🎯 Verifying requested outcome"),
+        "pre_fix_build":     ("validation",       "🔧 Checking build fingerprint"),
         "outcome_check":     ("validation",       "🎯 Outcome verification"),
+        "outcome_verification": ("validation",    "🎯 Verifying requested outcome"),
         "test":              ("validation",       "✅ Running tests"),
-        "fix_build":         ("patch_generation", "🔧 Fixing build errors (w/ Enh 4+12)"),
-        "fix_test":          ("patch_generation", "🔧 Fixing test failures"),
+        # ── Fix Loops ──
+        "fix_build":         ("edit_loop",        "🔧 Fixing build errors"),
+        "fix_test":          ("edit_loop",        "🔧 Fixing test failures"),
+        "context_expand":    ("edit_loop",        "🔄 Expanding context for re-plan"),
+        # ── Completion ──
+        "memory_update":     ("committing",       "💾 Updating execution memory"),
+        # ── Behavior Pipeline (Pipeline B) ──
+        "behavior_investigation": ("planning",    "🔬 Investigating behavioral patterns"),
+        "capability_extraction": ("planning",     "📊 Extracting capabilities"),
+        "capability_consolidation": ("planning",  "🔗 Consolidating capabilities"),
+        "capability_graph_builder": ("planning",  "🕸️ Building capability graph"),
+        "capability_retrieval": ("planning",      "🔍 Retrieving relevant capabilities"),
+        "behavior_planning": ("planning",         "📝 Planning behavioral changes"),
+        "plan_validation":   ("planning",         "✅ Validating plan"),
+        "shadow_metrics":    ("validation",       "📈 Computing shadow metrics"),
     }
 
     def thread_run():
@@ -1835,6 +2050,43 @@ async def run_workflow_async(
             # Register UI callback in transient registry (NOT in state — functions crash msgpack)
             _set_transient(ticket.ticket_id, "_ui_callback", put)
 
+            # ── Wire interactive decision provider for build-failure approval ──
+            # The provider sends a decision request to the UI via put(),
+            # then blocks on a threading.Event until the user responds via
+            # the /api/workflow/transparent/decision-response endpoint.
+            import threading as _threading
+            _decision_events = {}  # keyed by workflow_id
+            _decision_results = {}  # keyed by workflow_id
+
+            def _decision_provider_fn(payload: dict):
+                """Interactive decision provider — blocks until user responds."""
+                evt = _threading.Event()
+                _decision_events[workflow_id] = evt
+                _decision_results[workflow_id] = None
+                # Also store in workflow_status so the API endpoint can find them
+                workflow_status[workflow_id]["_decision_event"] = evt
+                workflow_status[workflow_id]["_decision_result"] = None
+                # Send the decision request to the UI
+                put({
+                    "phase": "build", "status": "awaiting_decision",
+                    "message": payload.get("message", "Decision required"),
+                    "data": {
+                        "node": "pre_fix_build",
+                        "event_type": "pre_existing_errors",
+                        "decision_payload": payload,
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                })
+                timeout = float(payload.get("timeout", 120))
+                evt.wait(timeout=timeout)
+                choice = workflow_status[workflow_id].get("_decision_result")
+                # Clean up
+                workflow_status[workflow_id].pop("_decision_event", None)
+                workflow_status[workflow_id].pop("_decision_result", None)
+                return choice
+
+            _set_transient(ticket.ticket_id, "_decision_provider", _decision_provider_fn)
+
             initial_state = {
                 "ticket": ticket, "workspace_path": workspace_path,
                 "max_retry_attempts": 3, "investigation_result": None,
@@ -1867,7 +2119,20 @@ async def run_workflow_async(
             config = {"configurable": {"thread_id": ticket.ticket_id}}
 
             aggregate_state: Dict[str, Any] = {}
+            cancelled = False
             for node_update in app.stream(initial_state, config):
+                # ── Check if the user requested a stop ──
+                if workflow_cancel_flags.get(workflow_id):
+                    cancelled = True
+                    logger.info(f"⛔ Workflow {workflow_id} cancelled by user")
+                    put({
+                        "phase": "failed", "status": "stopped",
+                        "message": "⛔ Workflow stopped by user",
+                        "data": {"stopped_by_user": True},
+                        "timestamp": datetime.now().isoformat(),
+                    })
+                    break
+
                 for node_name, state_delta in node_update.items():
                     if not isinstance(state_delta, dict):
                         continue
@@ -1883,6 +2148,16 @@ async def run_workflow_async(
                     rag_chunks  = _extract_rag_chunks_detailed(state_delta)
                     agent_out   = _serialize_agent_output(node_name, state_delta)
                     gen         = state_delta.get("generated_code") or state_delta.get("generated_tests")
+
+                    if gen and isinstance(gen, list):
+                        def _get_fp_inline(g):
+                            if isinstance(g, dict):
+                                return g.get("file_path", "?")
+                            return getattr(g, "file_path", "?") if hasattr(g, "file_path") else "?"
+                        _new_fps = [_get_fp_inline(g) for g in gen if _get_fp_inline(g) != "?"]
+                        if _new_fps:
+                            _ex = workflow_status[workflow_id].get("generated_files", [])
+                            workflow_status[workflow_id]["generated_files"] = list(dict.fromkeys(_ex + _new_fps))
 
                     if inv and node_name == "investigate":
                         inv_type = getattr(inv, "ticket_type", str(inv))
@@ -1908,33 +2183,179 @@ async def run_workflow_async(
                             rf for rf in rfiles if rf["path"] not in seen
                         ]
                     elif gen and isinstance(gen, list):
-                        names = [g.get("file_path", str(g)) if isinstance(g, dict) else str(g) for g in gen[:3]]
+                        def _get_fp(g):
+                            if isinstance(g, dict):
+                                return g.get("file_path", "?")
+                            return getattr(g, "file_path", "?") if hasattr(g, "file_path") else "?"
+                        names = [_get_fp(g).split('/')[-1].split('\\')[-1] for g in gen[:3]]
                         msg   = f"✍️ Generated {len(gen)} file(s): " + ", ".join(names)
-                        workflow_status[workflow_id]["generated_files"] = [
-                            g.get("file_path", str(g)) if isinstance(g, dict) else str(g)
-                            for g in gen
-                        ]
                     else:
                         msg = agent_out.split("\n")[0] if agent_out else label
 
                     put({
-                        "phase": phase, "status": "in_progress", "message": msg,
+                        "phase": phase, "status": "completed", "message": msg,
                         "data": {
                             "node":         node_name,
                             "rag_files":    rfiles or None,
                             "rag_chunks":   rag_chunks or None,
                             "investigation": str(inv)[:400] if inv else None,
                             "agent_output": agent_out,
+                            "task_explanations": (
+                                state_delta.get("_task_explanations")
+                                if node_name == "generate_code" else None
+                            ),
+                            "preflight_data": (
+                                {
+                                    "verdict": state_delta.get("preflight_verdict"),
+                                    "summary": state_delta.get("preflight_summary"),
+                                    "missing_requirements": state_delta.get("preflight_missing_requirements"),
+                                    "implementation_guidance": state_delta.get("preflight_implementation_guidance"),
+                                }
+                                if node_name == "preflight_check" else None
+                            ),
                         },
                         "timestamp": datetime.now().isoformat(),
                     })
 
-            snapshot = app.get_state(config)
-            final_state = snapshot.values if hasattr(snapshot, "values") else aggregate_state
-            if not isinstance(final_state, dict):
-                final_state = aggregate_state
+                    # Broadcast completed stage to main WebSocket for real-time Chat tab updates
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            manager.broadcast({
+                                "type": "workflow_step",
+                                "workflow_id": workflow_id,
+                                "phase": phase,
+                                "status": "complete",
+                                "message": msg,
+                                "data": {
+                                    "node": node_name,
+                                },
+                                "timestamp": datetime.now().isoformat(),
+                            }),
+                            loop,
+                        )
+                    except Exception:
+                        pass
 
-            result_holder["state"] = final_state
+                    # ── Evidence Collection sub-steps (real-time UI) ──────
+                    # After the main step, broadcast each evidence sub-step
+                    # so the UI shows per-iteration progress.
+                    if node_name == "evidence_collection_loop":
+                        _substeps = state_delta.get("_evidence_substeps") or []
+                        for _sub in _substeps:
+                            _sub_type = _sub.get("type", "")
+                            _sub_msg = _sub.get("message", "")
+                            _sub_phase = "evidence_collection_loop"
+
+                            # Map sub-step types to icons
+                            _icon_map = {
+                                "stage_0_start": "🔍",
+                                "stage_0_result": "🔍",
+                                "stage_07_rag_start": "🧠",
+                                "stage_07_rag_result": "🔍" if _sub.get("decision") == "include" else "❌",
+                                "stage_07_rag_complete": "✅",
+                                "stage_07_rag_error": "⚠️",
+                                "iteration_start": "🔄",
+                                "search_result": "🔎",
+                                "verdict": "✅" if _sub.get("decision") == "include" else "❌",
+                                "iteration_end": "📊",
+                                "early_stop": "✅",
+                            }
+                            _icon = _icon_map.get(_sub_type, "⚙️")
+
+                            put({
+                                "phase": _sub_phase,
+                                "status": "completed",
+                                "message": f"{_icon} {_sub_msg}" if _sub_msg else f"{_icon} {_sub_type}",
+                                "data": {
+                                    "node": "evidence_collection_loop",
+                                    "sub_step_type": _sub_type,
+                                    # Stage 0.7 RAG results with file_path render as compact cards
+                                    **({"event_type": f"stage_07_rag_{_sub.get('decision', 'include')}",
+                                        "file_path": _sub.get("file_path", ""),
+                                        "file_name": (_sub.get("file_path") or "").split("/")[-1].split("\\")[-1],
+                                       } if _sub_type == "stage_07_rag_result" and _sub.get("file_path") else {}),
+                                    **{k: v for k, v in _sub.items()
+                                       if k not in ("type", "message")},
+                                },
+                                "timestamp": _sub.get("timestamp", datetime.now().isoformat()),
+                            })
+
+                    # ── Code Generation sub-steps (guaranteed post-node broadcast) ─
+                    # Emits file_written events from generated_code in state_delta.
+                    # This acts as a fallback when the real-time _ui_emit mechanism
+                    # in workflow.py doesn't fire (e.g. callback not registered).
+                    if node_name in ("generate_code", "generate_tests"):
+                        _gen_list = state_delta.get("generated_code") or state_delta.get("generated_tests") or []
+                        _gen_phase = "patch_generation"
+                        for _gc in _gen_list:
+                            _gc_fp = getattr(_gc, "file_path", None) or (_gc.get("file_path") if isinstance(_gc, dict) else None)
+                            if not _gc_fp:
+                                continue
+                            _gc_fname = _gc_fp.split("/")[-1].split("\\")[-1]
+                            _gc_key = f"gen_{_gc_fp}"
+                            # Only emit if not already sent by real-time _ui_emit
+                            _existing_keys = {
+                                (s.get("data") or {}).get("file_path", "")
+                                for s in workflow_status.get(workflow_id, {}).get("steps", [])
+                                if (s.get("data") or {}).get("event_type") == "file_written"
+                            }
+                            if _gc_fp not in _existing_keys:
+                                put({
+                                    "phase": _gen_phase,
+                                    "status": "completed",
+                                    "message": f"📝 Written: {_gc_fname}",
+                                    "data": {
+                                        "node": node_name,
+                                        "event_type": "file_written",
+                                        "file_path": _gc_fp,
+                                        "file_name": _gc_fname,
+                                    },
+                                    "timestamp": datetime.now().isoformat(),
+                                })
+
+                    # ── Edit Loop sub-steps (file-by-file progress) ────────
+                    if node_name in ("edit_loop", "fix_build", "fix_test"):
+                        _el_result = state_delta.get("_edit_loop_result")
+                        if _el_result and isinstance(_el_result, dict):
+                            _el_phase = "edit_loop"
+                            for _er in (_el_result.get("edit_results") or []):
+                                _er_fp = getattr(_er, "file_path", "") or (_er.get("file_path", "") if isinstance(_er, dict) else "")
+                                _er_skipped = getattr(_er, "skipped", False) if hasattr(_er, "skipped") else (_er.get("skipped", False) if isinstance(_er, dict) else False)
+                                if not _er_fp or _er_skipped:
+                                    continue
+                                _er_fname = _er_fp.split("/")[-1].split("\\")[-1]
+                                _er_had_errors = bool(getattr(_er, "compile_errors_before", None) or (
+                                    _er.get("compile_errors_before") if isinstance(_er, dict) else None))
+                                _er_fixed = bool(getattr(_er, "compile_clean", False) if hasattr(_er, "compile_clean") else (
+                                    _er.get("compile_clean", False) if isinstance(_er, dict) else False))
+
+                                _er_event_type = "live_check_resolved" if (_er_had_errors and _er_fixed) else "file_written"
+                                _er_msg = (
+                                    f"✅ Fixed: {_er_fname}" if _er_event_type == "live_check_resolved"
+                                    else f"✏️ Edited: {_er_fname}"
+                                )
+                                put({
+                                    "phase": _el_phase,
+                                    "status": "completed",
+                                    "message": _er_msg,
+                                    "data": {
+                                        "node": node_name,
+                                        "event_type": _er_event_type,
+                                        "file_path": _er_fp,
+                                        "file_name": _er_fname,
+                                    },
+                                    "timestamp": datetime.now().isoformat(),
+                                })
+
+            if cancelled:
+                result_holder["cancelled"] = True
+                result_holder["state"] = aggregate_state
+            else:
+                snapshot = app.get_state(config)
+                final_state = snapshot.values if hasattr(snapshot, "values") else aggregate_state
+                if not isinstance(final_state, dict):
+                    final_state = aggregate_state
+                result_holder["state"] = final_state
 
         except Exception as exc:
             result_holder["error"] = str(exc)
@@ -1947,6 +2368,8 @@ async def run_workflow_async(
                 "timestamp": datetime.now().isoformat()
             })
         finally:
+            # Clean up cancel flag
+            workflow_cancel_flags.pop(workflow_id, None)
             done_event.set()
 
     t = threading.Thread(target=thread_run, daemon=True)
@@ -1964,6 +2387,44 @@ async def run_workflow_async(
     # Yield control to event loop while waiting for the thread
     while not done_event.wait(timeout=0):
         await asyncio.sleep(0.5)
+
+    # ── Handle user-requested cancellation ──
+    if result_holder.get("cancelled"):
+        workflow_status[workflow_id].update({
+            "status": "stopped",
+            "current_phase": "failed",
+            "error": "Stopped by user",
+            "stopped_at": datetime.now().isoformat(),
+        })
+        # Clean up transient registry for the ticket
+        try:
+            from ticket_to_code.workflow import _clear_transient
+            ticket_id = workflow_status[workflow_id].get("ticket_id")
+            if ticket_id:
+                _clear_transient(ticket_id)
+        except Exception:
+            pass
+        await broadcast_to_workflow(workflow_id, {
+            "phase": "failed", "status": "stopped",
+            "message": "⛔ Workflow stopped by user",
+            "data": {"stopped_by_user": True},
+            "timestamp": datetime.now().isoformat(),
+        })
+        # Update task history
+        try:
+            history_store.record_task(
+                workflow_id=workflow_id,
+                project_id=workflow_status[workflow_id].get("project_id"),
+                ticket_id=workflow_status[workflow_id].get("ticket_id"),
+                title="Stopped by user",
+                description="",
+                status="stopped",
+                changed_files=[],
+                execution_mode=workflow_status[workflow_id].get("execution_mode", "pipeline"),
+            )
+        except Exception:
+            pass
+        return
 
     if "error" in result_holder:
         err = result_holder["error"]
@@ -2081,6 +2542,7 @@ async def run_workflow_async(
                 "candidate_files": rag_files,
                 "workflow_explanation": workflow_status[workflow_id].get("workflow_explanation"),
                 "validation_failure_reason": validation_failure_reason,
+                "build_diagnostics": workflow_output.get("build_diagnostics"),
             },
             "timestamp": datetime.now().isoformat(),
         })
@@ -2096,6 +2558,126 @@ async def run_workflow_async(
             "timestamp": datetime.now().isoformat(),
         })
 
+    # ── Also broadcast a conversational summary to the main WebSocket (Chat tab) ──
+    explanation = workflow_status[workflow_id].get("workflow_explanation") or {}
+    chat_summary = _build_chat_summary(
+        workflow_id=workflow_id,
+        ticket_title=ticket.title,
+        ticket_description=ticket.description,
+        status="failed" if terminal_failed else "completed",
+        generated_files=all_gen,
+        explanation=explanation,
+        error=workflow_status[workflow_id].get("error"),
+        steps=workflow_status[workflow_id].get("steps", []),
+    )
+    await manager.broadcast({
+        "type": "workflow_summary",
+        "workflow_id": workflow_id,
+        "status": "failed" if terminal_failed else "completed",
+        "summary": chat_summary,
+        "generated_files": all_gen,
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+def _build_chat_summary(
+    workflow_id: str,
+    ticket_title: str,
+    ticket_description: str,
+    status: str,
+    generated_files: List[str],
+    explanation: dict,
+    error: Optional[str],
+    steps: list,
+) -> str:
+    """Build a conversational, developer-friendly summary for the Chat tab.
+
+    This reads like a developer explaining what they did: what the issue was,
+    what files were changed and why, build/test outcomes, and next steps.
+    """
+    lines: List[str] = []
+
+    # ── Status header ──
+    if status == "completed":
+        lines.append("✅ **Workflow completed successfully!**")
+    else:
+        lines.append("❌ **Workflow ended with errors.**")
+
+    # ── What was the ticket about ──
+    lines.append("")
+    lines.append(f"**Ticket:** {ticket_title}")
+    if ticket_description and ticket_description != ticket_title:
+        desc_short = ticket_description[:300]
+        if len(ticket_description) > 300:
+            desc_short += "…"
+        lines.append(f"> {desc_short}")
+
+    # ── What the system understood ──
+    summary_text = explanation.get("summary", "")
+    why_text = explanation.get("why", "")
+    if summary_text:
+        lines.append("")
+        lines.append(f"**Analysis:** {summary_text}")
+    if why_text:
+        lines.append(f"**Reasoning:** {why_text}")
+
+    # ── Key decisions made ──
+    decisions = explanation.get("decisions") or []
+    if decisions:
+        lines.append("")
+        lines.append("**Key Decisions:**")
+        for d in decisions[:5]:
+            lines.append(f"  • {d}")
+
+    # ── Files changed and why ──
+    if generated_files:
+        lines.append("")
+        lines.append(f"**Files Changed ({len(generated_files)}):**")
+        for fp in generated_files[:10]:
+            basename = fp.split("/")[-1] if "/" in fp else fp.split("\\")[-1] if "\\" in fp else fp
+            lines.append(f"  📄 `{basename}` — `{fp}`")
+        if len(generated_files) > 10:
+            lines.append(f"  ... and {len(generated_files) - 10} more")
+
+    # ── Build/test outcome ──
+    build_info = ""
+    test_info = ""
+    for step in reversed(steps[-30:]):
+        if not isinstance(step, dict):
+            continue
+        msg = str(step.get("message", ""))
+        if "Build:" in msg and not build_info:
+            build_info = msg
+        if "Tests:" in msg and not test_info:
+            test_info = msg
+    if build_info:
+        lines.append("")
+        lines.append(f"**Build:** {build_info}")
+    if test_info:
+        lines.append(f"**Tests:** {test_info}")
+
+    # ── Error details ──
+    if error and status == "failed":
+        lines.append("")
+        lines.append(f"**Error:** {str(error)[:400]}")
+
+    # ── Next action ──
+    next_action = explanation.get("next_action", "")
+    if next_action:
+        lines.append("")
+        lines.append(f"**Next Step:** {next_action}")
+
+    # ── Confidence ──
+    details = explanation.get("details") or []
+    for d in details:
+        if "confidence" in d.lower():
+            lines.append(f"📊 {d}")
+            break
+
+    lines.append("")
+    lines.append("💬 *Ask me anything about these changes — why a file was modified, what a specific change does, or if you'd like me to explain the code.*")
+
+    return "\n".join(lines)
 
 
 @app.get("/api/workflow/transparent/{workflow_id}")
@@ -2190,6 +2772,29 @@ async def approve_files(request: ApproveFilesRequest):
     }
 
 
+class DecisionResponseRequest(BaseModel):
+    workflow_id: str
+    choice: str  # "fix", "leave", or "stop"
+
+
+@app.post("/api/workflow/transparent/decision-response")
+async def decision_response(request: DecisionResponseRequest):
+    """Receive user's decision for pre-existing build errors (fix/leave/stop)."""
+    wid = request.workflow_id
+    if wid not in workflow_status:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    choice = request.choice.strip().lower()
+    if choice not in ("fix", "leave", "stop"):
+        raise HTTPException(status_code=400, detail=f"Invalid choice: {choice}")
+    # Store the result and signal the blocking event
+    workflow_status[wid]["_decision_result"] = choice
+    evt = workflow_status[wid].get("_decision_event")
+    if evt:
+        evt.set()
+    logger.info(f"Decision received for {wid}: {choice}")
+    return {"status": "accepted", "choice": choice}
+
+
 @app.post("/api/workflow/transparent/continue-to-generation")
 async def continue_to_generation(request: ContinueToGenerationRequest):
     """Informational — workflow runs autonomously."""
@@ -2207,6 +2812,29 @@ async def run_tests(request: RunTestsRequest):
     """Informational — tests are run as part of the workflow."""
     return {"status": "running", "message": "Tests are executed by the autonomous workflow."}
 
+
+@app.post("/api/workflow/transparent/{workflow_id}/stop")
+async def stop_workflow(workflow_id: str):
+    """Stop a running workflow. Sets the cancel flag so the next node boundary
+    will cleanly terminate the workflow without corrupting state."""
+    if workflow_id not in workflow_status:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    current_status = workflow_status[workflow_id].get("status")
+    if current_status not in ("running", "initialized"):
+        return {
+            "status": "already_done",
+            "message": f"Workflow is already {current_status}",
+        }
+
+    # Set the cancel flag — the thread_run loop checks this between nodes
+    workflow_cancel_flags[workflow_id] = True
+    logger.info(f"⛔ Stop requested for workflow {workflow_id}")
+
+    return {
+        "status": "stopping",
+        "message": "Stop signal sent. Workflow will halt after the current step completes.",
+    }
 
 @app.websocket("/ws/workflow/{workflow_id}")
 async def workflow_websocket(websocket: WebSocket, workflow_id: str):
@@ -2236,6 +2864,130 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str):
         conns = workflow_connections.get(workflow_id, [])
         if websocket in conns:
             conns.remove(websocket)
+
+
+# ============================================================================
+# CHAT FOLLOW-UP ENDPOINT — Ask questions about workflow changes
+# ============================================================================
+
+class WorkflowChatRequest(BaseModel):
+    workflow_id: str
+    message: str
+    project_id: Optional[str] = None
+
+
+@app.post("/api/workflow/chat")
+async def workflow_chat(request: WorkflowChatRequest):
+    """Answer follow-up questions about a completed/running workflow.
+
+    Uses the workflow context (explanation, generated files, steps) to provide
+    conversational answers about what was changed and why.
+    """
+    wid = request.workflow_id
+    state = workflow_status.get(wid)
+    if not state:
+        return {"reply": "I couldn't find that workflow. It may have been cleared after a restart."}
+
+    explanation = state.get("workflow_explanation") or {}
+    gen_files = state.get("generated_files") or []
+    steps = state.get("steps") or []
+    ticket_id = state.get("ticket_id", "")
+    wf_status = state.get("status", "unknown")
+
+    # Build context for the LLM
+    context_parts = []
+    context_parts.append(f"Workflow ID: {wid}")
+    context_parts.append(f"Ticket: {ticket_id}")
+    context_parts.append(f"Status: {wf_status}")
+
+    if explanation.get("summary"):
+        context_parts.append(f"Summary: {explanation['summary']}")
+    if explanation.get("why"):
+        context_parts.append(f"Why: {explanation['why']}")
+    if explanation.get("decisions"):
+        context_parts.append(f"Decisions: {'; '.join(explanation['decisions'][:8])}")
+    if explanation.get("evidence"):
+        context_parts.append(f"Evidence: {'; '.join(explanation['evidence'][:5])}")
+    if gen_files:
+        context_parts.append(f"Generated/Modified files: {', '.join(gen_files[:15])}")
+    if explanation.get("details"):
+        context_parts.append(f"Details: {'; '.join(explanation['details'][:5])}")
+    if state.get("error"):
+        context_parts.append(f"Error: {str(state['error'])[:500]}")
+
+    # Include relevant step agent outputs for richer context
+    step_summaries = []
+    for step in steps[-25:]:
+        if not isinstance(step, dict):
+            continue
+        msg = str(step.get("message", "")).strip()
+        agent_out = ""
+        data = step.get("data")
+        if isinstance(data, dict):
+            agent_out = str(data.get("agent_output", "")).strip()
+        if msg:
+            entry = msg
+            if agent_out and len(agent_out) > 10:
+                entry += f"\n  Detail: {agent_out[:300]}"
+            step_summaries.append(entry)
+    if step_summaries:
+        context_parts.append("\nWorkflow Steps (chronological):")
+        context_parts.extend(step_summaries[-15:])
+
+    context_block = "\n".join(context_parts)
+
+    # Call Gemini to answer the question
+    try:
+        from google import genai
+        client = genai.Client(
+            vertexai=True,
+            project=os.environ.get("GOOGLE_CLOUD_PROJECT", "otl-cs-csai"),
+            location=os.environ.get("GOOGLE_CLOUD_LOCATION", "europe-west4"),
+        )
+        prompt = (
+            "You are Aviator, an AI coding assistant. A workflow just ran to implement "
+            "code changes for a ticket. The user is asking a follow-up question about the "
+            "changes. Answer conversationally, like a senior developer explaining their work.\n\n"
+            f"## Workflow Context\n{context_block}\n\n"
+            f"## User Question\n{request.message}\n\n"
+            "Answer the question based on the workflow context above. Be specific about "
+            "which files were changed and why. If the user asks about code details, explain "
+            "the technical rationale. Keep it conversational and helpful."
+        )
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        reply = response.text.strip() if response.text else "I couldn't generate a response. Please try again."
+    except Exception as e:
+        logger.error(f"Workflow chat LLM error: {e}")
+        # Fallback: build a rule-based answer from the context
+        reply = _build_fallback_chat_reply(request.message, explanation, gen_files, state)
+
+    return {"reply": reply}
+
+
+def _build_fallback_chat_reply(question: str, explanation: dict, gen_files: list, state: dict) -> str:
+    """Fallback answer when LLM is unavailable."""
+    lower = question.lower()
+    if any(w in lower for w in ["what file", "which file", "files changed", "modified"]):
+        if gen_files:
+            return "The following files were generated/modified:\n" + "\n".join(f"  • {f}" for f in gen_files[:15])
+        return "No files were generated in this workflow run."
+    if any(w in lower for w in ["why", "reason", "explain"]):
+        summary = explanation.get("summary", "")
+        why = explanation.get("why", "")
+        return f"{summary}\n\n{why}" if summary else "No detailed explanation is available for this workflow."
+    if any(w in lower for w in ["error", "fail", "wrong"]):
+        err = state.get("error")
+        return f"The workflow encountered an error: {err}" if err else "No errors were recorded."
+    return (
+        f"Workflow status: {state.get('status', 'unknown')}.\n"
+        f"Summary: {explanation.get('summary', 'N/A')}\n"
+        f"Files: {', '.join(gen_files[:5]) if gen_files else 'None'}\n\n"
+        f"Ask me about specific files, errors, or why changes were made."
+    )
+
 
 
 # ============================================================================
@@ -2299,4 +3051,7 @@ async def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8002, reload=True)
+    # reload=True causes uvicorn to restart when files change.
+    # Since the agent writes code files locally, this causes the backend
+    # to restart mid-workflow, abandoning the ticket. Disabled it.
+    uvicorn.run("main:app", host="0.0.0.0", port=8002, reload=False)

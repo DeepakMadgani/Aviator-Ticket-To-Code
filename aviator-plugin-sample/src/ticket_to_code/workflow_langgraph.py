@@ -415,6 +415,9 @@ def build_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     Compiles both generated code AND generated tests.
     """
     logger.info("🔧 PHASE 5: Build Project")
+
+    if hasattr(agents, "repo_search") and agents.repo_search:
+        agents.repo_search.invalidate_index()
     
     # Find project file
     workspace = Path(state["workspace_path"])

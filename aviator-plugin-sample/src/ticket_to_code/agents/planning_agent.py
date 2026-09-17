@@ -35,6 +35,9 @@ from ticket_to_code.models import (
     StageThought,
     ThinkingChain,
     PlanReviewResult,
+    SignatureBlueprint,
+    CrossFileContract,
+    BlueprintStatus,
 )
 
 
@@ -462,6 +465,61 @@ trace the FULL data path from backend to template:
   4. Template: Does the `.html` render it? Add a task.
 You CANNOT add a template task showing `{{ member.orgName }}` without also having tasks that supply `orgName`.
 
+DOMAIN OWNERSHIP GUIDANCE:
+The context may include DOMAIN OWNERSHIP information describing the likely architectural owner of a business capability.
+Use this information as architectural evidence, not as a substitute for repository investigation.
+When selecting files:
+1. Prefer files in the identified owning service when repository evidence supports that ownership.
+2. Treat REFERENCE_ONLY classifications as a warning that the file may belong to another bounded context.
+3. Verify the classification against actual implementations, imports, callers, dependencies, and data flow.
+4. Do not modify a file solely because RAG considers it relevant.
+5. Do not reject a file solely because the architecture model says another service is the preferred owner.
+6. If repository evidence contradicts the architecture guidance, investigate the contradiction and use the stronger repository evidence.
+7. Select the files that actually implement the ticket's behavior.
+
+CAPABILITY REUSE RULE (CRITICAL — apply BEFORE creating any new method or API):
+Before proposing a new method, service call, or API endpoint, you MUST check the
+VERIFIED EVIDENCE section for methods that already provide the required functionality.
+
+For each proposed new capability, follow this decision process:
+1. REQUIRED: What capability does the ticket need? (e.g. "check membership")
+2. EXISTING: Does a verified existing method already provide this? Check ACTUAL CODE.
+3. PATH: Is the existing method connected to the relevant execution path?
+   (e.g. AddMembersComponent → Service → API → Backend → Repository)
+4. SUFFICIENT: Does the existing method's implementation satisfy the requirement?
+
+Decision:
+- If EXISTING + PATH VERIFIED + SUFFICIENT → REUSE the existing method.
+  Create a task that CALLS the existing method, not a duplicate.
+- If EXISTING + PARTIALLY sufficient → MODIFY the existing method to add
+  the missing behavior. Do NOT create a parallel method.
+- If EXISTING but PATH NOT VERIFIED → note this in selection_reason.
+  State what relationship evidence is missing before assuming reuse.
+- If NO existing method → create a new method. Explain in selection_reason
+  exactly why no existing method was sufficient.
+
+IMPORTANT: Do NOT assume a method is reusable just because its name sounds
+related. You must verify from the actual code and relationship path that it
+serves the same purpose in the same execution flow.
+
+EVIDENCE AUTHORITY (CRITICAL — prevents inventing capabilities that already exist):
+- VERIFIED EVIDENCE (relationship-grounded, progressively inspected code) is
+  AUTHORITATIVE. If it contains a connected capability that satisfies the
+  requirement, REUSE it — even if its name differs from the ticket's wording
+  (e.g. reuse an existing members() flow instead of inventing
+  checkProjectMembership()/isProjectMember()).
+- Broad semantic/RAG candidates and keyword matches are SUPPLEMENTARY DISCOVERY
+  ONLY. NEVER conclude a capability is absent — and NEVER propose CREATE_NEW —
+  because RAG candidates (possibly from an unrelated service/module) do not
+  contain it. RAG cannot override verified repository evidence.
+- Only propose CREATE_NEW when the VERIFIED EVIDENCE itself shows no connected
+  capability is sufficient. State exactly which verified capability you inspected
+  and why it is insufficient.
+- The BEHAVIORAL UNDERSTANDING block (if present) lists authoritative REUSE
+  DECISIONS and CHANGE CANDIDATES vs READ-ONLY REFERENCES. Honor them: do NOT
+  create a task for a READ-ONLY REFERENCE, and do NOT create a new capability
+  where a REUSE decision is stated.
+
 TASK DECOMPOSITION RULES:
 - Each task modifies ONE file
 {task_limit_rule} For version bumps: 2-4 tasks.
@@ -489,13 +547,20 @@ EXAMPLE — Bug: "duplicate name error when saving deliverable":
 `allowed_methods` RULES (critical — wrong values here cause generation to fail silently):
 - For MODIFY tasks that only change EXISTING methods: list the existing method name(s) to change.
 - For MODIFY tasks that must ADD A NEW METHOD: list the NEW method name you expect the generator to create (e.g. `checkProjectMembership`). Do NOT list only existing methods when the task requires creating a new one — the validator will reject the output.
+  BUT FIRST: check the VERIFIED EVIDENCE for an existing method that already does this.
+  Only propose a NEW method name if no existing method is sufficient.
 - For Angular component tasks that modify member-staging logic: the method to list is `onMemberAdd` or `onSave`, NOT `ngOnInit`. Use `ngOnInit` only when the initialization lifecycle hook itself must change.
 - When unsure, list BOTH the existing method name AND the expected new method name.
 - Never leave `allowed_methods` empty for a MODIFY task that is expected to add behavior.
 - Tasks must be in dependency order (infrastructure first)
 - `selection_reason` must explain WHY this file needs changing (not just "it exists")
+  For files with VERIFIED EVIDENCE: selection_reason MUST reference the verified
+  capabilities and explain whether they are being reused, modified, or why they
+  are insufficient.
 - `allowed_methods` must list SPECIFIC method or property names to change
 - **rationale**: You MUST provide a substantive plan-level rationale explaining the overall strategy: what problem is being solved, why this specific shape of solution (why these specific 5 modifies + 1 create) was chosen, and how the tasks fit together. Do NOT write generic boilerplate ("implements the ticket"). This rationale will be used to mechanically gate the tasks.
+  The rationale MUST address any verified existing capabilities and explain
+  whether they are reused or why new capabilities are needed.
 
 `edit_anchors` RULES (tells the generator WHERE to place code, not just WHAT to write):
 - MANDATORY: You MUST provide `edit_anchors` for any task that adds new methods, properties, or modifies existing logic where placement matters.
@@ -523,6 +588,21 @@ LANGUAGE MAP:
 - .sh, .bash, .ps1, .bat → shell
 - .json, .yml, .yaml, .xml → json
 - .scss, .css, .less → scss
+
+CROSS-FILE RELATIONSHIPS (for multi-file changes):
+When tasks share data or functionality across file boundaries, describe the INTENT:
+- `cross_file_contract` on each task:
+  - produces: what capability/data this task provides to other tasks
+  - consumes: what capability/data this task needs from earlier tasks
+For each cross-file relationship, specify:
+  - capability: what crosses the boundary (e.g. "project membership check result")
+  - data_shape: shape of the data (e.g. "boolean + organization name")
+  - relationship_type: kind of relationship (data, trigger, precondition, consumer, side_effect, shared_type)
+  - from_task: (for consumes only) which task provides this capability
+Describe capabilities in natural language. Do NOT specify exact method names,
+signatures, or import paths — those will be determined by the code generator
+based on actual repository evidence.
+You CAN still observe and reference actual repository patterns in your descriptions.
 
 RESPOND with JSON ONLY:
 {{
@@ -552,9 +632,18 @@ RESPOND with JSON ONLY:
           "anchor_method": "helpVersion",
           "description": "Modify the helpVersion constant value"
         }}
-      ]
+      ],
+      "cross_file_contract": {{
+        "produces": [{{
+          "capability": "updated version constant",
+          "data_shape": "integer constant",
+          "relationship_type": "data"
+        }}],
+        "consumes": []
+      }}
     }}
   ],
+  "signature_blueprints": [],
   "api_changes": [],
   "database_changes": [],
   "external_dependencies": []
@@ -577,6 +666,7 @@ NO markdown, NO explanations, ONLY valid JSON."""
         blacklisted_files: Optional[List[str]] = None,
         code_facts: Optional[str] = None,
         verification_feedback: Optional[List[dict]] = None,
+        verified_evidence: Optional[str] = None,
         **kwargs,
     ) -> str:
         
@@ -757,11 +847,19 @@ NO markdown, NO explanations, ONLY valid JSON."""
         if verification_feedback:
             feedback_text = "\n=== SEMANTIC VERIFICATION FEEDBACK (LLM-verified file relevance) ===\n"
             for fb in verification_feedback:
-                if fb.get("decision") in ("REJECT", "exclude"):
+                v_status = fb.get("verification_status", "completed")
+
+                if v_status != "completed":
+                    # Infrastructure failure — this is NOT evidence about the file
+                    feedback_text += (
+                        f"- UNVERIFIED: {fb.get('file_path')} "
+                        f"(verification infrastructure did not complete — treat as valid candidate)\n"
+                    )
+                elif fb.get("decision") in ("REJECT", "exclude"):
                     feedback_text += f"- EXCLUDED: {fb.get('file_path')} | Reason: {fb.get('reason')}\n"
                 elif fb.get("decision") in ("include",):
                     feedback_text += f"- VERIFIED: {fb.get('file_path')} | Reason: {fb.get('reason')}\n"
-            if "EXCLUDED:" in feedback_text or "VERIFIED:" in feedback_text:
+            if "EXCLUDED:" in feedback_text or "VERIFIED:" in feedback_text or "UNVERIFIED:" in feedback_text:
                 feedback_section = feedback_text
 
         # ── Interactive Loop Context ─────────────────────────────────────────
@@ -818,6 +916,27 @@ NO markdown, NO explanations, ONLY valid JSON."""
                 "you must either find a valid way to implement the logic without crossing that boundary, OR choose a different file entirely.\n"
             )
 
+        # ── Phase 5: Verified Evidence section ─────────────────────────────
+        # This section contains structurally inspected capabilities with actual
+        # source code, facts, questions, and relationship provenance. It appears
+        # BEFORE code_facts so the planner sees structured evidence first.
+        verified_evidence_section = ""
+        if verified_evidence:
+            verified_evidence_section = (
+                "\n=== VERIFIED EVIDENCE (Inspected Capabilities — READ BEFORE PLANNING) ===\n"
+                "The following files were progressively inspected during evidence collection.\n"
+                "For each file, you can see the actual class structure, methods, relationships,\n"
+                "source code, and verified facts. Use this to determine whether existing\n"
+                "capabilities satisfy the ticket's requirements BEFORE proposing new methods.\n"
+                "\n"
+                "KEY: 'RELEVANT TO TICKET' marks methods the evidence agent identified as\n"
+                "potentially relevant. 'ACTUAL CODE' shows the real implementation.\n"
+                "'Discovery reason' explains how this file was found (relationship path).\n"
+                "'Open questions' indicate unverified aspects you should consider.\n"
+                f"{verified_evidence}\n"
+                "=== END VERIFIED EVIDENCE ===\n"
+            )
+
         return f"""
 TICKET: {ticket.ticket_id}
 TITLE: {ticket.title}
@@ -827,6 +946,7 @@ REQUIREMENTS:
 Functional: {self._format_list(requirements.functional_requirements)}
 Technical:  {self._format_list(requirements.technical_requirements)}
 Affected:   {self._format_list(requirements.affected_components)}
+{verified_evidence_section}
 {code_facts_section}
 {discovered_section}
 {feedback_section}
@@ -834,6 +954,7 @@ Affected:   {self._format_list(requirements.affected_components)}
 {loop_context_section}
 {validation_failure_section}
 Now produce the JSON plan. Select from CANDIDATE FILES only. Must_use files must appear in tasks.
+Before creating any new method or API, check the VERIFIED EVIDENCE section for existing capabilities.
         """.strip()
     
     def _format_list(self, items: List[str]) -> str:
@@ -1203,6 +1324,59 @@ ONLY output valid JSON. DO NOT wrap it in markdown block quotes."""
                     f"Task '{t.get('title', f'task-{i}')}' is a 'modify' task but is missing 'edit_anchors'. "
                     f"You MUST provide edit_anchors for modify tasks to tell the generator where to place code."
                 )
+
+        # ── Normalize cross_file_contract on each task (backward-compat) ───
+        for t in data.get("tasks", []):
+            contract = t.get("cross_file_contract")
+            if contract is None:
+                # Older plan format — no cross-file contract emitted
+                t["cross_file_contract"] = None
+            elif isinstance(contract, dict):
+                # Normalize semantic blueprints inside the contract
+                for key in ("produces", "consumes"):
+                    items = contract.get(key, [])
+                    if not isinstance(items, list):
+                        contract[key] = []
+                    else:
+                        # Backward-compat: if items use old SignatureBlueprint format,
+                        # convert to SemanticBlueprint format
+                        normalized = []
+                        for item in items:
+                            if isinstance(item, dict):
+                                if "capability" in item:
+                                    # Already semantic format
+                                    normalized.append(item)
+                                elif "symbol_name" in item:
+                                    # Old exact-signature format → convert to semantic
+                                    owner = item.get("owner_class", "")
+                                    sym = item.get("symbol_name", "")
+                                    sig = item.get("signature", "")
+                                    normalized.append({
+                                        "capability": f"{owner}.{sym}" if owner else sym,
+                                        "data_shape": sig or "",
+                                        "from_task": item.get("created_by_task", ""),
+                                        "relationship_type": "data",
+                                    })
+                                    logger.info(
+                                        f"  [Planner] Converted legacy blueprint to semantic: "
+                                        f"{owner}.{sym} → capability"
+                                    )
+                                else:
+                                    normalized.append(item)
+                            else:
+                                normalized.append(item)
+                        contract[key] = normalized
+
+        # ── Normalize top-level signature_blueprints (backward-compat) ─────
+        # The planner no longer produces these (semantic planner uses
+        # SemanticBlueprint in cross_file_contract instead), but old plans
+        # may still contain them.
+        raw_blueprints = data.get("signature_blueprints", [])
+        if not isinstance(raw_blueprints, list):
+            raw_blueprints = []
+        data["signature_blueprints"] = raw_blueprints
+        if raw_blueprints:
+            logger.info(f"  [Planner] Emitted {len(raw_blueprints)} legacy signature blueprint(s)")
 
         # ── Validate with Pydantic (with final safety net) ─────────────────
         try:

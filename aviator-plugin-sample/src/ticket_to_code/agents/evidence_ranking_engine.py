@@ -107,6 +107,13 @@ _PENALTY_TEST_FILE   = 0.22
 _PENALTY_GENERATED   = 0.30
 _PENALTY_DOCS        = 0.10
 
+# Repository-boundary penalty — applied when a candidate file is not
+# inside any recognized repository (e.g. Git repo).  Consistent with
+# _PENALTY_INFRA / _PENALTY_OUTSIDE_MACRO in magnitude: meaningful
+# enough to break ties but not strong enough to override genuinely
+# superior evidence.  Repository identity is a signal, not a filter.
+_PENALTY_ORPHAN_PATH = 0.20
+
 _MIN_SCORE = 0.10
 _MAX_SCORE = 1.00
 
@@ -130,6 +137,7 @@ class RankedFile:
     ranking_reasons:     List[str] = field(default_factory=list)
     penalties:           List[str] = field(default_factory=list)
     arch_role:           str = ""   # "deploy_script" | "config_file" | "root_component" | ""
+    repo_root:           str = ""   # containing repository root prefix, or "" if orphan
 
     def to_dict(self) -> dict:
         return {
@@ -138,6 +146,7 @@ class RankedFile:
             "final_score":        round(self.final_score, 4),
             "original_score":     round(self.original_score, 4),
             "arch_role":          self.arch_role,
+            "repo_root":          self.repo_root,
             "matched_literals":   self.matched_literals,
             "matched_expanded":   self.matched_expanded,
             "matched_symbols":    self.matched_symbols,
@@ -339,6 +348,7 @@ class EvidenceRankingEngine:
         hypotheses: list,              # List[InvestigationHypothesis]
         localized_tasks: list,         # List[DevelopmentTask]
         expansion_map: Optional[Dict[str, Set[str]]] = None,
+        repo_root_map: Optional[Dict[str, Optional[str]]] = None,
     ) -> Tuple[list, List[RankedFile]]:
         """
         Re-score all EvidenceItems and return them sorted by final score (desc).
@@ -412,9 +422,16 @@ class EvidenceRankingEngine:
         score_map:    Dict[str, float] = {}
 
         for fp, items in by_file.items():
+            # Resolve repository identity for this candidate
+            candidate_repo_root = (
+                repo_root_map.get(fp.replace('\\', '/'))
+                if repo_root_map else None
+            )
             rf = self._score_file(
                 fp, items, all_literals, all_symbols, localized_paths,
                 expanded_to_original, anchor_tokens,
+                repo_root=candidate_repo_root,
+                has_repo_map=bool(repo_root_map),
             )
             # Architecture-aware macro_directories boost/penalty
             if macro_directories:
@@ -483,6 +500,8 @@ class EvidenceRankingEngine:
         localized_paths:    Set[str],
         expanded_to_original: Dict[str, str],
         anchor_tokens: Set[str] = frozenset(),
+        repo_root: Optional[str] = None,
+        has_repo_map: bool = False,
     ) -> RankedFile:
         base = max(item.relevance_score for item in items)
         sources:   Set[str] = {item.source for item in items}
@@ -657,6 +676,16 @@ class EvidenceRankingEngine:
             score -= _PENALTY_WEAK
             penalties.append("weak_single_source")
 
+        # ── Repository boundary signal ────────────────────────────────
+        # Applied only when a repo_root_map was provided (repo discovery
+        # ran successfully).  Files not inside any recognized repository
+        # receive a penalty — a signal, not a filter.  A genuinely strong
+        # orphan can still rank above a weak repository candidate.
+        resolved_repo = repo_root if repo_root is not None else ""
+        if has_repo_map and repo_root is None:
+            score -= _PENALTY_ORPHAN_PATH
+            penalties.append("orphan_path")
+
         final_pre_clamp = score
         final = round(min(_MAX_SCORE, max(_MIN_SCORE, final_pre_clamp)), 4)
 
@@ -671,4 +700,5 @@ class EvidenceRankingEngine:
             ranking_reasons=reasons,
             penalties=penalties,
             arch_role=role,
+            repo_root=resolved_repo,
         )

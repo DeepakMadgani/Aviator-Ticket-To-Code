@@ -258,7 +258,7 @@ _DB_MIGRATION = Skill(
 _UI_COMPONENT = Skill(
     name="ui_component",
     matches_keys=[
-        "component", "angular", "xchange-ui", "template", "ngx-translate", "ui",
+        "component", "angular", "template", "ngx-translate", "ui",
         "css", "style", "layout", "footer", "header", "react", "jsx", "tsx", "frontend",
     ],
     capabilities=[

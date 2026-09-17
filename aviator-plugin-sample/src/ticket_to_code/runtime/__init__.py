@@ -9,6 +9,8 @@ from ticket_to_code.runtime.run_context import (
     DegradationRegistry,
     RunContext,
     RunRecord,
+    TokenCallRecord,
+    PhaseUsage,
 )
 from ticket_to_code.runtime.intake_contract import (
     TicketKind,

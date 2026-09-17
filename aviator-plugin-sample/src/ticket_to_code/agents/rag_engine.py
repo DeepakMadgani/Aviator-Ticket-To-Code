@@ -185,7 +185,11 @@ class CodebaseRAGEngine:
         schema: str = "both"  # "code", "architecture", or "both"
     ) -> List[dict]:
         """
-        Simple context retrieval for troubleshooting and solution guidance.
+        Context retrieval with similarity scoring.
+        
+        Uses similarity_search_with_score to return actual relevance scores
+        alongside content. This enables downstream consumers (evidence pipeline,
+        preflight, etc.) to threshold and rank by real vector similarity.
         
         Args:
             query: Search query string
@@ -194,7 +198,7 @@ class CodebaseRAGEngine:
             schema: Which schema to search ("code", "architecture", or "both")
             
         Returns:
-            List of context dictionaries with file_path and content
+            List of context dictionaries with file_path, content, and score
         """
         if not self.is_initialized:
             logger.warning("RAG engine not initialized")
@@ -203,43 +207,125 @@ class CodebaseRAGEngine:
         results = []
         
         try:
-            # Search in main codebase store
+            # Search in main codebase store — with scores (Similarity Search)
             if schema in ["code", "both"] and self.vector_store:
                 logger.debug(f"Searching codebase for: {query[:50]}...")
-                code_results = self.vector_store.similarity_search(
-                    query=query,
-                    k=max_results
-                )
-                
-                for doc in code_results:
-                    # Filter by document types if specified
-                    if document_types:
-                        doc_type = doc.metadata.get("type", "").lower()
-                        if not any(dt.lower() in doc_type for dt in document_types):
-                            continue
+                try:
+                    code_results = self.vector_store.similarity_search_with_score(
+                        query=query,
+                        k=max_results
+                    )
+                    for doc, distance in code_results:
+                        if document_types:
+                            doc_type = doc.metadata.get("type", "").lower()
+                            if not any(dt.lower() in doc_type for dt in document_types):
+                                continue
+                        similarity_score = max(0.0, 1.0 - float(distance))
+                        results.append({
+                            "file_path": doc.metadata.get("file_path", "Unknown"),
+                            "content": doc.page_content,
+                            "type": doc.metadata.get("type", "code"),
+                            "language": doc.metadata.get("language", "unknown"),
+                            "score": similarity_score,
+                            "source": "vector_similarity",
+                        })
+                except (AttributeError, TypeError):
+                    code_results = self.vector_store.similarity_search(
+                        query=query, k=max_results
+                    )
+                    for doc in code_results:
+                        if document_types:
+                            doc_type = doc.metadata.get("type", "").lower()
+                            if not any(dt.lower() in doc_type for dt in document_types):
+                                continue
+                        results.append({
+                            "file_path": doc.metadata.get("file_path", "Unknown"),
+                            "content": doc.page_content,
+                            "type": doc.metadata.get("type", "code"),
+                            "language": doc.metadata.get("language", "unknown"),
+                            "score": 0.5,
+                            "source": "vector_similarity",
+                        })
+
+            # Keyword Complementary Search (runs alongside vector, not as fallback)
+            # ─────────────────────────────────────────────────────────────────
+            # Architecture decision: keyword and vector are COMPLEMENTARY layers.
+            # Keyword search uses actual SearchResult.confidence (0.0-1.0) from
+            # the RepositorySearchEngine, not a hardcoded score.
+            #
+            # Scoring heuristic:
+            #   keyword_complementary confidence = min(source_score, 0.75)
+            #
+            #   0.75 is a HEURISTIC NORMALIZATION CEILING, not a calibrated
+            #   confidence value.  It exists solely to prevent exact textual
+            #   matches from dominating vector semantic matches in the final
+            #   ranking.  It does NOT mean "keyword matches are 75% reliable."
+            #
+            #   If keyword and vector scores are ever ranked against each other,
+            #   they must first be normalized into a compatible scale.  This cap
+            #   is one part of that normalization.
+            #
+            #   Source metadata ("keyword_complementary") is preserved so
+            #   downstream fusion can distinguish vector vs keyword provenance.
+            if schema in ["code", "both"] and self.workspace_path:
+                try:
+                    from ticket_to_code.agents.repository_search_engine import RepositorySearchEngine
+                    searcher = RepositorySearchEngine(self.workspace_path)
+                    keywords = self._extract_ticket_literals(query)
+                    if not keywords:
+                        keywords = [w for w in query.split() if len(w) > 4]
                     
-                    results.append({
-                        "file_path": doc.metadata.get("file_path", "Unknown"),
-                        "content": doc.page_content,
-                        "type": doc.metadata.get("type", "code"),
-                        "language": doc.metadata.get("language", "unknown")
-                    })
+                    for keyword in keywords[:3]:
+                        kw_results = searcher.search_literal(keyword)
+                        for r in kw_results[:3]:
+                            # Use actual confidence from search engine, capped
+                            # to prevent keyword dominance over vector scores
+                            kw_score = min(r.confidence, 0.75)
+                            results.append({
+                                "file_path": r.file_path,
+                                "content": f"[Keyword Match] line {r.line_number}: {r.matched_text}",
+                                "type": "code",
+                                "language": "unknown",
+                                "score": kw_score,
+                                "source": "keyword_complementary",
+                            })
+                except Exception as e:
+                    logger.debug(f"Keyword complementary search failed: {e}")
             
-            # Search in architectural guidelines store
+            # Search in architectural guidelines store — with scores
             if schema in ["architecture", "both"] and self.architectural_store:
                 logger.debug(f"Searching architectural guidelines for: {query[:50]}...")
-                arch_results = self.architectural_store.similarity_search(
-                    query=query,
-                    k=max_results // 2  # Get fewer from architecture
-                )
-                
-                for doc in arch_results:
-                    results.append({
-                        "file_path": doc.metadata.get("file_path", "Architectural Guideline"),
-                        "content": doc.page_content,
-                        "type": "documentation",
-                        "language": doc.metadata.get("language", "markdown")
-                    })
+                try:
+                    arch_results = self.architectural_store.similarity_search_with_score(
+                        query=query,
+                        k=max_results // 2  # Get fewer from architecture
+                    )
+                    for doc, distance in arch_results:
+                        similarity_score = max(0.0, 1.0 - float(distance))
+                        results.append({
+                            "file_path": doc.metadata.get("file_path", "Architectural Guideline"),
+                            "content": doc.page_content,
+                            "type": "documentation",
+                            "language": doc.metadata.get("language", "markdown"),
+                            "score": similarity_score,
+                            "source": "architectural_guidelines",
+                        })
+                except (AttributeError, TypeError):
+                    arch_results = self.architectural_store.similarity_search(
+                        query=query, k=max_results // 2
+                    )
+                    for doc in arch_results:
+                        results.append({
+                            "file_path": doc.metadata.get("file_path", "Architectural Guideline"),
+                            "content": doc.page_content,
+                            "type": "documentation",
+                            "language": doc.metadata.get("language", "markdown"),
+                            "score": 0.5,
+                            "source": "architectural_guidelines",
+                        })
+            
+            # Sort by score descending so best matches are first
+            results.sort(key=lambda r: r.get("score", 0.0), reverse=True)
             
             logger.info(f"Retrieved {len(results)} context documents")
             return results[:max_results]
@@ -654,16 +740,19 @@ class CodebaseRAGEngine:
 
     def _semantic_search(self, query: str, k: int = 5) -> List[CodeChunk]:
         """
-        Perform semantic search in vector store.
+        Perform both semantic/keyword search and similarity vector search.
         
         Args:
             query: Search query
-            k: Number of results
+            k: Number of results per search type
             
         Returns:
             List of code chunks
         """
         chunks = []
+        seen_paths = set()
+        
+        # 1. Similarity Vector Search
         try:
             results = self.vector_store.similarity_search_with_score(query, k=k)
             for doc, score in results:
@@ -675,15 +764,53 @@ class CodebaseRAGEngine:
                     name=doc.metadata.get("name", "unknown"),
                     namespace=doc.metadata.get("namespace"),
                     dependencies=doc.metadata.get("dependencies", []),
-                    similarity_score=1.0 - score,  # Convert distance to similarity
+                    similarity_score=max(0.0, 1.0 - float(score)),  # Convert distance to similarity
                     line_start=doc.metadata.get("line_start"),
                     line_end=doc.metadata.get("line_end")
                 )
                 chunks.append(chunk)
+                seen_paths.add(fp)
         except Exception as e:
-            logger.error(f"Semantic search failed: {e}")
+            logger.error(f"Similarity vector search failed: {e}")
             
-        return chunks
+        # 2. Semantic Keyword Search Fallback
+        if self.workspace_path:
+            try:
+                from ticket_to_code.agents.repository_search_engine import RepositorySearchEngine
+                searcher = RepositorySearchEngine(self.workspace_path)
+                keywords = self._extract_ticket_literals(query)
+                if not keywords:
+                    keywords = [w for w in query.split() if len(w) > 4]
+                
+                keyword_chunks = 0
+                for keyword in keywords[:3]:
+                    kw_results = searcher.search_literal(keyword)
+                    for r in kw_results:
+                        if r.file_path in seen_paths:
+                            continue
+                        
+                        chunk = CodeChunk(
+                            content=f"[Semantic Keyword Match] line {r.line_number}: {r.matched_text}",
+                            file_path=r.file_path,
+                            chunk_type=CodeChunkType.MODULE,
+                            name=r.file_path.split("/")[-1],
+                            similarity_score=0.85,  # High score for exact match
+                            line_start=r.line_number,
+                            line_end=r.line_number
+                        )
+                        chunks.append(chunk)
+                        seen_paths.add(r.file_path)
+                        keyword_chunks += 1
+                        if keyword_chunks >= k:
+                            break
+                    if keyword_chunks >= k:
+                        break
+            except Exception as e:
+                logger.error(f"Semantic keyword search failed: {e}")
+            
+        # Sort combined results by score
+        chunks.sort(key=lambda c: getattr(c, "similarity_score", 0.0) or 0.0, reverse=True)
+        return chunks[:k * 2]
     
     def _identify_missing_elements(
         self,

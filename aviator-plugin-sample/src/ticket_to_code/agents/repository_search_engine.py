@@ -29,7 +29,7 @@ import os
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 
 from ticket_to_code.agents.query_expansion import QueryExpansionEngine
 
@@ -92,6 +92,11 @@ class SearchResult:
     matched_text: str   # the matching line or path
     confidence: float   # 0.0 – 1.0
     original_literal: str = ""  # the hypothesis literal that triggered expansion
+    original_query: str = ""    # original input query before fallback or normalization
+    resolved_query: str = ""    # normalized or stripped query that actually matched
+    search_mode: str = "exact"  # "exact" | "token_stem_fallback" | "ui_container_stripped" | "regex_error"
+    error: Optional[str] = None # explicit error details (e.g. invalid regex syntax)
+    is_ambiguous: bool = False  # true if multiple candidates matched during fallback
 
 
 class RepositorySearchEngine:
@@ -135,6 +140,12 @@ class RepositorySearchEngine:
         # Full provenance map: original_literal → set of expanded forms
         # Populated as search_literal() calls are made; consumed by ranking.
         self._expansion_map: dict = {}   # Dict[str, Set[str]]
+        # ── Cached file index (Performance optimization, 2026-09-16) ─────
+        # Built lazily on first _walk() call. Subsequent calls iterate the
+        # cached list instead of re-walking os.walk() on every search.
+        # Call invalidate_index() if repository contents change mid-run.
+        self._file_index: Optional[List[Tuple[Path, str]]] = None
+        self._file_index_built: bool = False
 
     # =========================================================================
     # PUBLIC SEARCH API
@@ -224,6 +235,9 @@ class RepositorySearchEngine:
                     matched_text=line_text[:200],
                     confidence=score,
                     original_literal=stripped,   # provenance tag
+                    original_query=stripped,
+                    resolved_query=term,
+                    search_mode="exact",
                 )
                 results.append(r)
                 seen.add(rel_path)
@@ -237,8 +251,31 @@ class RepositorySearchEngine:
                     "source": "query_expansion",
                 })
 
-        logger.debug(f"[RepoSearch] literal '{literal}' → {len(results)} file(s)")
-        return results
+        if results:
+            logger.debug(f"[RepoSearch] literal '{literal}' → {len(results)} file(s)")
+            return results
+
+        # ── Tier 2: UI Container Term Stripping (fallback only on 0 results) ──
+        from ticket_to_code.agents.query_expansion import strip_ui_container_term
+        stripped_container = strip_ui_container_term(stripped)
+        if stripped_container and stripped_container.lower() != stripped.lower():
+            logger.info(
+                f"[RepoSearch] 🔄 UI container fallback: '{stripped}' → '{stripped_container}'"
+            )
+            fallback_hits = self.search_literal(
+                stripped_container,
+                extensions=extensions,
+                case_sensitive=case_sensitive,
+                max_results=max_results,
+            )
+            for hit in fallback_hits:
+                hit.original_query = stripped
+                hit.resolved_query = stripped_container
+                hit.search_mode = "ui_container_stripped"
+            return fallback_hits
+
+        logger.debug(f"[RepoSearch] literal '{literal}' → 0 file(s)")
+        return []
 
     def search_filename(
         self,
@@ -250,8 +287,10 @@ class RepositorySearchEngine:
         """
         Find files whose repo-relative POSIX path contains `name_fragment`.
 
-        Case-insensitive. Checks the full path (directory segments + filename)
-        so 'helm' matches 'project-service/helm/static/run-job.sh'.
+        Exact substring match is the authoritative first attempt.
+        If zero exact matches are found, falls back to token / singular-plural
+        normalization. If multiple candidates remain, returns all as ambiguous
+        rather than guessing.
 
         Args:
             name_fragment:  Substring to match anywhere in the path.
@@ -267,6 +306,7 @@ class RepositorySearchEngine:
         exts = extensions or SUPPORTED_EXTENSIONS
         results: List[SearchResult] = []
 
+        # ── Tier 1: Authoritative Exact Substring Matching ───────────────
         for _, rel_path in self._walk(exts):
             if len(results) >= max_results:
                 break
@@ -278,11 +318,99 @@ class RepositorySearchEngine:
                     line_number=0,
                     matched_text=rel_path,
                     confidence=_FILENAME_SCORE,
+                    original_query=name_fragment,
+                    resolved_query=name_fragment,
+                    search_mode="exact",
                 )
                 results.append(r)
                 self._append_trace(r)
 
-        logger.debug(f"[RepoSearch] filename '{name_fragment}' → {len(results)} file(s)")
+        if results:
+            logger.debug(f"[RepoSearch] filename '{name_fragment}' (exact) → {len(results)} file(s)")
+            return results
+
+        # ── Tier 2: PascalCase Decomposition & Token/Inflection Fallback ───────
+        # Reached ONLY when Tier 1 produced 0 results.
+        import re as _re
+        from ticket_to_code.agents.query_expansion import _UI_CONTAINER_TERMS
+
+        def _decompose_identifier(s: str) -> str:
+            # Deterministic word boundary decomposition (e.g. "AddMembersModal" -> "Add Members Modal")
+            s1 = _re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', s)
+            return _re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1 \2', s1)
+
+        decomposed = _decompose_identifier(name_fragment.strip())
+        raw_tokens = [t for t in _re.split(r'[-_./\s]+', decomposed.lower()) if t]
+        if not raw_tokens:
+            return []
+
+        def _norm_singular(t: str) -> str:
+            # Deterministic singular normalization: strip trailing 's' if len > 3 and not ending in 'ss'
+            if len(t) > 3 and t.endswith('s') and not t.endswith('ss'):
+                return t[:-1]
+            return t
+
+        # Check if UI container terms should be stripped (e.g. 'modal', 'dialog', 'page')
+        has_container = any(t in _UI_CONTAINER_TERMS for t in raw_tokens)
+        tokens_no_container = [t for t in raw_tokens if t not in _UI_CONTAINER_TERMS]
+
+        token_sets_to_try = []
+        if has_container and tokens_no_container:
+            token_sets_to_try.append((tokens_no_container, "ui_container_stripped"))
+        token_sets_to_try.append((raw_tokens, "token_stem_fallback"))
+
+        candidate_paths: List[str] = []
+        used_mode = "token_stem_fallback"
+        effective_tokens = raw_tokens
+
+        for tok_list, mode in token_sets_to_try:
+            norm_query_tokens = [_norm_singular(t) for t in tok_list]
+            matches: List[str] = []
+            for _, rel_path in self._walk(exts):
+                p_tokens = [t for t in _re.split(r'[-_./\s\\]+', rel_path.lower()) if t]
+                norm_p_tokens = set(_norm_singular(t) for t in p_tokens)
+                if all(qt in norm_p_tokens for qt in norm_query_tokens):
+                    matches.append(rel_path)
+            if matches:
+                candidate_paths = matches
+                used_mode = mode
+                effective_tokens = tok_list
+                break
+
+        if not candidate_paths:
+            return []
+
+        # Ambiguity check: if multiple candidates remain, surface all as ambiguous (never guess)
+        is_ambiguous = len(candidate_paths) > 1
+        confidence = _FILENAME_SCORE * 0.7 if is_ambiguous else _FILENAME_SCORE * 0.9
+
+        resolved_q = " ".join([_norm_singular(t) for t in effective_tokens])
+        for c_path in candidate_paths[:max_results]:
+            r = SearchResult(
+                query=name_fragment,
+                query_type="filename",
+                file_path=c_path,
+                line_number=0,
+                matched_text=c_path,
+                confidence=confidence,
+                original_query=name_fragment,
+                resolved_query=resolved_q,
+                search_mode=used_mode,
+                is_ambiguous=is_ambiguous,
+            )
+            results.append(r)
+            self._append_trace(r)
+
+        if is_ambiguous:
+            logger.info(
+                f"[RepoSearch] ⚠️ Ambiguous fallback for filename '{name_fragment}': "
+                f"matched {len(candidate_paths)} files (no automatic selection)"
+            )
+        else:
+            logger.info(
+                f"[RepoSearch] 🔄 Token/singular fallback for filename '{name_fragment}' → '{candidate_paths[0]}'"
+            )
+
         return results
 
     def search_regex(
@@ -295,6 +423,9 @@ class RepositorySearchEngine:
     ) -> List[SearchResult]:
         """
         Search repository files with a compiled regex.
+
+        If the regex is syntactically invalid, returns an explicit error SearchResult
+        with the compilation error message rather than silently returning 0 results.
 
         Args:
             pattern:    Regex string.
@@ -309,7 +440,20 @@ class RepositorySearchEngine:
             compiled = re.compile(pattern, flags)
         except re.error as exc:
             logger.warning(f"[RepoSearch] Invalid regex '{pattern}': {exc}")
-            return []
+            err_res = SearchResult(
+                query=pattern,
+                query_type="regex",
+                file_path="",
+                line_number=0,
+                matched_text=f"Invalid regex: {exc}",
+                confidence=0.0,
+                original_query=pattern,
+                resolved_query=pattern,
+                search_mode="regex_error",
+                error=f"Invalid regex: {exc}",
+            )
+            self._append_trace(err_res)
+            return [err_res]
 
         exts = extensions or SUPPORTED_EXTENSIONS
         results: List[SearchResult] = []
@@ -338,6 +482,9 @@ class RepositorySearchEngine:
                 line_number=line_no,
                 matched_text=line_text[:200],
                 confidence=score,
+                original_query=pattern,
+                resolved_query=pattern,
+                search_mode="exact",
             )
             results.append(r)
             seen.add(rel_path)
@@ -345,6 +492,7 @@ class RepositorySearchEngine:
 
         logger.debug(f"[RepoSearch] regex '{pattern}' → {len(results)} file(s)")
         return results
+
 
     @property
     def expansion_map(self) -> dict:
@@ -397,25 +545,59 @@ class RepositorySearchEngine:
     # PRIVATE HELPERS
     # =========================================================================
 
-    def _walk(self, extensions: Set[str]):
-        """Yield (abs_path, rel_path) for all matching files under workspace."""
+    def _ensure_file_index(self) -> None:
+        """Build the file-path index once on first use.
+
+        Walks os.walk() exactly once per engine lifetime and caches the
+        (abs_path, rel_path, extension) tuples.  Subsequent _walk() calls
+        iterate the cached list — no filesystem traversal.
+
+        Same search semantics for a stable repository.  Call
+        invalidate_index() when repository contents change or when
+        required by existing behavior (e.g. after code generation).
+        """
+        if self._file_index_built:
+            return
+        index: List[Tuple[Path, str]] = []
         for root, dirs, files in os.walk(str(self.workspace)):
             # Prune in-place so os.walk skips them entirely
             dirs[:] = [
                 d for d in dirs
                 if d not in _SKIP_DIRS and not d.startswith(".")
-                # allow .aviator? no — skip hidden dirs except ones we explicitly allow
             ]
             root_path = Path(root)
             for fname in sorted(files):           # sorted → deterministic order
                 fpath = root_path / fname
-                if fpath.suffix.lower() not in extensions:
-                    continue
                 try:
                     rel = str(fpath.relative_to(self.workspace)).replace("\\", "/")
                 except ValueError:
                     continue
-                yield fpath, rel
+                index.append((fpath, rel))
+        self._file_index = index
+        self._file_index_built = True
+        logger.debug(f"[RepoSearch] File index built: {len(index)} files")
+
+    def invalidate_index(self) -> None:
+        """Invalidate the cached file index.
+
+        Call this when repository contents change during a ticket run
+        (e.g. after code generation creates new files) so that subsequent
+        searches discover newly created or deleted files.
+        """
+        self._file_index = None
+        self._file_index_built = False
+        logger.debug("[RepoSearch] File index invalidated")
+
+    def _walk(self, extensions: Set[str]):
+        """Yield (abs_path, rel_path) for all matching files under workspace.
+
+        Uses the cached file index (built lazily on first call) instead of
+        re-walking the filesystem on every search query.
+        """
+        self._ensure_file_index()
+        for abs_path, rel_path in self._file_index:
+            if abs_path.suffix.lower() in extensions:
+                yield abs_path, rel_path
 
     def _grep_first(
         self,

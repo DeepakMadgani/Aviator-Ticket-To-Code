@@ -191,14 +191,42 @@ class TypeScriptLSP:
     def _find_ng_root(self) -> Optional[Path]:
         if self._ng_root:
             return self._ng_root
-        for subdir in ("xchange-ui", "ui", "frontend", "client", "app", "."):
+
+        _COMMON_FRONTEND_DIRS = (
+            "ui", "frontend", "client", "app", "web", "webapp",
+            "web-app", "web-ui",
+        )
+        _FRONTEND_CONFIGS = (
+            "angular.json", "tsconfig.json",
+            "next.config.js", "next.config.mjs",
+            "vite.config.ts", "vite.config.js",
+        )
+        
+        def _has_config(d: Path) -> bool:
+            return any((d / cfg).exists() for cfg in _FRONTEND_CONFIGS)
+        
+        # Fast path: common directory names
+        for subdir in _COMMON_FRONTEND_DIRS:
             candidate = self.workspace_path / subdir
-            if candidate.is_dir() and (
-                (candidate / "angular.json").exists()
-                or (candidate / "tsconfig.json").exists()
-            ):
+            if candidate.is_dir() and _has_config(candidate):
                 self._ng_root = candidate
                 return candidate
+        
+        # Check workspace root itself
+        if _has_config(self.workspace_path):
+            self._ng_root = self.workspace_path
+            return self.workspace_path
+        
+        # Exhaustive: scan all top-level subdirectories
+        try:
+            for entry in self.workspace_path.iterdir():
+                if entry.is_dir() and entry.name not in _COMMON_FRONTEND_DIRS:
+                    if _has_config(entry):
+                        self._ng_root = entry
+                        return entry
+        except (PermissionError, OSError):
+            pass
+
         return None
 
     def _extract_via_declaration(self, abs_path: Path, rel_path: str) -> Optional[ClassMembers]:

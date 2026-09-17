@@ -30,6 +30,7 @@ function App() {
   const [historyTab, setHistoryTab] = useState('chats'); // 'chats' | 'tasks'
   const saveTimer = useRef(null);
   const skipNextSave = useRef(false);
+  const initialLoadResumed = useRef(false);
   
   // Transparent workflow state
   const [showWorkflow, setShowWorkflow] = useState(false);
@@ -38,6 +39,14 @@ function App() {
   // Tab state: 'chat' | 'flow' | 'changes'
   const [activeTab, setActiveTab] = useState('chat');
   const [flowStepCount, setFlowStepCount] = useState(0);
+
+  // Changes tab state (real diffs)
+  const [workflowChanges, setWorkflowChanges] = useState(null);
+  const [changesLoading, setChangesLoading] = useState(false);
+  const [expandedDiffs, setExpandedDiffs] = useState({});
+
+  // Track if the current workflow is completed (for follow-up routing)
+  const [workflowCompleted, setWorkflowCompleted] = useState(false);
 
   // Theme state: 'dark' | 'light'
   const [theme, setTheme] = useState(() => localStorage.getItem('aviator-theme') || 'dark');
@@ -99,6 +108,30 @@ function App() {
           } else if (data.status === 'error') {
             setIndexingState(prev => prev ? { ...prev, status: 'error', message: data.message } : prev);
           }
+        } else if (data.type === 'workflow_summary') {
+          // ── Workflow completed: show rich conversational summary in Chat ──
+          setWorkflowCompleted(true);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: data.summary || '✅ Workflow completed.',
+            timestamp: new Date(),
+            isWorkflowSummary: true,
+            workflowId: data.workflow_id,
+            generatedFiles: data.generated_files || [],
+            workflowStatus: data.status,
+          }]);
+          // Auto-switch to Chat tab so user sees the summary
+          setActiveTab('chat');
+          // Pre-load changes for the Changes tab
+          if (data.workflow_id) {
+            // Inline fetch (can't reference fetchWorkflowChanges in this closure)
+            setChangesLoading(true);
+            fetch(`${API_BASE_URL}/api/workflow/transparent/${data.workflow_id}/changes`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d) setWorkflowChanges(d); })
+              .catch(() => {})
+              .finally(() => setChangesLoading(false));
+          }
         } else if (data.type === 'workflow_step') {
           // Enhancement pipeline stage events — show inline in chat
           setMessages(prev => [...prev, {
@@ -108,6 +141,12 @@ function App() {
             isEnhancement: true,
             enhancementData: data.data || null,
           }]);
+          if (data.workflow_id && (data.phase === 'patch_generation' || data.phase === 'validation' || data.data?.node === 'generate_code')) {
+            fetch(`${API_BASE_URL}/api/workflow/transparent/${data.workflow_id}/changes`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d && d.changes && d.changes.length > 0) setWorkflowChanges(d); })
+              .catch(() => {});
+          }
         } else if (data.type && data.type !== 'ping') {
           setMessages(prev => [...prev, {
             role: 'system',
@@ -181,6 +220,27 @@ function App() {
     const t = setInterval(() => fetchHistory(selectedProject?.id), 5000);
     return () => clearInterval(t);
   }, [showWorkflow, selectedProject]);
+
+  // Auto-resume the latest active task on initial page load if no chat is active
+  useEffect(() => {
+    if (!initialLoadResumed.current && messages.length === 0 && !showWorkflow && tasks.length > 0 && selectedProject) {
+      initialLoadResumed.current = true;
+      const latestTask = [...tasks].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
+      if (latestTask && (latestTask.status === 'running' || latestTask.status === 'failed' || latestTask.status === 'completed')) {
+        setActiveChatWorkflowId(latestTask.workflow_id);
+        setWorkflowData({
+          projectId: selectedProject.id,
+          ticketId: latestTask.ticket_id || latestTask.title || 'Recovered Task',
+          ticketDescription: latestTask.description || latestTask.title || '',
+          repoPath: selectedProject.path,
+          attachments: [],
+          existingWorkflowId: latestTask.workflow_id,
+        });
+        setShowWorkflow(true);
+        setActiveTab('flow');
+      }
+    }
+  }, [tasks, messages.length, showWorkflow, selectedProject]);
 
   // Only serializable message fields are persisted (drop File/blob objects).
   const serializeMessages = (msgs) => msgs.map(m => ({
@@ -267,6 +327,9 @@ function App() {
     setActiveChatWorkflowId(null);
     setShowWorkflow(false);
     setIndexingState(null);
+    setWorkflowCompleted(false);
+    setWorkflowChanges(null);
+    setExpandedDiffs({});
   };
 
   // Open the workflow view linked to a chat's run (View Run button)
@@ -489,6 +552,23 @@ function App() {
     setAttachments(prev => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
+  // Fetch changes/diffs for the Changes tab
+  const fetchWorkflowChanges = async (wfId) => {
+    if (!wfId) return;
+    setChangesLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/workflow/transparent/${wfId}/changes`);
+      if (res.ok) {
+        const data = await res.json();
+        setWorkflowChanges(data);
+      }
+    } catch (err) {
+      console.error('Error fetching changes:', err);
+    } finally {
+      setChangesLoading(false);
+    }
+  };
+
   const handleSendMessage = async () => {
     if ((!currentMessage.trim() && attachments.length === 0) || isProcessing) return;
 
@@ -510,7 +590,59 @@ function App() {
     setIsProcessing(true);
 
     try {
-      // Check if this is a ticket — any task-like message when a project is selected
+      // ── Follow-up question about a completed workflow ──
+      // If a workflow is completed and user sends a message, route to the
+      // conversational chat endpoint (LLM answers using workflow context)
+      if (workflowCompleted && activeChatWorkflowId) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: '🤔 Thinking...',
+          timestamp: new Date(),
+          isThinking: true,
+        }]);
+
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/workflow/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              workflow_id: activeChatWorkflowId,
+              message: userMessage,
+              project_id: selectedProject?.id || null,
+            }),
+          });
+
+          // Remove "Thinking..." placeholder
+          setMessages(prev => prev.filter(m => !m.isThinking));
+
+          if (res.ok) {
+            const data = await res.json();
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: data.reply || 'No response generated.',
+              timestamp: new Date(),
+              isFollowUp: true,
+            }]);
+          } else {
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: '❌ Could not get a response. Please try again.',
+              timestamp: new Date(),
+            }]);
+          }
+        } catch (chatErr) {
+          setMessages(prev => prev.filter(m => !m.isThinking));
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `❌ Error: ${chatErr.message}`,
+            timestamp: new Date(),
+          }]);
+        }
+        setIsProcessing(false);
+        return;
+      }
+
+      // ── Check if this is a ticket — any task-like message when project is selected ──
       const lower = userMessage.toLowerCase();
       const isTicketFile = selectedProject && (
         attachedPaths.length > 0 ||
@@ -529,6 +661,10 @@ function App() {
       );
 
       if (isTicketFile && selectedProject) {
+        // Reset workflow completion state for new runs
+        setWorkflowCompleted(false);
+        setWorkflowChanges(null);
+
         // Start transparent workflow
         setMessages(prev => [...prev, {
           role: 'assistant',
@@ -574,6 +710,16 @@ function App() {
       handleSendMessage();
     }
   };
+
+  // Collect workflow IDs that are already linked to a chat
+  const chatWorkflowIds = new Set(chats.map(c => c.workflow_id).filter(Boolean));
+  // Filter out tasks that are already represented by a chat
+  const standaloneTasks = tasks
+    .filter(t => !chatWorkflowIds.has(t.workflow_id))
+    .map(t => ({...t, isTask: true, id: t.workflow_id}));
+
+  const combinedHistory = [...chats, ...standaloneTasks]
+    .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0));
 
   return (
     <div className="app">
@@ -662,42 +808,66 @@ function App() {
           )}
         </div>
 
-        {/* Chat History — simple list */}
+        {/* Chat & Task History — combined list */}
         <div className="history-panel">
           <div className="history-header">
-            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Chats {chats.length > 0 && <span className="history-count">{chats.length}</span>}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>History {combinedHistory.length > 0 && <span className="history-count">{combinedHistory.length}</span>}</span>
             <button className="new-chat-btn" onClick={startNewChat} title="Start a new chat">
               + New
             </button>
           </div>
 
           <div className="history-list">
-            {chats.length === 0 ? (
-              <div className="history-empty">No previous chats yet</div>
+            {combinedHistory.length === 0 ? (
+              <div className="history-empty">No previous history yet</div>
             ) : (
-              chats.map(chat => (
+              combinedHistory.map(item => (
                 <div
-                  key={chat.id}
-                  className={`history-item ${activeChatId === chat.id ? 'active' : ''}`}
+                  key={item.id}
+                  className={`history-item ${(activeChatId === item.id || activeChatWorkflowId === item.workflow_id) ? 'active' : ''}`}
                   onClick={() => {
-                    openChat(chat.id);
-                    setActiveTab('chat');
+                    if (item.isTask) {
+                      setActiveChatId(null);
+                      setActiveChatWorkflowId(item.workflow_id);
+                      setWorkflowData({
+                        projectId: selectedProject?.id,
+                        ticketId: item.ticket_id || item.title || 'Task',
+                        ticketDescription: item.description || item.title || '',
+                        repoPath: selectedProject?.path,
+                        attachments: [],
+                        existingWorkflowId: item.workflow_id,
+                      });
+                      setShowWorkflow(true);
+                      setActiveTab('flow');
+                      setMessages([]); // clear chat view for pure task
+                    } else {
+                      openChat(item.id);
+                      setActiveTab('chat');
+                    }
                   }}
-                  title={chat.title}
+                  title={item.title || item.ticket_id}
                 >
                   <div className="history-item-main">
                     <div className="history-item-title">
-                      {chat.workflow_id && <span style={{ opacity: 0.5 }}>🔄</span>}
-                      {chat.title}
+                      {item.isTask ? <span style={{ opacity: 0.5 }}>⚙️</span> : (item.workflow_id ? <span style={{ opacity: 0.5 }}>🔄</span> : <span style={{ opacity: 0.5 }}>💬</span>)}
+                      {item.title || item.ticket_id}
                     </div>
                     <div className="history-item-meta">
-                      {chat.message_count} msg · {new Date(chat.updated_at).toLocaleString()}
+                      {item.isTask ? `Status: ${item.status}` : `${item.message_count} msg`} · {new Date(item.updated_at || item.created_at).toLocaleString()}
                     </div>
                   </div>
                   <button
                     className="history-delete-btn"
-                    onClick={(e) => deleteChat(chat.id, e)}
-                    title="Delete conversation"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (item.isTask) {
+                        fetch(`${API_BASE_URL}/api/history/tasks/${item.workflow_id}`, { method: 'DELETE' })
+                          .then(() => fetchHistory(selectedProject?.id));
+                      } else {
+                        deleteChat(item.id, e);
+                      }
+                    }}
+                    title="Delete item"
                   >
                     ✕
                   </button>
@@ -764,8 +934,16 @@ function App() {
             attachments={workflowData.attachments || []}
             existingWorkflowId={workflowData.existingWorkflowId || null}
             onWorkflowStarted={(wfId) => {
+              setWorkflowData(prev => prev ? { ...prev, existingWorkflowId: wfId } : prev);
               setActiveChatWorkflowId(wfId);
               saveCurrentChat(messages, activeChatId, wfId);
+            }}
+            onWorkflowStopped={(stoppedWfId) => {
+              // Clear workflow data so the user can start fresh
+              setWorkflowData(null);
+              setActiveChatWorkflowId(null);
+              // Switch to chat tab so user can type a new ticket
+              setActiveTab('chat');
             }}
           />
         ) : activeTab === 'flow' && !workflowData ? (
@@ -776,11 +954,63 @@ function App() {
           </div>
 
         ) : activeTab === 'changes' ? (
-          <div className="changes-tab-empty">
-            <div className="empty-icon">📝</div>
-            <h3>Code Changes</h3>
-            <p>After a ticket run completes, file diffs will appear here with explanations, accept, and undo options.</p>
-          </div>
+          workflowChanges && workflowChanges.files && workflowChanges.files.length > 0 ? (
+            <div className="changes-panel">
+              <div className="changes-header">
+                <h3>📝 Code Changes</h3>
+                <span className="changes-count">{workflowChanges.files.length} file(s) changed</span>
+              </div>
+              <div className="changes-file-list">
+                {workflowChanges.files.map((file, idx) => {
+                  const basename = file.path.split('/').pop() || file.path.split('\\').pop() || file.path;
+                  const isExpanded = expandedDiffs[idx];
+                  return (
+                    <div key={idx} className={`diff-file-block ${file.status}`}>
+                      <div
+                        className="diff-file-header"
+                        onClick={() => setExpandedDiffs(prev => ({ ...prev, [idx]: !prev[idx] }))}
+                      >
+                        <span className="diff-expand-icon">{isExpanded ? '▼' : '▶'}</span>
+                        <span className={`diff-status-badge ${file.status}`}>
+                          {file.status === 'new' ? 'NEW' : 'MOD'}
+                        </span>
+                        <span className="diff-file-name">{basename}</span>
+                        <span className="diff-file-path">{file.path}</span>
+                      </div>
+                      {isExpanded && (
+                        <div className="diff-content">
+                          {file.diff ? (
+                            <pre className="diff-pre">
+                              {file.diff.split('\n').map((line, li) => {
+                                let cls = 'diff-line';
+                                if (line.startsWith('+') && !line.startsWith('+++')) cls += ' diff-add';
+                                else if (line.startsWith('-') && !line.startsWith('---')) cls += ' diff-remove';
+                                else if (line.startsWith('@@')) cls += ' diff-hunk';
+                                return <div key={li} className={cls}>{line}</div>;
+                              })}
+                            </pre>
+                          ) : (
+                            <div className="diff-no-content">No diff available for this file.</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : changesLoading ? (
+            <div className="changes-tab-empty">
+              <div className="empty-icon">⏳</div>
+              <h3>Loading Changes...</h3>
+            </div>
+          ) : (
+            <div className="changes-tab-empty">
+              <div className="empty-icon">📝</div>
+              <h3>Code Changes</h3>
+              <p>After a ticket run completes, file diffs will appear here.</p>
+            </div>
+          )
 
         ) : indexingState ? (
           <div className="indexing-panel">
@@ -882,8 +1112,8 @@ function App() {
                 </div>
 
               ) : (
-                messages.map((msg, idx) => (
-                  <div key={idx} className={`message ${msg.role}`}>
+                messages.filter(m => !m.isThinking).map((msg, idx) => (
+                  <div key={idx} className={`message ${msg.role}${msg.isWorkflowSummary ? ' workflow-summary' : ''}${msg.isFollowUp ? ' follow-up' : ''}`}>
                     <div className="message-header">
                       <span className="message-role">
                         {msg.role === 'user' ? '👤 You' : 
@@ -891,8 +1121,13 @@ function App() {
                         '⚙️ System'}
                       </span>
                       <span className="message-time">
-                        {msg.timestamp.toLocaleTimeString()}
+                        {msg.timestamp instanceof Date ? msg.timestamp.toLocaleTimeString() : new Date(msg.timestamp).toLocaleTimeString()}
                       </span>
+                      {msg.isWorkflowSummary && (
+                        <span className="message-badge summary-badge">
+                          {msg.workflowStatus === 'completed' ? '✅ Completed' : '❌ Failed'}
+                        </span>
+                      )}
                     </div>
                     <div className="message-content">
                       {msg.attachments && msg.attachments.length > 0 && (
@@ -915,9 +1150,45 @@ function App() {
                           })}
                         </div>
                       )}
-                      {msg.content.split('\n').map((line, i) => (
-                        <div key={i}>{line}</div>
-                      ))}
+                      {/* Rich markdown-style rendering for workflow summaries */}
+                      {(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content, null, 2) || '').split('\n').map((line, i) => {
+                        // Bold: **text**
+                        let rendered = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+                        // Italic: *text*
+                        rendered = rendered.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+                        // Inline code: `text`
+                        rendered = rendered.replace(/`([^`]+)`/g, '<code>$1</code>');
+                        // Blockquote: > text
+                        if (rendered.startsWith('&gt; ') || rendered.startsWith('> ')) {
+                          const quoteText = rendered.replace(/^(&gt;|>) /, '');
+                          return <blockquote key={i} className="chat-blockquote" dangerouslySetInnerHTML={{ __html: quoteText }} />;
+                        }
+                        // Bullet: • or - text
+                        if (/^\s*(•|-)\s/.test(rendered)) {
+                          return <div key={i} className="chat-bullet" dangerouslySetInnerHTML={{ __html: rendered }} />;
+                        }
+                        return <div key={i} dangerouslySetInnerHTML={{ __html: rendered }} />;
+                      })}
+                      {/* Show "View Changes" button for workflow summary messages */}
+                      {msg.isWorkflowSummary && msg.generatedFiles && msg.generatedFiles.length > 0 && (
+                        <div className="summary-actions">
+                          <button
+                            className="view-changes-btn"
+                            onClick={() => {
+                              if (msg.workflowId) fetchWorkflowChanges(msg.workflowId);
+                              setActiveTab('changes');
+                            }}
+                          >
+                            📝 View Changes ({msg.generatedFiles.length} files)
+                          </button>
+                          <button
+                            className="view-flow-btn"
+                            onClick={() => setActiveTab('flow')}
+                          >
+                            🔄 View Flow
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))

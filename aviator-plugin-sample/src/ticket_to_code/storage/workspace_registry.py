@@ -12,8 +12,9 @@ Date: July 2026
 
 import logging
 import json
+import os
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Iterable
 from datetime import datetime
 
 from pydantic import BaseModel, Field
@@ -139,7 +140,113 @@ class WorkspaceRegistryManager:
         return projects
 
     # ------------------------------------------------------------------
-    # 2. Build/load registry
+    # 2. Repository root discovery (Git boundary detection)
+    # ------------------------------------------------------------------
+
+    def discover_repo_roots(self) -> List[str]:
+        """Discover all Git repository roots under the workspace.
+
+        Walks the entire workspace tree looking for `.git` directories.
+        Returns a list of workspace-relative POSIX paths — one per
+        discovered repository.
+
+        No depth limit is assumed; nested repository layouts are
+        supported.  The walk itself is fast because it only inspects
+        directory names and skips heavy subtrees (node_modules, etc.).
+
+        Returns:
+            Sorted list of repo root prefixes relative to workspace root.
+            Example: ["area-service", "project-service", "xchange-ui"]
+        """
+        # Skip dirs that can never contain a .git child of interest
+        _discovery_skip = {
+            "node_modules", "__pycache__", "dist", "build", "target",
+            ".angular", "vendor", "bin", "obj", ".idea", ".vscode",
+        }
+
+        roots: List[str] = []
+        for dirpath, dirnames, _ in os.walk(str(self.root)):
+            # Prune heavy subtrees in-place
+            dirnames[:] = [
+                d for d in dirnames
+                if d not in _discovery_skip
+            ]
+
+            # Check for .git in current directory's children
+            if ".git" in dirnames:
+                repo_dir = Path(dirpath)
+                try:
+                    rel = str(repo_dir.relative_to(self.root)).replace("\\", "/")
+                except ValueError:
+                    continue
+                # The workspace root itself may be a git repo — represent as ""
+                roots.append(rel if rel != "." else "")
+                # Don't recurse into this repo's .git dir
+                dirnames[:] = [d for d in dirnames if d != ".git"]
+
+        roots.sort()
+        logger.info(
+            f"WorkspaceRegistry: discovered {len(roots)} repository roots "
+            f"under {self.root}: {roots}"
+        )
+        return roots
+
+    def resolve_repo_root(self, rel_path: str, repo_roots: List[str] = None) -> Optional[str]:
+        """Map a workspace-relative file path to its containing repository root.
+
+        Args:
+            rel_path:    Workspace-relative POSIX path (e.g. "xchange-ui/src/foo.ts").
+            repo_roots:  Pre-computed list from discover_repo_roots().
+                         If None, discovery is run on the fly.
+
+        Returns:
+            The repository root prefix (e.g. "xchange-ui"), or None if the
+            file is not inside any discovered repository (orphan).
+        """
+        if repo_roots is None:
+            repo_roots = self.discover_repo_roots()
+
+        path_norm = rel_path.replace("\\", "/")
+        best: Optional[str] = None
+        best_len = -1
+
+        for root in repo_roots:
+            if not root:
+                # Workspace root is itself a repo — everything matches,
+                # but prefer a more specific match if available.
+                if best is None:
+                    best = root
+                    best_len = 0
+                continue
+            prefix = root + "/"
+            if path_norm.startswith(prefix) and len(root) > best_len:
+                best = root
+                best_len = len(root)
+
+        return best
+
+    def build_repo_root_map(
+        self,
+        candidate_paths: "Iterable[str]",
+        repo_roots: List[str] = None,
+    ) -> Dict[str, Optional[str]]:
+        """Batch-resolve repository roots for a set of candidate paths.
+
+        Returns a dict mapping each candidate path to its containing
+        repository root (or None for orphans).
+
+        This is the intended entry point for the evidence ranking engine:
+        resolve all candidates once, then pass the mapping to the ranker.
+        """
+        if repo_roots is None:
+            repo_roots = self.discover_repo_roots()
+        return {
+            fp: self.resolve_repo_root(fp, repo_roots)
+            for fp in candidate_paths
+        }
+
+    # ------------------------------------------------------------------
+    # 3. Build/load registry
     # ------------------------------------------------------------------
 
     def build_registry(self) -> WorkspaceRegistry:

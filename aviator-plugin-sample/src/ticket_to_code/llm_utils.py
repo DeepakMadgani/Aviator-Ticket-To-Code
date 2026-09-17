@@ -41,12 +41,44 @@ def llm_invoke(llm, messages, max_retries: int = 5, base_delay: float = 5.0):
             # B11: Charge budget if run context is active
             from ticket_to_code.runtime.run_context import current_run_context
             run_ctx = current_run_context.get(None)
+
+            # Fallback for standard workflow (LangGraph threads where context var is lost)
+            if run_ctx is None:
+                try:
+                    from ticket_to_code.workflow import _transient_store, _transient_lock
+                    with _transient_lock:
+                        for tid, store in _transient_store.items():
+                            if "run_ctx" in store:
+                                run_ctx = store["run_ctx"]
+                                break
+                except Exception:
+                    pass
+
             if run_ctx and run_ctx.budget:
                 usage = extract_token_usage(resp)
+
+                # Estimate input tokens from messages when provider doesn't report them
+                input_tokens  = usage.get("prompt_tokens", 0)
+                input_source  = usage.get("input_source", "none")
+                if input_tokens == 0:
+                    try:
+                        total_chars = sum(
+                            len(getattr(m, "content", "") or "")
+                            for m in messages
+                        )
+                        if total_chars > 0:
+                            input_tokens = max(1, total_chars // 4)
+                            input_source = "estimated"
+                    except Exception:
+                        pass  # Estimation is best-effort
+
                 run_ctx.budget.charge(
-                    tokens_in=usage.get("prompt_tokens", 0),
+                    tokens_in=input_tokens,
                     tokens_out=usage.get("completion_tokens", 0),
-                    cost_usd=0.0
+                    cost_usd=0.0,
+                    model=usage.get("model", "unknown"),
+                    input_source=input_source,
+                    output_source=usage.get("output_source", "none"),
                 )
             
             return resp
@@ -75,27 +107,73 @@ def llm_invoke(llm, messages, max_retries: int = 5, base_delay: float = 5.0):
 def extract_token_usage(response) -> dict:
     """
     Extract token usage metrics from a LangChain AIMessage response.
+
+    Uses a three-level fallback hierarchy:
+      1. ``response_metadata.token_usage`` (provider-reported actual)
+      2. ``usage_metadata`` (newer LangChain field, also provider-reported)
+      3. Character-based estimation (``len(content) // 4``, marked as estimated)
+
     Returns:
-        dict with keys: model, prompt_tokens, completion_tokens, total_tokens
+        dict with keys: model, prompt_tokens, completion_tokens, total_tokens,
+                        input_source, output_source
     """
     usage = {
         "model": "unknown",
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "input_source": "none",
+        "output_source": "none",
     }
     
     try:
-        # Check standard LangChain AIMessage response_metadata
+        # ── Level 1: response_metadata.token_usage (standard LangChain) ────
         if hasattr(response, "response_metadata"):
             meta = response.response_metadata
-            usage["model"] = meta.get("model_name", "unknown")
+            usage["model"] = (
+                meta.get("model_name")
+                or meta.get("model", "unknown")
+            )
             
             token_usage = meta.get("token_usage", {})
             if token_usage:
-                usage["prompt_tokens"] = token_usage.get("prompt_tokens", 0)
-                usage["completion_tokens"] = token_usage.get("completion_tokens", 0)
-                usage["total_tokens"] = token_usage.get("total_tokens", 0)
+                pt = token_usage.get("prompt_tokens", 0)
+                ct = token_usage.get("completion_tokens", 0)
+                tt = token_usage.get("total_tokens", 0)
+                if pt or ct or tt:
+                    usage["prompt_tokens"] = pt
+                    usage["completion_tokens"] = ct
+                    usage["total_tokens"] = tt or (pt + ct)
+                    if pt:
+                        usage["input_source"] = "provider"
+                    if ct:
+                        usage["output_source"] = "provider"
+
+        # ── Level 2: usage_metadata (newer LangChain / Vertex AI) ──────────
+        if usage["prompt_tokens"] == 0 and usage["completion_tokens"] == 0:
+            if hasattr(response, "usage_metadata"):
+                um = response.usage_metadata
+                if isinstance(um, dict):
+                    it = um.get("input_tokens", 0)
+                    ot = um.get("output_tokens", 0)
+                    tt = um.get("total_tokens", 0)
+                    if it or ot or tt:
+                        usage["prompt_tokens"] = it
+                        usage["completion_tokens"] = ot
+                        usage["total_tokens"] = tt or (it + ot)
+                        if it:
+                            usage["input_source"] = "usage_metadata"
+                        if ot:
+                            usage["output_source"] = "usage_metadata"
+
+        # ── Level 3: Estimate output tokens from response content ──────────
+        if usage["completion_tokens"] == 0:
+            content = getattr(response, "content", "")
+            if content:
+                usage["completion_tokens"] = max(1, len(content) // 4)
+                usage["total_tokens"] = usage["prompt_tokens"] + usage["completion_tokens"]
+                usage["output_source"] = "estimated"
+
     except Exception as e:
         logger.debug(f"Failed to extract token usage: {e}")
         

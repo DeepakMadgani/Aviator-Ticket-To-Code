@@ -13,9 +13,249 @@ function AgentOutputRenderer({ output, node }) {
     : String(output);
 
   return (
-    <pre style={{ margin: 0, fontSize: 12, color: '#c8e6fa', whiteSpace: 'pre-wrap',
+    <pre style={{
+      margin: 0, fontSize: 12, color: '#c8e6fa', whiteSpace: 'pre-wrap',
       overflowWrap: 'anywhere', wordBreak: 'break-word', maxWidth: '100%', overflow: 'hidden',
-      fontFamily: "'Courier New', monospace", lineHeight: 1.5 }}>{cleaned}</pre>
+      fontFamily: "'Courier New', monospace", lineHeight: 1.5
+    }}>{cleaned}</pre>
+  );
+}
+
+// ── Preflight Report Panel ─────────────────────────────────────────────────
+function PreflightReportPanel({ data, agentOutput }) {
+  if (!data && !agentOutput) return null;
+
+  // If we have structured data, render rich cards
+  if (data) {
+    const verdict = data.verdict || '?';
+    const summary = data.summary || '';
+    const missing = data.missing_requirements || [];
+    const guidance = data.implementation_guidance || [];
+    const verdictColor = verdict === 'ALREADY_DONE' ? '#22c55e' :
+      verdict === 'PARTIALLY_DONE' ? '#f59e0b' : '#ef4444';
+    const verdictIcon = verdict === 'ALREADY_DONE' ? '✅' :
+      verdict === 'PARTIALLY_DONE' ? '⚠️' : '🔴';
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* Verdict Card */}
+        <div style={{
+          background: '#0a1929', border: `1px solid ${verdictColor}40`,
+          borderRadius: 8, padding: '12px 16px',
+          borderLeft: `4px solid ${verdictColor}`,
+        }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: verdictColor, marginBottom: 6 }}>
+            {verdictIcon} Verdict: {verdict}
+          </div>
+          {summary && (
+            <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+              {summary}
+            </div>
+          )}
+        </div>
+
+        {/* Missing Requirements */}
+        {missing.length > 0 && (
+          <div style={{
+            background: '#1a0a0a', border: '1px solid #7f1d1d40',
+            borderRadius: 8, padding: '10px 14px',
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#fca5a5', marginBottom: 8 }}>
+              ❌ Missing Requirements ({missing.length})
+            </div>
+            {missing.map((req, j) => (
+              <div key={j} style={{
+                fontSize: 12, color: '#f87171', padding: '3px 0',
+                borderBottom: j < missing.length - 1 ? '1px solid #7f1d1d20' : 'none',
+              }}>
+                • {req}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Implementation Guidance */}
+        {guidance.length > 0 && (
+          <div style={{
+            background: '#0f0a29', border: '1px solid #6366f140',
+            borderRadius: 8, padding: '10px 14px',
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#a5b4fc', marginBottom: 8 }}>
+              🔧 Implementation Guidance ({guidance.length})
+            </div>
+            {guidance.map((g, j) => (
+              <div key={j} style={{
+                background: '#1a1040', borderRadius: 6, padding: '8px 12px',
+                marginBottom: j < guidance.length - 1 ? 6 : 0,
+                border: '1px solid #4338ca30',
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#c4b5fd' }}>
+                  📋 {g.requirement || '?'}
+                </div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                  <span style={{ color: '#7dd3fc' }}>What:</span> {g.what_to_do || '?'}
+                </div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                  <span style={{ color: '#7dd3fc' }}>File:</span>{' '}
+                  <code style={{ background: '#0a1929', padding: '1px 4px', borderRadius: 3 }}>
+                    {g.target_file || '?'}
+                  </code>
+                </div>
+                {g.integrate_with && (
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                    <span style={{ color: '#7dd3fc' }}>Integrate with:</span> {g.integrate_with}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Fallback: render agent_output as formatted text
+  return <AgentOutputRenderer output={agentOutput} node="preflight_check" />;
+}
+
+// ── Build Decision Panel (pre-existing errors) ─────────────────────────────
+function BuildDecisionPanel({ payload, workflowId }) {
+  const [choice, setChoice] = useState(null);
+  const [sending, setSending] = useState(false);
+
+  const handleDecision = async (decision) => {
+    setSending(true);
+    setChoice(decision);
+    try {
+      const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002';
+      await fetch(`${API_URL}/api/workflow/transparent/decision-response`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workflow_id: workflowId, choice: decision }),
+      });
+    } catch (err) {
+      console.error('Decision response failed:', err);
+      setSending(false);
+      setChoice(null);
+    }
+  };
+
+  const affectedFiles = payload?.affected_files || [];
+  const totalErrors = payload?.total_error_count || 0;
+  const diagnostics = payload?.representative_diagnostics || [];
+
+  return (
+    <div style={{
+      background: '#1a0f00', border: '1px solid #92400e',
+      borderRadius: 10, padding: '16px 20px', marginBottom: 8,
+      borderLeft: '4px solid #f59e0b',
+    }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: '#fbbf24', marginBottom: 8 }}>
+        ⚠️ Pre-Existing Build Errors Detected
+      </div>
+      <div style={{ fontSize: 12, color: '#d4a574', marginBottom: 12, lineHeight: 1.5 }}>
+        {payload?.message || 'These errors existed before this ticket. Choose how to proceed.'}
+      </div>
+
+      {/* Affected Files */}
+      {affectedFiles.length > 0 && (
+        <div style={{
+          background: '#0a0a0a', borderRadius: 6, padding: '8px 12px',
+          marginBottom: 10, border: '1px solid #92400e40',
+        }}>
+          <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 6 }}>
+            📄 Affected Files ({totalErrors} total error{totalErrors !== 1 ? 's' : ''}):
+          </div>
+          {affectedFiles.map((af, j) => (
+            <div key={j} style={{
+              fontSize: 12, color: '#fbbf24', padding: '2px 0',
+              display: 'flex', justifyContent: 'space-between',
+            }}>
+              <code style={{ background: '#1a1a2e', padding: '1px 6px', borderRadius: 3, fontSize: 11 }}>
+                {af.file || '?'}
+              </code>
+              <span style={{ fontSize: 11, color: '#f87171' }}>
+                {af.error_count} error{af.error_count !== 1 ? 's' : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Representative Diagnostics */}
+      {diagnostics.length > 0 && (
+        <div style={{
+          background: '#0a0a0a', borderRadius: 6, padding: '8px 12px',
+          marginBottom: 12, border: '1px solid #92400e40',
+          maxHeight: 120, overflowY: 'auto',
+        }}>
+          {diagnostics.map((d, j) => (
+            <div key={j} style={{
+              fontSize: 11, color: '#f87171', fontFamily: 'monospace',
+              padding: '2px 0', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+            }}>
+              {d}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Decision Buttons */}
+      {!choice ? (
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={() => handleDecision('fix')}
+            disabled={sending}
+            style={{
+              flex: 1, padding: '10px 16px', borderRadius: 8,
+              background: 'linear-gradient(135deg, #059669, #047857)',
+              color: '#fff', border: 'none', cursor: 'pointer',
+              fontWeight: 700, fontSize: 13,
+              opacity: sending ? 0.5 : 1,
+            }}
+          >
+            🔧 Fix These Errors
+          </button>
+          <button
+            onClick={() => handleDecision('leave')}
+            disabled={sending}
+            style={{
+              flex: 1, padding: '10px 16px', borderRadius: 8,
+              background: 'linear-gradient(135deg, #1e40af, #1d4ed8)',
+              color: '#fff', border: 'none', cursor: 'pointer',
+              fontWeight: 700, fontSize: 13,
+              opacity: sending ? 0.5 : 1,
+            }}
+          >
+            ⏭️ Leave (Skip)
+          </button>
+          <button
+            onClick={() => handleDecision('stop')}
+            disabled={sending}
+            style={{
+              flex: 1, padding: '10px 16px', borderRadius: 8,
+              background: 'linear-gradient(135deg, #991b1b, #b91c1c)',
+              color: '#fff', border: 'none', cursor: 'pointer',
+              fontWeight: 700, fontSize: 13,
+              opacity: sending ? 0.5 : 1,
+            }}
+          >
+            🛑 Stop Pipeline
+          </button>
+        </div>
+      ) : (
+        <div style={{
+          padding: '10px 16px', borderRadius: 8, textAlign: 'center',
+          background: choice === 'fix' ? '#05966920' : choice === 'leave' ? '#1e40af20' : '#991b1b20',
+          color: choice === 'fix' ? '#86efac' : choice === 'leave' ? '#93c5fd' : '#fca5a5',
+          fontWeight: 600, fontSize: 13,
+        }}>
+          {choice === 'fix' ? '🔧 Fixing pre-existing errors...' :
+           choice === 'leave' ? '⏭️ Leaving errors as-is — continuing...' :
+           '🛑 Pipeline stopped by user'}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -32,6 +272,7 @@ const PHASE_LABELS = {
   human_review_files: 'Human Review',
   context_loading: 'Loading Context',
   patch_generation: 'Generating Patches',
+  edit_loop: 'Edit & Compile Loop',
   validation: 'Validation',
   human_final_review: 'Final Review',
   committing: 'Committing Changes',
@@ -41,58 +282,123 @@ const PHASE_LABELS = {
 };
 
 const NODE_ICONS = {
-  investigate:     '🔍',
+  // Investigation & Classification
+  investigate: '🔍',
   runtime_diagnosis: '🩺',
-  unified_analysis:'🧠',
-  plan:            '📐',
-  rag_tests:       '🧪',
-  rag_code:        '📚',
-  generate_tests:  '🧪',
-  generate_code:   '💻',
-  edit_loop:       '✏️',
-  patch_gate:      '🛡️',
+  // Evidence Pipeline
+  discover: '🗺️',
+  hypothesis_investigation: '🧪',
+  evidence_collection_loop: '🔍',
+  evidence_ranking: '📊',
+  semantic_verification: '✅',
+  preflight_check: '🚦',
+  // Analysis & Planning
+  unified_analysis: '🧠',
+  plan: '📐',
+  validate_candidates: '🔎',
+  localize: '📍',
+  grounded_understanding: '🧠',
+  ownership_completeness: '🏗️',
+  dataflow_verification: '🔄',
+  // Context Loading
+  rag_tests: '🧪',
+  rag_code: '📚',
+  // Code Generation
+  generate_tests: '🧪',
+  generate_code: '💻',
+  edit_loop: '✏️',
+  // Post-Generation Validation
+  patch_gate: '🛡️',
+  import_validation: '📦',
   angular_module_registration: '📦',
-  build:           '🔨',
+  build: '🔨',
+  pre_fix_build: '🔧',
+  outcome_check: '🎯',
   outcome_verification: '🎯',
-  outcome_check:   '🎯',
-  test:            '✅',
-  fix_build:       '🔧',
-  fix_test:        '🔧',
+  test: '✅',
+  // Fix Loops
+  fix_build: '🔧',
+  fix_test: '🔧',
+  context_expand: '🔄',
+  // Completion
+  memory_update: '💾',
+  // Behavior Pipeline
+  behavior_investigation: '🔬',
+  capability_extraction: '📊',
+  capability_consolidation: '🔗',
+  capability_graph_builder: '🕸️',
+  capability_retrieval: '🔍',
+  behavior_planning: '📝',
+  plan_validation: '✅',
+  shadow_metrics: '📈',
 };
 
-const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath, attachments = [], onWorkflowStarted, existingWorkflowId }) => {
-  const [workflowId, setWorkflowId]         = useState(existingWorkflowId || null);
-  const [workflowState, setWorkflowState]   = useState(null);
-  const [steps, setSteps]                   = useState([]);
-  const [selectedFiles, setSelectedFiles]   = useState([]);
+export const WORKFLOW_STAGES = [
+  { id: 'classification', name: 'Investigation', icon: '🔍', phases: ['classification'] },
+  { id: 'localization', name: 'Evidence & Files', icon: '🗺️', phases: ['localization', 'evidence_collection_loop'] },
+  { id: 'planning', name: 'Planning', icon: '📐', phases: ['requirements', 'planning'] },
+  { id: 'context_loading', name: 'Context & RAG', icon: '📚', phases: ['context_loading'] },
+  { id: 'patch_generation', name: 'Patch Generation', icon: '💻', phases: ['patch_generation'] },
+  { id: 'validation', name: 'Build & Validation', icon: '🔨', phases: ['validation', 'edit_loop'] },
+  { id: 'completed', name: 'Completion', icon: '✅', phases: ['committing', 'completed'] },
+];
+
+const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath, attachments = [], onWorkflowStarted, onWorkflowStopped, existingWorkflowId }) => {
+  const [workflowId, setWorkflowId] = useState(existingWorkflowId || null);
+  const [workflowState, setWorkflowState] = useState(null);
+  const [steps, setSteps] = useState([]);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [excludedChunks, setExcludedChunks] = useState(new Set()); // chunk paths excluded from RAG
   const [showFileExplorer, setShowFileExplorer] = useState(false);
   const [showDecisionDebug, setShowDecisionDebug] = useState(false);
-  const [expandedSteps, setExpandedSteps]   = useState(new Set());
-  const [activeTab, setActiveTab]           = useState('timeline'); // 'timeline' | 'rag'
+  const [expandedSteps, setExpandedSteps] = useState(new Set());
+  const [activeTab, setActiveTab] = useState('timeline'); // 'timeline' | 'rag'
+  const [isStopping, setIsStopping] = useState(false);
+  const [selectedStageFilter, setSelectedStageFilter] = useState(null);
+  const [tokenUsage, setTokenUsage] = useState(null);     // live token telemetry
+  const [tokenExpanded, setTokenExpanded] = useState(false); // phase breakdown toggle
+  const timelineEndRef = useRef(null);
 
-  const startedRef   = useRef(false);
-  const pollTimer    = useRef(null);
-  const wsRef        = useRef(null);
+  const startedRef = useRef(false);
+  const pollTimer = useRef(null);
+  const wsRef = useRef(null);
 
   // -- helpers --------------------------------------------------------------
 
   const fetchState = useCallback(async (wfId) => {
     try {
-      const res  = await fetch(`${API}/api/workflow/transparent/${wfId}`);
+      const res = await fetch(`${API}/api/workflow/transparent/${wfId}`);
       const data = await res.json();
       setWorkflowState(data);
 
       // seed steps from persisted list (for late-joining / reconnect)
       if (data.steps && data.steps.length > 0) {
-        setSteps(data.steps);
+        setSteps(prev => {
+          // Merge API steps with existing steps to avoid race conditions 
+          // where WS arrives before API saves to disk.
+          const allSteps = [...prev, ...data.steps];
+
+          // Deduplicate based on unique timestamp + message combination, or an ID if possible
+          const unique = [];
+          const seen = new Set();
+          for (const s of allSteps) {
+            const key = s.id || `${s.timestamp}-${s.message}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              unique.push(s);
+            }
+          }
+          // Sort chronologically just in case
+          unique.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+          return unique;
+        });
       }
 
       // seed selected files from candidates
       if (data.candidate_files && data.candidate_files.length > 0) {
         setSelectedFiles(prev =>
           prev.length > 0 ? prev :
-          data.candidate_files.filter(f => f.selected).map(f => f.path)
+            data.candidate_files.filter(f => f.selected).map(f => f.path)
         );
       }
 
@@ -119,16 +425,24 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
     socket.onmessage = (event) => {
       try {
         const step = JSON.parse(event.data);
+
+        // ── Token telemetry (observational — intercept before general step handling)
+        if (step.data?.event_type === 'token_usage_update') {
+          setTokenUsage(step.data);
+          return; // don't add to timeline steps
+        }
+
         setSteps(prev => {
-          // de-duplicate by timestamp
-          const seen = new Set(prev.map(s => s.timestamp));
-          return seen.has(step.timestamp) ? prev : [...prev, step];
+          // de-duplicate by step.id or timestamp+message
+          const stepKey = step.id || `${step.timestamp}-${step.message}`;
+          const seen = new Set(prev.map(s => s.id || `${s.timestamp}-${s.message}`));
+          return seen.has(stepKey) ? prev : [...prev, step];
         });
         fetchState(wfId);
       } catch { /* ignore parse errors */ }
     };
 
-    socket.onerror = () => {};  // handled by onclose
+    socket.onerror = () => { };  // handled by onclose
     socket.onclose = () => {
       // Reconnect after 3 s if workflow still running
       setTimeout(() => {
@@ -222,6 +536,33 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
       return next;
     });
 
+  // -- stop workflow -----------------------------------------------------------
+
+  const stopWorkflow = useCallback(async () => {
+    if (!workflowId || isStopping) return;
+    setIsStopping(true);
+    try {
+      await fetch(`${API}/api/workflow/transparent/${workflowId}/stop`, {
+        method: 'POST',
+      });
+      // Clean up polling and WebSocket
+      clearTimeout(pollTimer.current);
+      if (wsRef.current) {
+        const ws = wsRef.current;
+        wsRef.current = null; // prevent reconnect in onclose
+        ws.close();
+      }
+      // Update local state immediately for responsiveness
+      setWorkflowState(prev => prev ? { ...prev, status: 'stopped' } : prev);
+      // Notify parent so it can reset and allow new flows
+      if (onWorkflowStopped) onWorkflowStopped(workflowId);
+    } catch (err) {
+      console.error('Failed to stop workflow:', err);
+    } finally {
+      setIsStopping(false);
+    }
+  }, [workflowId, isStopping, onWorkflowStopped]);
+
   // Collect ALL rag_chunks across all steps, deduplicated by path, sorted by score
   const allRagChunks = (() => {
     const seen = new Map(); // path -> chunk (keep highest score)
@@ -234,6 +575,18 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
     return [...seen.values()].sort((a, b) => b.score - a.score);
   })();
 
+  const isRunning = workflowState?.status === 'running';
+  const isCompleted = workflowState?.status === 'completed';
+  const isFailed = workflowState?.status === 'failed';
+  const isStopped = workflowState?.status === 'stopped';
+
+  // ── Auto-scroll timeline to latest step ──────────────────────────────────
+  useEffect(() => {
+    if (isRunning && activeTab === 'timeline' && !selectedStageFilter) {
+      timelineEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [steps.length, isRunning, activeTab, selectedStageFilter]);
+
   // -- render ----------------------------------------------------------------
 
   if (!workflowId || !workflowState) {
@@ -245,22 +598,179 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
     );
   }
 
-  const isRunning   = workflowState.status === 'running';
-  const isCompleted = workflowState.status === 'completed';
-  const isFailed    = workflowState.status === 'failed';
+  // ── Compute live status of each stage in the pipeline ──────────────────────
+  const getStageStatus = (stage, idx) => {
+    const stageSteps = steps.filter(s =>
+      stage.phases.includes(s.phase) ||
+      (stage.id === 'localization' && (s.data?.node?.includes('evidence') || s.data?.node?.includes('discover') || s.phase === 'evidence_collection_loop'))
+    );
+
+    if (isCompleted) {
+      return { status: 'completed', count: stageSteps.length };
+    }
+
+    const currentPhase = workflowState?.current_phase || '';
+    const currentStageIdx = WORKFLOW_STAGES.findIndex(st => st.phases.includes(currentPhase));
+
+    if (isFailed && currentStageIdx === idx) {
+      return { status: 'failed', count: stageSteps.length };
+    }
+
+    if (currentStageIdx > idx || (stageSteps.length > 0 && currentStageIdx > idx)) {
+      return { status: 'completed', count: stageSteps.length };
+    }
+
+    if (currentStageIdx === idx) {
+      if (isRunning) {
+        return { status: 'running', count: stageSteps.length };
+      }
+      return { status: 'completed', count: stageSteps.length };
+    }
+
+    if (stageSteps.length > 0) {
+      return { status: 'completed', count: stageSteps.length };
+    }
+
+    return { status: 'pending', count: 0 };
+  };
+
+  // ── Collect all generated files in real-time (no waiting for completion) ──
+  const allGeneratedFiles = Array.from(new Set([
+    ...(workflowState.generated_files || []),
+    ...steps
+      .filter(s => (s.data?.node === 'generate_code' || s.data?.event_type === 'file_written') && (s.data?.file_path || s.data?.file_name))
+      .map(s => s.data.file_path || s.data.file_name)
+  ]));
 
   return (
     <div className="transparent-workflow">
 
       {/* -- Header -- */}
       <div className="workflow-header">
-        <h2>Transparent Workflow</h2>
+        <div className="workflow-header-top">
+          <h2>Transparent Workflow</h2>
+          {isRunning && (
+            <button
+              className={`stop-flow-btn ${isStopping ? 'stopping' : ''}`}
+              onClick={stopWorkflow}
+              disabled={isStopping}
+              title="Stop the current workflow"
+            >
+              {isStopping ? (
+                <><span className="spinner-sm" /> Stopping…</>
+              ) : (
+                <>⛔ Stop Flow</>
+              )}
+            </button>
+          )}
+          {isStopped && (
+            <span className="stopped-badge">⛔ Stopped</span>
+          )}
+        </div>
         <div className="workflow-meta">
           <span className="ticket-id">Ticket: {workflowState.ticket_id}</span>
           <span className={`phase-badge phase-${workflowState.current_phase}`}>
             {isRunning && <span className="spinner-sm" />}
             {PHASE_LABELS[workflowState.current_phase] ?? workflowState.current_phase}
           </span>
+        </div>
+      </div>
+
+      {/* ── Token Usage Banner (observational telemetry) ── */}
+      {tokenUsage && (
+        <div className="token-banner">
+          <div className="token-banner-header" onClick={() => setTokenExpanded(prev => !prev)}>
+            <span className="token-banner-title">🪙 Token Usage</span>
+            <div className="token-banner-totals">
+              <span className="token-stat">
+                <span className="token-label">In</span>
+                <span className="token-value">{(tokenUsage.tokens_in || 0).toLocaleString()}</span>
+              </span>
+              <span className="token-divider">│</span>
+              <span className="token-stat">
+                <span className="token-label">Out</span>
+                <span className="token-value">{(tokenUsage.tokens_out || 0).toLocaleString()}</span>
+              </span>
+              <span className="token-divider">│</span>
+              <span className="token-stat token-total">
+                <span className="token-label">Total</span>
+                <span className="token-value">{(tokenUsage.total_tokens || 0).toLocaleString()}</span>
+              </span>
+              <span className="token-divider">│</span>
+              <span className="token-stat">
+                <span className="token-label">Calls</span>
+                <span className="token-value">{tokenUsage.llm_calls || 0}</span>
+              </span>
+            </div>
+            <span className={`token-expand-icon ${tokenExpanded ? 'expanded' : ''}`}>▶</span>
+          </div>
+
+          {tokenExpanded && tokenUsage.phase_breakdown && (
+            <div className="token-phase-table">
+              <div className="token-phase-row token-phase-header-row">
+                <span className="token-phase-name">Phase</span>
+                <span className="token-phase-val">Input</span>
+                <span className="token-phase-val">Output</span>
+                <span className="token-phase-val">Total</span>
+                <span className="token-phase-val">Calls</span>
+              </div>
+              {Object.entries(tokenUsage.phase_breakdown).map(([phase, usage]) => (
+                <div className="token-phase-row" key={phase}>
+                  <span className="token-phase-name">{phase.replace(/_/g, ' ')}</span>
+                  <span className="token-phase-val">{(usage.tokens_in || 0).toLocaleString()}</span>
+                  <span className="token-phase-val">{(usage.tokens_out || 0).toLocaleString()}</span>
+                  <span className="token-phase-val">{(usage.total_tokens || 0).toLocaleString()}</span>
+                  <span className="token-phase-val">{usage.llm_calls || 0}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Pipeline Stages Stepper ── */}
+      <div className="workflow-stages-stepper">
+        <div className="stages-stepper-header">
+          <div className="stages-stepper-title">
+            <span>🚀 Pipeline Stages</span>
+            {selectedStageFilter && (
+              <span className="stage-filter-indicator">
+                (Filtering: {WORKFLOW_STAGES.find(s => s.id === selectedStageFilter)?.name})
+              </span>
+            )}
+          </div>
+          <div className="stages-stepper-progress">
+            {WORKFLOW_STAGES.filter((st, i) => getStageStatus(st, i).status === 'completed').length} of {WORKFLOW_STAGES.length} Completed
+          </div>
+        </div>
+
+        <div className="stages-stepper-track">
+          {WORKFLOW_STAGES.map((stage, idx) => {
+            const stageInfo = getStageStatus(stage, idx);
+            const isFilterActive = selectedStageFilter === stage.id;
+            return (
+              <div
+                key={stage.id}
+                className={`stage-step-card ${stageInfo.status} ${isFilterActive ? 'active-filter' : ''}`}
+                onClick={() => setSelectedStageFilter(prev => prev === stage.id ? null : stage.id)}
+                title={isFilterActive ? 'Click to show all steps' : `Click to filter steps for ${stage.name}`}
+              >
+                <div className="stage-card-top">
+                  <span className="stage-card-icon">{stage.icon}</span>
+                  <span className={`stage-status-pill pill-${stageInfo.status}`}>
+                    {stageInfo.status === 'completed' && '✓ Done'}
+                    {stageInfo.status === 'running' && '⚡ Active'}
+                    {stageInfo.status === 'pending' && '⏳ Pending'}
+                    {stageInfo.status === 'failed' && '❌ Failed'}
+                  </span>
+                </div>
+                <div className="stage-card-name">{stage.name}</div>
+                <div className="stage-card-meta">
+                  {stageInfo.count > 0 ? `${stageInfo.count} step${stageInfo.count > 1 ? 's' : ''}` : stageInfo.status === 'running' ? 'Running…' : 'Queued'}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -284,164 +794,271 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
       </div>
 
       {/* ═══════════════════ TAB: TIMELINE ═══════════════════ */}
-      {activeTab === 'timeline' && (
-        <div className="workflow-timeline">
-          <div className="timeline-steps">
-            {steps.length === 0 && isRunning && (
-              <div className="timeline-waiting">
-                <span className="spinner-sm" /> Waiting for first agent step…
+      {activeTab === 'timeline' && (() => {
+        const displayedSteps = selectedStageFilter
+          ? steps.filter(s => {
+            const stg = WORKFLOW_STAGES.find(st => st.id === selectedStageFilter);
+            return stg ? (stg.phases.includes(s.phase) || (stg.id === 'localization' && (s.data?.node?.includes('evidence') || s.data?.node?.includes('discover') || s.phase === 'evidence_collection_loop'))) : true;
+          })
+          : steps;
+
+        return (
+          <div className="workflow-timeline">
+            {selectedStageFilter && (
+              <div className="stage-filter-banner">
+                <span>Filtered by: <strong>{WORKFLOW_STAGES.find(st => st.id === selectedStageFilter)?.name}</strong> ({displayedSteps.length} step{displayedSteps.length !== 1 ? 's' : ''})</span>
+                <button className="btn-clear-filter" onClick={() => setSelectedStageFilter(null)}>✕ Show All Steps</button>
               </div>
             )}
-            {steps.map((step, i) => {
-              const nodeIcon = NODE_ICONS[step.data?.node] || '⚙️';
-              const isExpanded = expandedSteps.has(i);
-              const hasOutput = !!(step.data?.agent_output);
-              const hasRag = !!(step.data?.rag_chunks?.length);
-              const eventType = step.data?.event_type;
+            <div className="timeline-steps">
+              {displayedSteps.length === 0 && isRunning && (
+                <div className="timeline-waiting">
+                  <span className="spinner-sm" /> Waiting for first agent step…
+                </div>
+              )}
+              {displayedSteps.map((step, i) => {
+                const nodeIcon = NODE_ICONS[step.data?.node] || '⚙️';
+                const isExpanded = expandedSteps.has(i);
+                const hasOutput = !!(step.data?.agent_output);
+                const hasRag = !!(step.data?.rag_chunks?.length);
+                const eventType = step.data?.event_type;
 
-              // ── Compact file event cards (live-check progress) ──
-              if (eventType) {
-                const STATUS_STYLES = {
-                  file_written:        { icon: '📝', bg: '#0d2137', border: '#1e3a5c', color: '#7ec8e3' },
-                  live_check_start:    { icon: '⚠️', bg: '#2d1b00', border: '#c68a00', color: '#fbbf24' },
-                  live_check_resolved: { icon: '✅', bg: '#0b2618', border: '#22c55e', color: '#86efac' },
-                  live_check_passed:   { icon: '✅', bg: '#0b2618', border: '#22c55e', color: '#86efac' },
-                  live_check_retry:    { icon: '🔄', bg: '#1e1b2e', border: '#8b5cf6', color: '#c4b5fd' },
-                  live_check_deferred: { icon: '⏭️', bg: '#2d1b00', border: '#f59e0b', color: '#fde68a' },
-                };
-                const style = STATUS_STYLES[eventType] || STATUS_STYLES.file_written;
-                const fileName = step.data?.file_name || step.data?.file_path?.split('/').pop() || '?';
-                const errors = step.data?.errors || [];
-                const hasErrors = errors.length > 0;
+                // ── Build Decision Panel (pre-existing errors) ──
+                if (eventType === 'pre_existing_errors') {
+                  return (
+                    <BuildDecisionPanel
+                      key={i}
+                      payload={step.data?.decision_payload || step.data}
+                      workflowId={workflowId}
+                    />
+                  );
+                }
+
+                // ── Compact file event cards (live-check progress) ──
+                if (eventType) {
+                  const STATUS_STYLES = {
+                    file_written: { icon: '📝', bg: '#0d2137', border: '#1e3a5c', color: '#7ec8e3' },
+                    live_check_start: { icon: '⚠️', bg: '#2d1b00', border: '#c68a00', color: '#fbbf24' },
+                    live_check_resolved: { icon: '✅', bg: '#0b2618', border: '#22c55e', color: '#86efac' },
+                    live_check_passed: { icon: '✅', bg: '#0b2618', border: '#22c55e', color: '#86efac' },
+                    live_check_retry: { icon: '🔄', bg: '#1e1b2e', border: '#8b5cf6', color: '#c4b5fd' },
+                    live_check_deferred: { icon: '⏭️', bg: '#2d1b00', border: '#f59e0b', color: '#fde68a' },
+                    stage_07_rag_include: { icon: '🧠', bg: '#0f1b2d', border: '#6366f1', color: '#a5b4fc' },
+                    stage_07_rag_exclude: { icon: '❌', bg: '#1a1520', border: '#6b5070', color: '#9ca3af' },
+                  };
+                  const style = STATUS_STYLES[eventType] || STATUS_STYLES.file_written;
+                  const fileName = step.data?.file_name || step.data?.file_path?.split('/').pop() || '?';
+                  const errors = step.data?.errors || [];
+                  const hasErrors = errors.length > 0;
+
+                  return (
+                    <div key={i} className="file-event-card" style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '6px 12px', marginBottom: 4, borderRadius: 6,
+                      background: style.bg, border: `1px solid ${style.border}`,
+                      fontSize: 13, color: style.color, cursor: hasErrors ? 'pointer' : 'default',
+                      position: 'relative', zIndex: isExpanded ? 20 : 1,
+                    }} onClick={() => hasErrors && toggleStep(i)}>
+                      <span style={{ fontSize: 16 }}>{style.icon}</span>
+                      <code style={{
+                        fontFamily: "'Courier New', monospace", fontSize: 12,
+                        background: '#0a1929', padding: '1px 6px', borderRadius: 4
+                      }}>
+                        {fileName}
+                      </code>
+                      <span style={{ flex: 1, opacity: 0.85 }}>{step.message}</span>
+                      {step.data?.change_ratio && (
+                        <span style={{ fontSize: 11, opacity: 0.6 }}>Δ {step.data.change_ratio}</span>
+                      )}
+                      {step.data?.attempt && (
+                        <span style={{
+                          fontSize: 11, background: '#1a1a2e', padding: '1px 6px',
+                          borderRadius: 4
+                        }}>attempt {step.data.attempt}/3</span>
+                      )}
+                      {step.data?.remaining_errors != null && (
+                        <span style={{ fontSize: 11, color: '#f87171' }}>
+                          {step.data.remaining_errors} error(s)
+                        </span>
+                      )}
+                      {step.data?.files_fixed?.length > 0 && (
+                        <span style={{ fontSize: 11, color: '#86efac' }}>
+                          {step.data.files_fixed.length} file(s) fixed
+                        </span>
+                      )}
+                      {hasErrors && (
+                        <span style={{ fontSize: 10, opacity: 0.5 }}>
+                          {isExpanded ? '▲' : '▼'}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 10, opacity: 0.4 }}>
+                        {step.timestamp ? new Date(step.timestamp).toLocaleTimeString() : ''}
+                      </span>
+                      {/* Expandable error details */}
+                      {hasErrors && isExpanded && (
+                        <div style={{
+                          position: 'absolute', left: 0, right: 0, top: '100%',
+                          background: '#0a1929', border: `1px solid ${style.border}`,
+                          borderRadius: '0 0 6px 6px', padding: '6px 12px', zIndex: 10
+                        }}
+                          onClick={(e) => e.stopPropagation()}>
+                          {errors.map((err, j) => (
+                            <div key={j} style={{
+                              fontSize: 11, color: '#f87171',
+                              fontFamily: 'monospace', padding: '2px 0',
+                              whiteSpace: 'pre-wrap', wordBreak: 'break-all'
+                            }}>
+                              {err}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                // Compute resolved status for this step so completed steps show ✓ immediately
+                const isStepDone = step.status === 'completed' || i < displayedSteps.length - 1 || isCompleted;
+                const isStepRunning = !isStepDone && isRunning && i === displayedSteps.length - 1;
+                const resolvedStatus = isStepDone ? 'completed' : isStepRunning ? 'running' : (step.status || 'pending');
 
                 return (
-                  <div key={i} className="file-event-card" style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '6px 12px', marginBottom: 4, borderRadius: 6,
-                    background: style.bg, border: `1px solid ${style.border}`,
-                    fontSize: 13, color: style.color, cursor: hasErrors ? 'pointer' : 'default',
-                  }} onClick={() => hasErrors && toggleStep(i)}>
-                    <span style={{ fontSize: 16 }}>{style.icon}</span>
-                    <code style={{ fontFamily: "'Courier New', monospace", fontSize: 12,
-                      background: '#0a1929', padding: '1px 6px', borderRadius: 4 }}>
-                      {fileName}
-                    </code>
-                    <span style={{ flex: 1, opacity: 0.85 }}>{step.message}</span>
-                    {step.data?.change_ratio && (
-                      <span style={{ fontSize: 11, opacity: 0.6 }}>Δ {step.data.change_ratio}</span>
-                    )}
-                    {step.data?.attempt && (
-                      <span style={{ fontSize: 11, background: '#1a1a2e', padding: '1px 6px',
-                        borderRadius: 4 }}>attempt {step.data.attempt}/3</span>
-                    )}
-                    {step.data?.remaining_errors != null && (
-                      <span style={{ fontSize: 11, color: '#f87171' }}>
-                        {step.data.remaining_errors} error(s)
-                      </span>
-                    )}
-                    {step.data?.files_fixed?.length > 0 && (
-                      <span style={{ fontSize: 11, color: '#86efac' }}>
-                        {step.data.files_fixed.length} file(s) fixed
-                      </span>
-                    )}
-                    {hasErrors && (
-                      <span style={{ fontSize: 10, opacity: 0.5 }}>
-                        {isExpanded ? '▲' : '▼'}
-                      </span>
-                    )}
-                    <span style={{ fontSize: 10, opacity: 0.4 }}>
-                      {step.timestamp ? new Date(step.timestamp).toLocaleTimeString() : ''}
-                    </span>
-                    {/* Expandable error details */}
-                    {hasErrors && isExpanded && (
-                      <div style={{ position: 'absolute', left: 0, right: 0, top: '100%',
-                        background: '#0a1929', border: `1px solid ${style.border}`,
-                        borderRadius: '0 0 6px 6px', padding: '6px 12px', zIndex: 10 }}
-                        onClick={(e) => e.stopPropagation()}>
-                        {errors.map((err, j) => (
-                          <div key={j} style={{ fontSize: 11, color: '#f87171',
-                            fontFamily: 'monospace', padding: '2px 0',
-                            whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                            {err}
-                          </div>
-                        ))}
+                  <div key={i} className={`timeline-step status-${resolvedStatus}`}>
+                    <div className={`step-marker marker-${resolvedStatus}`}>
+                      {isStepDone ? '✓' : isStepRunning ? <span className="spinner-xs" /> : nodeIcon}
+                    </div>
+                    <div className="step-content">
+                      <div className="step-header" onClick={() => hasOutput && toggleStep(i)}
+                        style={{ cursor: hasOutput ? 'pointer' : 'default' }}>
+                        <div className="step-header-left">
+                          <span className="step-phase">
+                            {PHASE_LABELS[step.phase] ?? step.phase}
+                            {step.data?.node && <span className="step-node"> [{step.data.node}]</span>}
+                          </span>
+                          <span className={`step-status-pill pill-${resolvedStatus}`}>
+                            {resolvedStatus === 'completed' && '✓ Done'}
+                            {resolvedStatus === 'running' && '⚡ Running'}
+                            {resolvedStatus === 'failed' && '❌ Failed'}
+                            {resolvedStatus === 'pending' && '⏳ Pending'}
+                          </span>
+                        </div>
+                        <div className="step-header-right">
+                          {hasRag && <span className="rag-badge">🔍 {step.data.rag_chunks.length} RAG</span>}
+                          {hasOutput && (
+                            <span className="expand-btn">{isExpanded ? '▲ Hide' : '▼ Details'}</span>
+                          )}
+                          <span className="step-time">
+                            {step.timestamp ? new Date(step.timestamp).toLocaleTimeString() : ''}
+                          </span>
+                        </div>
                       </div>
-                    )}
+
+                      <p className="step-message">{step.message}</p>
+
+                      {/* Agent Output — collapsible */}
+                      {hasOutput && isExpanded && (
+                        <div className="agent-output-panel" style={{ overflow: 'hidden', maxWidth: '100%' }}>
+                          {step.data?.node === 'preflight_check' ? (
+                            <>
+                              <div className="agent-output-label">🚦 Preflight Analysis Report:</div>
+                              <PreflightReportPanel
+                                data={step.data.preflight_data}
+                                agentOutput={step.data.agent_output}
+                              />
+                            </>
+                          ) : (
+                            <>
+                              <div className="agent-output-label">Agent Output:</div>
+                              <AgentOutputRenderer
+                                output={step.data.agent_output}
+                                node={step.data?.node}
+                              />
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Per-task explanations (shows WHY each file was changed) */}
+                      {step.data?.task_explanations?.length > 0 && isExpanded && (
+                        <div className="task-explanations-panel">
+                          <div className="task-explanations-label">📋 Per-Task Breakdown:</div>
+                          {step.data.task_explanations.map((te, teIdx) => (
+                            <div key={teIdx} className="task-explanation-card">
+                              <div className="te-header">
+                                <span className="te-index">{te.task_index}/{te.total_tasks}</span>
+                                <span className="te-file">{te.basename}</span>
+                                <span className={`te-change-badge te-change-${(te.change_type || '').toLowerCase()}`}>
+                                  {(te.change_type || '').toUpperCase()}
+                                </span>
+                              </div>
+                              <div className="te-purpose">{te.purpose}</div>
+                              {te.produces?.length > 0 && (
+                                <div className="te-section">
+                                  <span className="te-section-icon">🔧</span>
+                                  <span className="te-section-label">Creates:</span>
+                                  {te.produces.map((p, pi) => (
+                                    <code key={pi} className="te-symbol">{p}</code>
+                                  ))}
+                                </div>
+                              )}
+                              {te.consumes?.length > 0 && (
+                                <div className="te-section">
+                                  <span className="te-section-icon">📥</span>
+                                  <span className="te-section-label">Uses:</span>
+                                  {te.consumes.map((c, ci) => (
+                                    <code key={ci} className="te-symbol te-consume">{c}</code>
+                                  ))}
+                                </div>
+                              )}
+                              {te.dependencies?.length > 0 && (
+                                <div className="te-deps">
+                                  🔗 Depends on: {te.dependencies.join(', ')}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* RAG chunks inline summary (when step has chunks) */}
+                      {hasRag && isExpanded && (
+                        <div className="rag-inline">
+                          <div className="rag-inline-label">RAG chunks used:</div>
+                          {step.data.rag_chunks.map((ch, j) => {
+                            const excluded = excludedChunks.has(ch.path);
+                            const pct = Math.round(ch.score * 100);
+                            return (
+                              <div key={j} className={`rag-chunk-row ${excluded ? 'excluded' : ''}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={!excluded}
+                                  onChange={() => toggleChunk(ch.path)}
+                                  title={excluded ? 'Include in RAG' : 'Exclude from RAG'}
+                                />
+                                <div className="rag-chunk-score-bar">
+                                  <div className="rag-score-fill" style={{
+                                    width: `${pct}%`,
+                                    background: pct >= 70 ? '#22c55e' : pct >= 40 ? '#f59e0b' : '#ef4444'
+                                  }} />
+                                </div>
+                                <span className="rag-chunk-pct">{pct}%</span>
+                                <span className="rag-chunk-label">{ch.rag_label}</span>
+                                <code className="rag-chunk-path">{ch.path.split('/').slice(-2).join('/')}</code>
+                                {ch.name && <span className="rag-chunk-name">({ch.name})</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
-              }
-
-              // ── Standard timeline step (non-file-event) ──
-              return (
-                <div key={i} className={`timeline-step status-${step.status}`}>
-                  <div className="step-marker">{nodeIcon}</div>
-                  <div className="step-content">
-                    <div className="step-header" onClick={() => hasOutput && toggleStep(i)}
-                         style={{ cursor: hasOutput ? 'pointer' : 'default' }}>
-                      <span className="step-phase">
-                        {PHASE_LABELS[step.phase] ?? step.phase}
-                        {step.data?.node && <span className="step-node"> [{step.data.node}]</span>}
-                      </span>
-                      <div className="step-header-right">
-                        {hasRag && <span className="rag-badge">🔍 {step.data.rag_chunks.length} RAG</span>}
-                        {hasOutput && (
-                          <span className="expand-btn">{isExpanded ? '▲ Hide' : '▼ Details'}</span>
-                        )}
-                        <span className="step-time">
-                          {step.timestamp ? new Date(step.timestamp).toLocaleTimeString() : ''}
-                        </span>
-                      </div>
-                    </div>
-
-                    <p className="step-message">{step.message}</p>
-
-                    {/* Agent Output — collapsible */}
-                    {hasOutput && isExpanded && (
-                      <div className="agent-output-panel" style={{ overflow: 'hidden', maxWidth: '100%' }}>
-                        <div className="agent-output-label">Agent Output:</div>
-                        <AgentOutputRenderer
-                          output={step.data.agent_output}
-                          node={step.data?.node}
-                        />
-                      </div>
-                    )}
-
-                    {/* RAG chunks inline summary (when step has chunks) */}
-                    {hasRag && isExpanded && (
-                      <div className="rag-inline">
-                        <div className="rag-inline-label">RAG chunks used:</div>
-                        {step.data.rag_chunks.map((ch, j) => {
-                          const excluded = excludedChunks.has(ch.path);
-                          const pct = Math.round(ch.score * 100);
-                          return (
-                            <div key={j} className={`rag-chunk-row ${excluded ? 'excluded' : ''}`}>
-                              <input
-                                type="checkbox"
-                                checked={!excluded}
-                                onChange={() => toggleChunk(ch.path)}
-                                title={excluded ? 'Include in RAG' : 'Exclude from RAG'}
-                              />
-                              <div className="rag-chunk-score-bar">
-                                <div className="rag-score-fill" style={{ width: `${pct}%`,
-                                  background: pct >= 70 ? '#22c55e' : pct >= 40 ? '#f59e0b' : '#ef4444'
-                                }} />
-                              </div>
-                              <span className="rag-chunk-pct">{pct}%</span>
-                              <span className="rag-chunk-label">{ch.rag_label}</span>
-                              <code className="rag-chunk-path">{ch.path.split('/').slice(-2).join('/')}</code>
-                              {ch.name && <span className="rag-chunk-name">({ch.name})</span>}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+              })}
+              <div ref={timelineEndRef} />
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ═══════════════════ TAB: RAG CONTEXT ═══════════════════ */}
       {activeTab === 'rag' && (
@@ -500,7 +1117,7 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
                   Reset (include all)
                 </button>
                 <button className="btn btn-sm btn-danger"
-                  onClick={() => setExcludedChunks(new Set(allRagChunks.filter(c => Math.round(c.score*100) < 40).map(c => c.path)))}>
+                  onClick={() => setExcludedChunks(new Set(allRagChunks.filter(c => Math.round(c.score * 100) < 40).map(c => c.path)))}>
                   Auto-exclude low quality (&lt;40%)
                 </button>
               </div>
@@ -547,15 +1164,19 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
         </div>
       )}
 
-      {/* -- Generated files -- */}
-      {workflowState.generated_files && workflowState.generated_files.length > 0 && (
+      {/* -- Generated files (visible immediately in real-time as each file is produced) -- */}
+      {allGeneratedFiles.length > 0 && (
         <div className="generated-files">
-          <h3>?? Generated / Modified Files</h3>
+          <h3>📦 Generated / Modified Files ({allGeneratedFiles.length})</h3>
           <ul>
-            {workflowState.generated_files.map((f, i) => (
-              <li key={i}><code>{f}</code></li>
-            ))}
+            {allGeneratedFiles.map((f, i) => {
+              const basename = typeof f === 'string' ? f.split('/').pop().split('\\').pop() : '?';
+              return (
+                <li key={i} title={f}><code>{basename}</code></li>
+              );
+            })}
           </ul>
+          <p style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>→ View full changes in the Changes tab</p>
         </div>
       )}
 
@@ -718,13 +1339,19 @@ const FileExplorerModal = ({ repoPath, selectedFiles, onToggle, onClose }) => {
           name: repoPath.split(/[/\\]/).pop(),
           type: 'folder',
           children: [
-            { name: 'src', type: 'folder', children: [
-              { name: 'main', type: 'folder', children: [
-                { name: 'java', type: 'folder', children: [
-                  { name: 'AreaService.java', type: 'file', path: 'src/main/java/AreaService.java' },
-                ] }
-              ]}
-            ]}
+            {
+              name: 'src', type: 'folder', children: [
+                {
+                  name: 'main', type: 'folder', children: [
+                    {
+                      name: 'java', type: 'folder', children: [
+                        { name: 'AreaService.java', type: 'file', path: 'src/main/java/AreaService.java' },
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
           ],
         });
       });

@@ -237,6 +237,19 @@ class ValueEdgeTicket(BaseModel):
         default_factory=list,
         description="List of file paths or URLs for attached screenshots, logs, or configs"
     )
+    # Ticket-declared change authorization scope (evidence is NOT authorization).
+    expected_changed_files: List[str] = Field(
+        default_factory=list,
+        description="Files the ticket authorizes for modification"
+    )
+    expected_owner_files: List[str] = Field(
+        default_factory=list,
+        description="Primary owner files for the ticket's behavioral delta"
+    )
+    forbidden_files: List[str] = Field(
+        default_factory=list,
+        description="Files that must never be modified for this ticket"
+    )
     
     def to_summary(self) -> str:
         """Generate human-readable summary"""
@@ -472,6 +485,22 @@ class SolutionGuidance(BaseModel):
         ...,
         description="How to verify the issue is resolved"
     )
+
+class VerificationStatus(str, Enum):
+    VERIFIED_EXISTS = "VERIFIED_EXISTS"
+    VERIFIED_ABSENT = "VERIFIED_ABSENT"
+    UNKNOWN = "UNKNOWN"
+
+class VerificationEvidence(BaseModel):
+    file: str
+    symbol: Optional[str] = None
+    reason: str
+
+class PlanningScopeVerificationResult(BaseModel):
+    claim: str
+    status: VerificationStatus
+    evidence: List[VerificationEvidence] = Field(default_factory=list)
+    planning_implication: str
     common_mistakes: List[str] = Field(
         default_factory=list,
         description="Common mistakes that cause this issue"
@@ -926,6 +955,7 @@ class CandidateRole(str, Enum):
     GENERATED       = "GENERATED"        # dist/, node_modules/, target/, build/
     LOCK_FILE       = "LOCK_FILE"        # package-lock.json, yarn.lock, pom.xml
     DOCUMENTATION   = "DOCUMENTATION"   # Markdown / RST / TXT docs
+    REFERENCE       = "REFERENCE"       # Domain-relevant but wrong service (read-only)
     UNKNOWN         = "UNKNOWN"          # Anything else
 
 
@@ -997,6 +1027,452 @@ class LocalizationCandidate(BaseModel):
     )
 
 
+class BlueprintStatus(str, Enum):
+    """Lifecycle state of a cross-file symbol blueprint.
+
+    LLM output is NEVER trusted as truth.  Every blueprint starts as PLANNED
+    and must be deterministically verified before downstream consumption.
+
+    Lifecycle:
+        Planner LLM emits            → PLANNED  (semantic intent only)
+        SymbolResolver / LSP checks  → EVIDENCE_VERIFIED  or  INVALID
+        Code generator writes it     → IMPLEMENTED_CANDIDATE (not yet validated)
+        Post-gen verification passes → IMPLEMENTED
+        Dependency check passes      → DEPENDENCY_VALIDATED
+        Build/compile passes         → BUILD_VALIDATED
+
+    Key invariant:
+        The Planner can propose a capability.  It CANNOT declare that a symbol exists.
+        Only repository evidence (LSP/AST/compiler) can promote to EVIDENCE_VERIFIED.
+        Only validation can promote IMPLEMENTED_CANDIDATE to IMPLEMENTED.
+    """
+    PLANNED = "planned"                         # Semantic intent from planner — NOT fact
+    EVIDENCE_VERIFIED = "evidence_verified"     # Confirmed by SymbolResolver / LSP / AST
+    INVALID = "invalid"                         # Failed verification — needs correction
+    IMPLEMENTED_CANDIDATE = "implemented_candidate"  # Appeared in generated code, NOT yet validated
+    IMPLEMENTED = "implemented"                 # Validation confirmed the implementation is correct
+    DEPENDENCY_VALIDATED = "dependency_validated"  # Consumers verified OK
+    BUILD_VALIDATED = "build_validated"          # Compilation / build passed
+
+    # Backward-compat aliases (for existing data that uses old names)
+    PROPOSED = "planned"                        # alias → PLANNED
+    VERIFIED = "evidence_verified"              # alias → EVIDENCE_VERIFIED
+    VALIDATED = "build_validated"               # alias → BUILD_VALIDATED
+
+
+class ContextTier(str, Enum):
+    """Tiered rolling context — start cheap, escalate when evidence demands it.
+
+    The system begins at SIGNATURE and only escalates when the LLM or
+    validation logic indicates that more context is needed.
+    """
+    SIGNATURE = "signature"              # Method/property names + types
+    TYPE_CONTRACT = "type_contract"      # + return types, param types, interfaces
+    IMPLEMENTATION = "implementation"    # + relevant method bodies
+    FULL_FILE = "full_file"              # Complete file content
+
+
+class ReferenceStatus(str, Enum):
+    """Resolution status of an outbound reference found in generated code.
+
+    Separates planner/generator intent from verified repository reality:
+    a generated call is NEVER trusted just because it looks plausible.
+    """
+    EXISTING_VERIFIED = "existing_verified"      # Callee exists in repository truth
+    GENERATED_VERIFIED = "generated_verified"    # Callee was generated+verified this run
+    UNRESOLVED = "unresolved"                    # Receiver type known, member does NOT exist
+    UNKNOWN_RECEIVER = "unknown_receiver"        # Receiver type could not be inferred (advisory)
+
+
+class ErrorCategory(str, Enum):
+    """Attribution of a build/compile error relative to the current ticket."""
+    TICKET_INTRODUCED = "ticket_introduced"                  # In a file our ticket modified
+    GENERATED_COMPANION = "generated_companion"              # In a file we generated this run
+    GENERATED_DEPENDENCY_FAILURE = "generated_dependency_failure"  # Missing generated dependency
+    PRE_EXISTING = "pre_existing"                            # In a file we never touched — do NOT fix
+    INFRASTRUCTURE = "infrastructure"                        # Env/dependency/network — not a source defect
+    UNKNOWN = "unknown"                                      # Cannot attribute
+
+
+class SemanticBlueprint(BaseModel):
+    """High-level cross-file intent from the planner.
+
+    Contains WHAT needs to cross file boundaries, not HOW.
+    Exact symbols/signatures come from evidence after generation.
+
+    The planner fills these fields.  The code generator uses them as
+    *intent guidance* while relying on repository evidence for actual
+    symbol resolution.
+    """
+    capability: str = Field(
+        ..., description="What capability crosses the boundary, e.g. 'project membership check'"
+    )
+    data_shape: str = Field(
+        default="",
+        description="Shape of the data that crosses, e.g. 'boolean + organization name'"
+    )
+    from_task: str = Field(
+        default="",
+        description="Task ID this depends on (for consumes)"
+    )
+    relationship_type: str = Field(
+        default="data",
+        description="Kind of cross-file relationship: 'data', 'trigger', 'precondition', "
+                    "'consumer', 'side_effect', 'shared_type'"
+    )
+
+
+class VerifiedSymbol(BaseModel):
+    """A symbol extracted from actual generated or existing code.
+
+    Richer than a plain string — preserves the highest-quality evidence
+    available from LSP, AST, compiler, or regex extraction.
+
+    Used in GenerationHandoff to give downstream tasks precise, verified
+    facts about what was created/modified.
+
+    Extraction priority (from plan's Evidence Authority Hierarchy):
+        1. LSP / AST          → highest quality
+        2. Compiler / SymbolResolver
+        3. Language-aware parser
+        4. Regex fallback     → acceptable but not ultimate authority
+    """
+    name: str = Field(..., description="Symbol name, e.g. 'checkMembership'")
+    kind: str = Field(
+        default="unknown",
+        description="Symbol kind: 'method', 'class', 'interface', 'property', "
+                    "'function', 'type', 'enum', 'constant', 'unknown'"
+    )
+    owner: str = Field(
+        default="",
+        description="Owning class/type, e.g. 'MembersService' (empty for top-level)"
+    )
+    signature: str = Field(
+        default="",
+        description="Full signature, e.g. 'checkMembership(projectId: string): Observable<...>'"
+    )
+    file_path: str = Field(default="", description="File where this symbol lives")
+    export_status: str = Field(
+        default="unknown",
+        description="'exported', 'internal', 'unknown'"
+    )
+    source_line: Optional[int] = Field(
+        default=None,
+        description="Line number in file (if available)"
+    )
+    extraction_method: str = Field(
+        default="regex",
+        description="How this symbol was extracted: 'lsp', 'ast', 'compiler', 'parser', 'regex'"
+    )
+
+
+class SignatureBlueprint(BaseModel):
+    """A method/property/type that crosses file boundaries.
+
+    Lifecycle:
+        Planner LLM emits           → status=PROPOSED
+        SymbolResolver checks        → status=VERIFIED or INVALID
+        Code generator writes it     → status=IMPLEMENTED
+        Post-gen verification passes → status=VALIDATED
+
+    The Code Generator ONLY trusts VERIFIED or VALIDATED blueprints.
+    PROPOSED blueprints are shown as "planned but unverified".
+
+    The planner is allowed to express uncertainty:
+        confidence=0.3, verification_required=True
+    meaning: "I think this symbol should exist, but verify first."
+    """
+    symbol_name: str = Field(..., description="Name of the cross-file symbol")
+    owner_class: str = Field(default="", description="Class/type that owns this symbol")
+    file_path: str = Field(..., description="File where this symbol should exist")
+    signature: str = Field(
+        default="",
+        description="Full signature, e.g. 'getProjectMembers(projectId: string): Observable<Member[]>'"
+    )
+    import_path: str = Field(
+        default="",
+        description="Import path for consumers, e.g. '../services/member.service'"
+    )
+    created_by_task: str = Field(
+        default="",
+        description="Task ID that produces this symbol (empty if it already exists)"
+    )
+    consumed_by_tasks: List[str] = Field(
+        default_factory=list,
+        description="Task IDs that depend on this symbol"
+    )
+    status: BlueprintStatus = Field(
+        default=BlueprintStatus.PROPOSED,
+        description="Current lifecycle state"
+    )
+    verification_note: str = Field(
+        default="",
+        description="Human-readable reason for the status (e.g. why INVALID)"
+    )
+    actual_symbol: str = Field(
+        default="",
+        description="If INVALID, the actual symbol name found in the repository"
+    )
+    confidence: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Planner confidence. LOW (<0.5) triggers mandatory verification"
+    )
+    verification_required: bool = Field(
+        default=False,
+        description="True when planner is uncertain — forces verification before use"
+    )
+
+
+class CrossFileContract(BaseModel):
+    """Cross-file promises for a single DevelopmentTask.
+
+    Each task declares:
+      - produces: capabilities this task will PROVIDE to other tasks
+      - consumes: capabilities this task NEEDS from earlier tasks
+
+    These are SEMANTIC INTENT from the planner — they describe WHAT crosses
+    file boundaries, not the exact implementation.  Exact symbols come from
+    evidence (SymbolResolver/LSP/AST) after generation.
+
+    The produces/consumes graph defines the task dependency order and
+    determines what rolling context each task needs.
+    """
+    produces: List[SemanticBlueprint] = Field(
+        default_factory=list,
+        description="Capabilities this task will provide (semantic intent)"
+    )
+    consumes: List[SemanticBlueprint] = Field(
+        default_factory=list,
+        description="Capabilities this task needs from earlier tasks (semantic intent)"
+    )
+
+
+class GenerationHandoff(BaseModel):
+    """Verified handoff produced AFTER each successful file generation + validation.
+
+    Separates FACTS (from tools) from EXPLANATION (from LLM) so downstream
+    consumers know what to trust unconditionally vs. treat as suggestion.
+
+    Machine facts come from deterministic extraction (LSP/AST/compiler/regex).
+    AI explanation comes from task metadata — treat as lower authority.
+
+    Key invariant from architecture:
+        Only validated implementation becomes authoritative context.
+        If validation fails → no authoritative handoff is created.
+        how_to_consume is SUGGESTIVE — actual imports should be determined
+        from repository module resolution.
+    """
+    task_id: str = Field(..., description="Task that produced this handoff")
+    file_path: str = Field(..., description="File that was generated/modified")
+    timestamp: float = Field(default_factory=time.time)
+
+    # ── Machine facts (deterministic — from AST/regex/LSP/compiler) ──
+    # These are AUTHORITATIVE — downstream tasks can trust them unconditionally.
+    created_symbols: List[VerifiedSymbol] = Field(
+        default_factory=list,
+        description="New symbols extracted from generated code"
+    )
+    modified_symbols: List[VerifiedSymbol] = Field(
+        default_factory=list,
+        description="Symbols that changed vs. original content"
+    )
+    exports: List[VerifiedSymbol] = Field(
+        default_factory=list,
+        description="All exported symbols in the file"
+    )
+    imports: List[str] = Field(
+        default_factory=list,
+        description="All import statements in the file"
+    )
+    signature_blueprints: List["SignatureBlueprint"] = Field(
+        default_factory=list,
+        description="Evidence-verified symbol contracts"
+    )
+    validation_status: str = Field(
+        default="pending",
+        description="'clean', 'warnings', 'errors', 'pending'"
+    )
+    dependency_issues: List[str] = Field(
+        default_factory=list,
+        description="Issues found by incremental validation"
+    )
+    extraction_method: str = Field(
+        default="regex",
+        description="How machine facts were obtained: 'lsp', 'ast', 'compiler', 'parser', 'regex'"
+    )
+
+    # ── AI explanation (LLM-generated — treat as SUGGESTIVE, not fact) ──
+    # Downstream tasks can use these for understanding but must NOT override
+    # machine facts if they contradict.
+    what_changed: str = Field(
+        default="",
+        description="Human-readable summary of what changed"
+    )
+    why: str = Field(
+        default="",
+        description="Why this change was made (from ticket/task description)"
+    )
+    decisions: List[str] = Field(
+        default_factory=list,
+        description="Notable implementation decisions made"
+    )
+    how_to_consume: str = Field(
+        default="",
+        description="SUGGESTIVE import path — actual imports should be determined "
+                    "from repository module resolution, not this field"
+    )
+
+
+# ── Language-Agnostic Cross-File Relationships ───────────────────────────────
+
+class RelationshipType(str, Enum):
+    """Type of relationship between two files/symbols.
+
+    The relationship type determines how context is resolved —
+    NOT the programming language. This is the core abstraction
+    that makes cross-file intelligence language-agnostic.
+
+    No language-pair conditionals (e.g. Java→TS) should ever exist.
+    Instead, the system detects which RelationshipType applies and
+    resolves context through the corresponding evidence provider.
+    """
+    SAME_LANG_IMPORT = "same_lang_import"     # import X from './Y'
+    API_CONTRACT     = "api_contract"          # REST / GraphQL / RPC boundary
+    DATA_FLOW        = "data_flow"             # DTO → JSON → Interface
+    SHARED_TYPE      = "shared_type"           # Both use the same type/schema
+    EVENT            = "event"                 # Event emitter → listener
+    CONFIGURATION    = "configuration"         # Config → consumer
+
+
+class RelationshipStatus(str, Enum):
+    """Lifecycle of a cross-file relationship.
+
+    Mirrors BlueprintStatus authority hierarchy.
+    The AI may NEVER promote a relationship status on its own —
+    only deterministic tools (LSP, AST, compiler, schema files) can verify.
+
+    Key invariant:
+        A GenerationHandoff export alone proves a symbol EXISTS in the source.
+        It does NOT prove that another file consumes it.
+        Only actual repository evidence (import statements, API annotations,
+        schema files) can establish the connection between producer and consumer.
+
+    Lifecycle:
+        Planner says "these files are related"   → PLANNED
+        Search/RAG finds a connection            → DISCOVERED
+        LLM analysis suggests connection         → INFERRED
+        Actual code artifact confirms it         → VERIFIED
+        Compiler/build confirms it works         → VALIDATED
+    """
+    PLANNED     = "planned"       # Planner says these files are related
+    DISCOVERED  = "discovered"    # Search/RAG found a connection
+    INFERRED    = "inferred"      # LLM analysis suggests connection
+    VERIFIED    = "verified"      # Actual code artifact confirms relationship
+    VALIDATED   = "validated"     # Compiler/build confirms it works
+
+
+class CrossFileRelationship(BaseModel):
+    """Language-agnostic relationship between two files/symbols.
+
+    This is the core model for cross-file intelligence. The system
+    does NOT care what programming languages are involved — it cares
+    about the RELATIONSHIP TYPE and the VERIFIED CONTRACT.
+
+    Hard constraints:
+    - Never marks inferred relationships as verified
+    - No language-pair conditionals (Java→TS, Python→Go, etc.)
+    - Progressive context tiers — start with signature, escalate on demand
+    - Evidence sources track exactly how the relationship was established
+    """
+    source_file: str = Field(..., description="File that PRODUCES the capability")
+    target_file: str = Field(..., description="File that CONSUMES the capability")
+    relationship_type: RelationshipType = Field(
+        ..., description="What kind of relationship connects them"
+    )
+
+    # Semantic capability (what crosses the boundary)
+    capability: str = Field(
+        ..., description="What capability crosses the boundary, "
+                         "e.g. 'check project membership'"
+    )
+
+    # ── Lifecycle (v2: proper lifecycle model) ──
+    status: RelationshipStatus = Field(
+        default=RelationshipStatus.PLANNED,
+        description="Current lifecycle state — only deterministic tools can verify"
+    )
+    confidence: float = Field(
+        default=0.0, ge=0.0, le=1.0,
+        description="Confidence in this relationship (0.0-1.0)"
+    )
+    evidence_sources: List[str] = Field(
+        default_factory=list,
+        description="How this relationship was established: "
+                    "'planner', 'symbol_resolver', 'lsp', 'ast', 'compiler', "
+                    "'api_annotation', 'schema_file', 'import_statement'"
+    )
+    verified_at: Optional[float] = Field(
+        default=None, description="Timestamp when verified (None if not yet)"
+    )
+
+    # ── Progressive context tiers (populated lazily) ──
+    tier_1_signature: str = Field(
+        default="",
+        description="Method name + params + return type (~50 chars)"
+    )
+    tier_2_contract: str = Field(
+        default="",
+        description="+ type definitions, interfaces, DTOs (~200 chars)"
+    )
+    tier_3_implementation: str = Field(
+        default="",
+        description="+ relevant method bodies (~500 chars)"
+    )
+    tier_4_full_file: str = Field(
+        default="",
+        description="Complete file content (last resort, ~2000 chars)"
+    )
+
+    # ── Provenance ──
+    source_task_id: str = Field(
+        default="", description="Task that generated/modified the source file"
+    )
+    target_task_id: str = Field(
+        default="", description="Task that needs the capability"
+    )
+    extraction_method: str = Field(
+        default="planned",
+        description="How the relationship was discovered: "
+                    "'lsp', 'ast', 'symbol_resolver', 'api_annotation', "
+                    "'schema_file', 'import_statement', 'regex', 'planned'"
+    )
+
+
+class ChangeTarget(BaseModel):
+    """Generic Change Target representing an authorized, granular change block/symbol.
+    
+    Invariant: DISCOVERY != READ_ONLY_REFERENCE != CHANGE_TARGET != AUTHORIZED_CHANGE_TARGET.
+    Only an evidence-backed requirement produces an authorized ChangeTarget.
+    """
+    file_path: str = Field(..., description="Path of target file")
+    symbol: Optional[str] = Field(None, description="Target symbol name (method, class, interface, selector, key, etc.)")
+    symbol_type: str = Field(
+        default="file",
+        description="Target type: method, function, class, interface, property, constructor, route, template_block, style_rule, config_entry, file"
+    )
+    start_line: Optional[int] = Field(None, description="Starting line in file (1-indexed)")
+    end_line: Optional[int] = Field(None, description="Ending line in file (1-indexed)")
+    surrounding_context: Optional[str] = Field(None, description="Minimal surrounding context for reference")
+    reason: str = Field(default="", description="Specific reason why this target is being modified")
+    modification_intent: str = Field(default="", description="Intent: add_method, modify_logic, add_property, style_update, etc.")
+    authorization_source: str = Field(default="", description="Source of authorization: ticket_declared_scope, proven_root_cause, migration_plan, etc.")
+    evidence_ids: List[str] = Field(default_factory=list, description="IDs of evidence verifying this change is required")
+    readonly_dependencies: List[str] = Field(default_factory=list, description="Files needed as read-only reference context")
+    is_authorized: bool = Field(default=False, description="Whether this ChangeTarget has passed authorization validation")
+
+
 class DevelopmentTask(BaseModel):
     """Individual development task in the plan"""
     id: str = Field(..., description="Unique task identifier")
@@ -1066,6 +1542,15 @@ class DevelopmentTask(BaseModel):
                     "method_name, placement (sibling_after/inside/before), "
                     "anchor_method (existing method to scope against). "
                     "Used by str_replace to resolve ambiguous old_str matches."
+    )
+    cross_file_contract: Optional[CrossFileContract] = Field(
+        None,
+        description="Cross-file symbol promises: what this task produces and consumes. "
+                    "Populated by the planner; verified by BlueprintVerifier."
+    )
+    change_targets: List[ChangeTarget] = Field(
+        default_factory=list,
+        description="Granular, evidence-backed change targets for this task. Drives target-first code generation."
     )
 
 
@@ -1142,6 +1627,12 @@ class ArchitecturalPlan(BaseModel):
     estimated_total_complexity: int = Field(
         default=0, 
         description="Total complexity score"
+    )
+    signature_blueprints: List[SignatureBlueprint] = Field(
+        default_factory=list,
+        description="Global list of cross-file symbol blueprints across all tasks. "
+                    "Union of all task-level produces. Verified by BlueprintVerifier "
+                    "after planning, before code generation."
     )
 
 class ValidatedTask(BaseModel):
@@ -2006,6 +2497,73 @@ class SufficiencyCheck(BaseModel):
     new_search_directions: List[str] = Field(
         default_factory=list,
         description="Updated hypotheses/queries for the next search iteration"
+    )
+
+# ============================================================================
+# PLANNING RECOVERY
+# ============================================================================
+
+class PlanningRecoveryAction(BaseModel):
+    """LLM-produced diagnosis of why planning failed + structured recovery action.
+
+    Generated by planning_recovery_node when candidate validation produces
+    0 writable tasks.  The recovery_type determines where the workflow routes
+    next (back to discover, re-plan, or terminal).
+
+    ``genuinely_unrecoverable`` requires the LLM to establish a high evidence
+    bar — planner uncertainty alone is never sufficient for terminal failure.
+    """
+    recovery_type: str = Field(
+        ...,
+        description=(
+            "One of: evidence_incomplete, evidence_contaminated, "
+            "wrong_candidates, requirement_ambiguous, already_implemented, "
+            "genuinely_unrecoverable"
+        ),
+    )
+
+    reason: str = Field(
+        ..., description="Human-readable diagnosis of the failure"
+    )
+
+    # For evidence_incomplete: what specific evidence is missing
+    investigation_target: Optional[str] = Field(
+        None, description="Specific file or component to investigate"
+    )
+    investigation_query: Optional[str] = Field(
+        None, description="Specific query to search for in the target"
+    )
+
+    # For wrong_candidates: what to look for instead
+    alternative_search_terms: List[str] = Field(
+        default_factory=list,
+        description="Search terms for alternative candidate discovery"
+    )
+
+    # For evidence_contaminated: which entries had infrastructure failures
+    contaminated_entries: List[str] = Field(
+        default_factory=list,
+        description="File paths of evidence entries with infrastructure failures"
+    )
+
+    reasoning_points: List[str] = Field(
+        default_factory=list,
+        description="Step-by-step reasoning that led to the diagnosis"
+    )
+
+    confidence: float = Field(
+        default=0.5, ge=0.0, le=1.0,
+        description="Confidence in the diagnosis (0.0–1.0)"
+    )
+
+    # Recovery versioning: tracks which recovery cycle this action belongs to.
+    # Consumers set status to 'consumed' after processing.
+    recovery_id: Optional[str] = Field(
+        None, description="Unique identifier for this recovery action (e.g. R1, R2)"
+    )
+    status: str = Field(
+        default="active",
+        description="Lifecycle status: 'active' → 'consumed'"
     )
 
 

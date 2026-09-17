@@ -484,37 +484,7 @@ def _sort_tasks_by_execution_order(tasks: list) -> list:
     in_degree: dict = {t.id: 0 for t in tasks}
     adj: dict = defaultdict(list)
 
-    # Fix 5: Add IMPLICIT dependency edges across module boundaries.
-    # Scan each task's description for references to other tasks' class names.
-    # If task A's description mentions task B's class name, A depends on B.
-    import re as _re_dep
-    _create_tasks = [t for t in tasks if getattr(t.task_type, 'value', str(t.task_type)) == 'create']
-    _class_to_task: dict = {}  # PascalCase class name → task id
-    for _ct in _create_tasks:
-        # Extract PascalCase class names from the file stem
-        _stem = Path(_ct.file_path).stem
-        # kebab-case → PascalCase: "foo-bar.service" → "FooBarService"
-        _parts = _stem.replace(".", "-").split("-")
-        _pascal = "".join(p.capitalize() for p in _parts if p)
-        if len(_pascal) > 3:
-            _class_to_task[_pascal] = _ct.id
-        # Also try extracting from title/description
-        _title_classes = _re_dep.findall(r'\b([A-Z][a-zA-Z]{3,}(?:Service|Model|Interface|Component|Module))\b',
-                                          f"{_ct.title or ''} {_ct.description or ''}")
-        for _tc in _title_classes:
-            _class_to_task[_tc] = _ct.id
-
-    for t in tasks:
-        _t_desc = f"{t.description or ''} {t.title or ''}"
-        for _cls_name, _dep_task_id in _class_to_task.items():
-            if _dep_task_id == t.id:
-                continue  # don't self-depend
-            if _cls_name in _t_desc and _dep_task_id not in (t.dependencies or []):
-                # t depends on _dep_task_id (t references that class)
-                if _dep_task_id in task_map:
-                    adj[_dep_task_id].append(t.id)
-                    in_degree[t.id] += 1
-
+    # Build dependency edges from explicit task.dependencies only
     for t in tasks:
         for dep_id in (t.dependencies or []):
             if dep_id in task_map:
@@ -573,6 +543,76 @@ def _sort_tasks_by_execution_order(tasks: list) -> list:
         )
 
     return result
+
+
+def _group_tasks_into_batches(tasks: list) -> "list[list]":
+    """
+    Group topologically-sorted tasks into dependency-depth batches.
+
+    Tasks within the same batch are INDEPENDENT of each other — they have no
+    mutual dependency edges.  Tasks in batch N+1 depend on at least one task
+    in batch N (or earlier).
+
+    Example:
+        A ──→ C
+        B ──→ C
+        D   independent
+
+        Batch 0: [A, B, D]  (no unresolved dependencies)
+        Batch 1: [C]        (depends on A and B)
+
+    This enables:
+      - After batch 0 completes: extract & register all contracts
+      - Batch 1 generation: has access to all batch-0 contracts
+
+    Uses the same dependency graph (Kahn's algorithm) as _sort_tasks_by_execution_order
+    but preserves the depth level assignment.
+
+    Returns a list of batches, each batch being a list of tasks.
+    """
+    from collections import defaultdict, deque
+
+    task_map: dict = {t.id: t for t in tasks}
+    in_degree: dict = {t.id: 0 for t in tasks}
+    adj: dict = defaultdict(list)
+
+    # Build dependency edges
+    for t in tasks:
+        for dep_id in (t.dependencies or []):
+            if dep_id in task_map:
+                adj[dep_id].append(t.id)
+                in_degree[t.id] += 1
+
+    # BFS by depth level
+    batches: list[list] = []
+    current_batch = [t for t in tasks if in_degree[t.id] == 0]
+
+    if not current_batch:
+        # No roots — all tasks form a single batch (cycle or no deps)
+        return [tasks] if tasks else []
+
+    visited: set = set()
+
+    while current_batch:
+        batches.append(current_batch)
+        visited.update(t.id for t in current_batch)
+
+        next_batch_candidates = []
+        for t in current_batch:
+            for dep_id in adj[t.id]:
+                in_degree[dep_id] -= 1
+                if in_degree[dep_id] == 0 and dep_id not in visited:
+                    next_batch_candidates.append(task_map[dep_id])
+
+        current_batch = next_batch_candidates
+
+    # Append any unreachable tasks (cycles, missing deps) as a final batch
+    _in_batches = visited
+    _remaining = [t for t in tasks if t.id not in _in_batches]
+    if _remaining:
+        batches.append(_remaining)
+
+    return batches
 
 
 # ============================================================================
@@ -784,6 +824,7 @@ class TicketToCodeState(TypedDict):
     generated_tests: Optional[List[GeneratedCode]]  # Generated FIRST
     generated_code: Optional[List[GeneratedCode]]   # Generated SECOND
     original_file_contents: Optional[dict] # Original contents for auto-revert
+    pre_run_workspace_manifest: Optional[dict]  # {relpath: size} snapshot taken before any writes — used by the scope gate for non-git-safe diffing
     
     # Execution results
     build_result: Optional[BuildResult]
@@ -831,6 +872,19 @@ class TicketToCodeState(TypedDict):
     prev_build_error_fingerprint: Optional[str]
     consecutive_identical_build_errors: int
 
+    # Build diagnostic classification and user decision (written by pre_fix_build_node,
+    # read by check_build_status router and fix_build_errors_node).
+    # These fields carry the error-provenance classification and user decision across
+    # the LangGraph node boundary so the router can distinguish ticket-introduced
+    # errors (→ repair) from pre-existing baseline errors (→ follow user decision).
+    build_differential_accept: Optional[bool]          # True = all errors are pre-existing
+    build_infrastructure_only: Optional[bool]           # True = all errors are infra (deps/network)
+    build_infrastructure_blocked: Optional[bool]        # True = infra failure surfaced to user
+    build_diagnostic_summary: Optional[str]             # Human-readable classification summary
+    pre_existing_decision: Optional[str]                # User choice: "fix" | "leave" | "stop"
+    authorized_pre_existing_files: Optional[List[str]]  # Files authorized for pre-existing repair
+
+
     # Requirement-satisfaction loop (post-build): outcome_check verifies the ticket
     # is actually solved, not just that it compiles. If requirements are missing it
     # feeds concrete remediation back into the adaptive edit loop, bounded by
@@ -844,6 +898,12 @@ class TicketToCodeState(TypedDict):
     # context expansion when outcome_check finds PARTIAL/INCOMPLETE.
     tier2_candidates: Optional[List[dict]]         # backup files from re-ranker
     context_expansion_count: int                   # how many times we expanded
+
+    # Pre-flight idempotency check results
+    preflight_verdict: Optional[str]               # ALREADY_DONE / PARTIALLY_DONE / NOT_DONE
+    preflight_summary: Optional[str]               # LLM explanation of current state
+    preflight_missing_requirements: Optional[List[str]]  # requirements not yet satisfied
+    preflight_implementation_guidance: Optional[List[dict]]  # per-requirement what/how/where guidance
 
     # Global status (ONLY updated by SEQUENTIAL nodes, NOT by parallel branches)
     status: str
@@ -861,6 +921,13 @@ class TicketToCodeState(TypedDict):
     # It is created once at workflow entry and referenced throughout.
     # Not serialisable by LangGraph — stored as Any to avoid schema errors.
     run_ctx: Optional[Any]  # RunContext instance
+
+    # ── Planning Recovery ─────────────────────────────────────────────────
+    # Structured recovery action from planning_recovery_node.  Consumed by
+    # discovery_node / hypothesis_investigation_node / evidence_collection_loop
+    # to provide targeted investigation context after a planning failure.
+    # Versioned via recovery_id + status lifecycle (active → consumed).
+    planning_recovery_action: Optional[Any]  # PlanningRecoveryAction instance
 
 
 # ============================================================================
@@ -976,6 +1043,23 @@ def investigate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     print("="*80)
     logger.info(" PHASE 0: Investigation & Triage")
 
+    # ── Snapshot the workspace BEFORE any node can write a single file ────────
+    # Used by the post-generation scope gate when git verification is
+    # unavailable, so pre-existing files can never be misclassified as
+    # "unauthorized new files" (the multi-repo wipe failure mode).
+    if not state.get("pre_run_workspace_manifest"):
+        try:
+            from ticket_to_code.agents.ticket_scope_proof import build_workspace_manifest
+            _manifest = build_workspace_manifest(state.get("workspace_path", ""))
+            if _manifest:
+                logger.info(f"  Pre-run workspace manifest captured: {len(_manifest)} files")
+            else:
+                logger.warning("  Pre-run workspace manifest is EMPTY — workspace may be missing")
+            state["pre_run_workspace_manifest"] = _manifest
+        except Exception as _mf_err:
+            logger.warning(f"  Pre-run workspace manifest capture failed (non-fatal): {_mf_err}")
+            state["pre_run_workspace_manifest"] = {}
+
     # ── B11/B12: Initialise RunContext once per run ───────────────────────────
     ticket = state["ticket"]
     run_ctx = RunContext(
@@ -985,6 +1069,16 @@ def investigate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     # Register evidence-critical subsystems so degradations are trackable
     for sub in ["rag_engine", "pgvector", "neo4j", "sqlite_index", "context_retrieval"]:
         run_ctx.registry.register(sub)
+
+    # Store RunContext in transient registry EARLY so _phase_tracked_node
+    # wrapper can find it in its finally block for end_phase().
+    # investigate_node is the only node that creates RunContext, so it
+    # must call start_phase() itself — the wrapper handles end_phase().
+    _set_transient(
+        getattr(ticket, "ticket_id", ""),
+        "run_ctx",
+        run_ctx,
+    )
     run_ctx.start_phase("investigate")
 
     # Probe RAG health at run start (B11 — startup verification)
@@ -1077,7 +1171,7 @@ def investigate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
         f"  Confidence: {investigation.confidence:.2f}"
     )
 
-    run_ctx.end_phase("investigate")
+    # end_phase("investigate") is handled by _phase_tracked_node wrapper
 
     # DEBUG LOG
     log_phase(
@@ -1092,12 +1186,55 @@ def investigate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
         agent='InvestigationAgent'
     )
 
-    # Store RunContext in transient registry (NOT in state — it's not msgpack-serializable)
-    _set_transient(
-        getattr(ticket, "ticket_id", ""),
-        "run_ctx",
-        run_ctx,
-    )
+    # RunContext already stored in transient registry above (before start_phase)
+
+    # ── Token instrumentation: wire on_charge callback for live UI updates ──
+    # This is a one-time setup.  Every future llm_invoke() → charge() call
+    # automatically pushes token usage to the UI without any node code changes.
+    try:
+        _tid_for_cb = getattr(ticket, "ticket_id", "")
+
+        def _token_ui_updater(snapshot: dict) -> None:
+            """Fire-and-forget: emits token_usage_update to the SSE stream."""
+            try:
+                ui_cb = _get_transient(state, "_ui_callback")
+                if ui_cb:
+                    from datetime import datetime as _dt_cb
+                    ui_cb({
+                        "phase": snapshot.get("current_phase", "unknown"),
+                        "status": "in_progress",
+                        "message": "",
+                        "data": {
+                            "event_type": "token_usage_update",
+                            **snapshot,
+                        },
+                        "timestamp": _dt_cb.now().isoformat(),
+                    })
+            except Exception:
+                pass  # Token telemetry must never crash the workflow
+
+        run_ctx.budget.on_charge = _token_ui_updater
+    except Exception:
+        pass  # If callback wiring fails, workflow continues normally
+
+    # ── v3: Initialize TicketExecutionContext for this run ─────────────────
+    # Accumulates knowledge from every phase so later agents (especially
+    # ErrorResolutionAgent) can make decisions with full project awareness.
+    try:
+        from ticket_to_code.memory.ticket_execution_context import TicketExecutionContext
+        exec_ctx = TicketExecutionContext(
+            ticket_id=getattr(ticket, "ticket_id", "") or "",
+        )
+        exec_ctx.ticket_title = getattr(ticket, "title", "") or ""
+        exec_ctx.ticket_description = (getattr(ticket, "description", "") or "")[:2000]
+        _set_transient(
+            getattr(ticket, "ticket_id", ""),
+            "exec_ctx",
+            exec_ctx,
+        )
+        logger.info("  [v3] TicketExecutionContext initialized and stored in transient registry")
+    except Exception as _ectx_err:
+        logger.debug(f"  [v3] TicketExecutionContext init failed (non-fatal): {_ectx_err}")
 
     return {
         "investigation_result": investigation,
@@ -1326,6 +1463,28 @@ def discovery_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
 
     evidence_items = state.get("evidence_items") or []
     hypotheses = state.get("investigation_hypotheses") or []
+
+    # ── Planning Recovery: inject targeted context from recovery diagnosis ─
+    # Constraint 4: structured PlanningRecoveryAction, NOT appended to ticket_text
+    recovery_action = state.get("planning_recovery_action")
+    recovery_search_terms = []
+    if recovery_action and getattr(recovery_action, "status", "") == "active":
+        logger.info(
+            f"  🔄 Recovery context active (id={getattr(recovery_action, 'recovery_id', '?')}, "
+            f"type={getattr(recovery_action, 'recovery_type', '?')})"
+        )
+        # Inject alternative search terms for wrong_candidates recovery
+        alt_terms = getattr(recovery_action, "alternative_search_terms", [])
+        if alt_terms:
+            recovery_search_terms = alt_terms
+            logger.info(f"    Alternative search terms: {alt_terms}")
+
+        # For evidence_incomplete: inject investigation_target as a hypothesis
+        inv_target = getattr(recovery_action, "investigation_target", None)
+        inv_query = getattr(recovery_action, "investigation_query", None)
+        if inv_target:
+            logger.info(f"    Investigation target: {inv_target} (query: {inv_query})")
+
     candidates = agents.localizer.discover_repository_candidates(
         ticket_text,
         top_n=top_n,
@@ -1333,6 +1492,7 @@ def discovery_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
         hypotheses=hypotheses,
         rag_engine=agents.rag_engine,  # B1: pass rag_engine so s_vec is populated
         run_ctx=_get_transient(state, "run_ctx"),
+        extra_search_terms=recovery_search_terms if recovery_search_terms else None,
     )
 
     logger.info(f"  Discovery complete: {len(candidates)} candidate file(s) identified")
@@ -1367,6 +1527,12 @@ def discovery_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
             f"(discovery cycle {discovery_cycle + 1}/{_MAX_DISCOVERY_CYCLES}), "
             f"blacklist carried forward: {current_blacklist}"
         )
+
+    # ── Mark recovery action as consumed after discovery uses its context ──
+    if recovery_action and getattr(recovery_action, "status", "") == "active":
+        recovery_action.status = "consumed"
+        reset_fields["planning_recovery_action"] = recovery_action
+        logger.info(f"  ✅ Recovery action {getattr(recovery_action, 'recovery_id', '?')} → consumed")
     
     artifact = {
         "ticket": {"id": state["ticket"].ticket_id, "title": state["ticket"].title},
@@ -1810,6 +1976,415 @@ def semantic_verification_node(state: TicketToCodeState, agents: WorkflowAgents)
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# PRE-FLIGHT IDEMPOTENCY CHECK
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def preflight_check_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
+    """
+    Pre-flight Idempotency Check — determines if the ticket is ALREADY
+    implemented in the current codebase before the planner runs.
+
+    Design philosophy:
+    - BIAS TOWARD FALSE-NEGATIVE: if uncertain, say "not done" (safe — just
+      wastes planner time). A false positive ("done" when not) would skip
+      required work and is DANGEROUS.
+    - Reads ACTUAL file content from the workspace (not summaries).
+    - Only short-circuits when ALL functional requirements are verified with
+      high confidence.
+
+    Returns:
+        status="already_implemented" → triggers route to END
+        status="proceed_to_plan"    → triggers route to plan_node
+        status="partially_implemented" → triggers route to plan_node with hints
+    """
+    logger.info("\n" + "=" * 80)
+    logger.info(" PRE-FLIGHT CHECK: Is this ticket already implemented?")
+    logger.info("=" * 80)
+
+    requirements = state.get("requirements")
+    if not requirements:
+        logger.info("  No requirements found — skipping pre-flight check")
+        return {"status": "proceed_to_plan"}
+
+    func_reqs = requirements.functional_requirements
+    if not func_reqs:
+        logger.info("  No functional requirements — skipping pre-flight check")
+        return {"status": "proceed_to_plan"}
+
+    # ── Gather the discovered files that the evidence pipeline found ──────
+    discovered = state.get("discovered_files") or []
+    evidence_items = state.get("evidence_items") or []
+    semantic_results = state.get("semantic_verification_results") or []
+
+    # ── Map files to their highest relevance score for sorting ──
+    file_scores = {}
+    for r in semantic_results:
+        if r.get("decision") == "include":
+            path = r["file_path"].replace("\\", "/")
+            score = float(r.get("semantic_relevance_score", 0.0))
+            file_scores[path] = max(file_scores.get(path, 0.0), score)
+
+    for ev in evidence_items:
+        if ev.relevance_score >= 0.6:
+            path = ev.file_path.replace("\\", "/")
+            file_scores[path] = max(file_scores.get(path, 0.0), ev.relevance_score)
+
+    if not file_scores:
+        logger.info("  No relevant files discovered — skipping pre-flight check")
+        return {"status": "proceed_to_plan"}
+
+    # Sort files by relevance score (highest first)
+    sorted_paths = sorted(file_scores.keys(), key=lambda p: file_scores[p], reverse=True)
+
+    # ── Read actual file content from disk using AST-targeted reading ──────
+    # Instead of blindly reading 800 lines per file, we:
+    # 1. Query the SQLite index for each file's methods/symbols
+    # 2. Read structural context (class declaration, imports, fields)
+    # 3. Read only relevant method bodies identified by the requirements
+    # This ensures business logic buried at line 1200+ is captured.
+    workspace_path = Path(state["workspace_path"])
+    file_contents = {}
+    MAX_FILES = 15
+    MAX_STRUCTURAL_CHARS = 1500  # imports, class declaration, fields
+    MAX_METHOD_CHARS = 4000     # targeted method bodies per file
+
+    # Try to get SQLite store for AST-aware reading
+    sqlite_store = None
+    try:
+        if hasattr(agents, "localizer") and hasattr(agents.localizer, "sqlite_store"):
+            sqlite_store = agents.localizer.sqlite_store
+    except Exception:
+        pass
+
+    for rel_path in sorted_paths[:MAX_FILES]:
+        abs_path = workspace_path / rel_path
+        if not abs_path.exists() or not abs_path.is_file():
+            continue
+        try:
+            raw = abs_path.read_text(encoding="utf-8", errors="replace")
+            lines = raw.splitlines()
+
+            if sqlite_store and len(lines) > 200:
+                # AST-TARGETED READING: query SQLite for method locations
+                try:
+                    # Get symbols for this file
+                    symbols = []
+                    if hasattr(sqlite_store, "query_symbols_by_file"):
+                        symbols = sqlite_store.query_symbols_by_file(rel_path) or []
+                    elif hasattr(sqlite_store, "search_symbols"):
+                        # Fallback: search by filename
+                        fname = Path(rel_path).stem
+                        symbols = sqlite_store.search_symbols(fname) or []
+                        symbols = [s for s in symbols if rel_path in str(getattr(s, "file_path", ""))]
+
+                    # 1. Structural context: first 40 lines (imports, class decl)
+                    structural = "\n".join(lines[:40])[:MAX_STRUCTURAL_CHARS]
+
+                    # 2. Find field declarations (typically lines 40-100)
+                    fields_section = ""
+                    for i, line in enumerate(lines[40:min(120, len(lines))], 40):
+                        stripped = line.strip()
+                        if any(kw in stripped for kw in [
+                            "private ", "protected ", "public ", "@Input", "@Output",
+                            "readonly ", "inject", "= inject(", ": ", "self.",
+                        ]):
+                            fields_section += f"{line}\n"
+                    if fields_section:
+                        structural += f"\n// --- Field declarations ---\n{fields_section[:500]}"
+
+                    # 3. Targeted method bodies from SQLite symbols
+                    method_content = ""
+                    method_budget = MAX_METHOD_CHARS
+                    # Sort symbols by relevance to requirements
+                    req_keywords = set()
+                    for r in func_reqs:
+                        for word in r.lower().split():
+                            if len(word) > 3:
+                                req_keywords.add(word)
+
+                    def _symbol_relevance(sym):
+                        name = getattr(sym, "name", "").lower()
+                        return sum(1 for kw in req_keywords if kw in name)
+
+                    ranked_symbols = sorted(symbols, key=_symbol_relevance, reverse=True)
+
+                    for sym in ranked_symbols:
+                        if method_budget <= 0:
+                            break
+                        start_line = getattr(sym, "line_start", None) or getattr(sym, "start_line", None)
+                        end_line = getattr(sym, "line_end", None) or getattr(sym, "end_line", None)
+                        sym_name = getattr(sym, "name", "?")
+
+                        if start_line and end_line and start_line > 0:
+                            # Read the method body
+                            method_lines = lines[start_line - 1:min(end_line, len(lines))]
+                            method_text = "\n".join(method_lines)
+                            if len(method_text) > method_budget:
+                                method_text = method_text[:method_budget] + "\n// ... truncated"
+
+                            method_content += f"\n// --- {sym_name}() L{start_line}-{end_line} ---\n"
+                            method_content += method_text + "\n"
+                            method_budget -= len(method_text)
+
+                    if method_content:
+                        file_contents[rel_path] = structural + "\n" + method_content
+                    else:
+                        # No symbols found — read complete file up to a generous limit
+                        file_contents[rel_path] = raw[:20000]
+                    continue
+                except Exception as _ast_exc:
+                    logger.debug(f"  AST-targeted read failed for {rel_path}: {_ast_exc}")
+                    # Fall through to standard reading
+
+            # Standard reading when SQLite is unavailable
+            # Read complete file up to generous limit to ensure business logic is captured
+            file_contents[rel_path] = raw[:20000]
+        except Exception as exc:
+            logger.debug(f"  Could not read {rel_path}: {exc}")
+
+    if not file_contents:
+        logger.info("  No files could be read from disk — skipping pre-flight check")
+        return {"status": "proceed_to_plan"}
+
+    logger.info(f"  Read {len(file_contents)} files for idempotency check")
+
+    # ── Build the LLM prompt ─────────────────────────────────────────────
+    ticket = state.get("ticket")
+    ticket_title = getattr(ticket, "title", "") if ticket else ""
+    ticket_desc = (getattr(ticket, "description", "") or "")[:2000] if ticket else ""
+
+    reqs_str = "\n".join(f"  {i+1}. {r}" for i, r in enumerate(func_reqs))
+
+    code_str = ""
+    for fpath, content in file_contents.items():
+        code_str += f"\n--- {fpath} ---\n{content}\n"
+
+    prompt = f"""You are a senior code reviewer and implementation planner. Your job is to:
+1. Determine if the following ticket requirements are ALREADY IMPLEMENTED.
+2. For any NOT-satisfied requirements, provide specific implementation guidance.
+
+TICKET: {ticket_title}
+DESCRIPTION: {ticket_desc}
+
+FUNCTIONAL REQUIREMENTS:
+{reqs_str}
+
+CURRENT CODEBASE (relevant files — includes targeted method bodies):
+{code_str}
+
+INSTRUCTIONS:
+1. For EACH functional requirement, check if the current code ALREADY satisfies it.
+2. A requirement is "satisfied" ONLY if you can point to specific code that implements it.
+3. Be STRICT: if there's any doubt, mark it as NOT satisfied.
+4. For each NOT satisfied requirement, provide implementation guidance:
+   - what_to_do: specific implementation task description
+   - target_file: which file should be modified
+   - integrate_with: which existing method/class to integrate with
+   - pattern_reference: example of similar pattern in the codebase (file:method)
+   - dependencies: other files/services this change depends on
+
+OUTPUT FORMAT (JSON only, no markdown):
+{{
+  "verdict": "ALREADY_DONE" | "PARTIALLY_DONE" | "NOT_DONE",
+  "confidence": 0.0 to 1.0,
+  "requirements_status": [
+    {{
+      "requirement": "...",
+      "satisfied": true | false,
+      "evidence": "file.ts:line — specific code that satisfies this" | "Not found in codebase"
+    }}
+  ],
+  "implementation_guidance": [
+    {{
+      "requirement": "the unsatisfied requirement text",
+      "what_to_do": "Add isProjectMember check before adding contract member",
+      "target_file": "path/to/file.ts",
+      "integrate_with": "existing method name or class",
+      "pattern_reference": "similar_file.ts:existingMethod — shows the pattern to follow",
+      "dependencies": ["ServiceA.ts", "ModelB.ts"],
+      "where_partial": "file.ts:145 — has addUser() but no membership check"
+    }}
+  ],
+  "summary": "Brief explanation of what is already done vs what is missing"
+}}
+
+CRITICAL RULES:
+- Only return "ALREADY_DONE" if ALL requirements are satisfied with confidence >= 0.90
+- If even ONE requirement is missing or uncertain, return "PARTIALLY_DONE" or "NOT_DONE"
+- When in doubt, return "NOT_DONE" — it is MUCH safer to re-do work than to skip needed work
+- implementation_guidance should ONLY contain entries for NOT satisfied requirements
+- Be specific in guidance: reference actual method names, line numbers, and patterns you see
+"""
+
+    # ── Call the LLM ──────────────────────────────────────────────────────
+    try:
+        from aviator.services.llm import LLMRegistry
+        llm = LLMRegistry.get_llm(assistant=True)
+        response = llm.invoke([
+            SystemMessage(content="You are a precise code auditor and implementation planner. You check if requirements are already implemented and provide actionable guidance for missing ones. Be STRICT — only say 'done' when you are certain."),
+            HumanMessage(content=prompt),
+        ])
+        response_text = response.content if hasattr(response, "content") else str(response)
+    except Exception as exc:
+        logger.warning(f"  Pre-flight LLM call failed: {exc}")
+        return {"status": "proceed_to_plan"}
+
+    logger.info(f"  Pre-flight LLM response:\n{response_text[:1000]}")
+
+    # ── Parse the response ────────────────────────────────────────────────
+    import json as _json
+    try:
+        # Extract JSON from response (handle markdown fences)
+        json_text = response_text
+        if "```json" in json_text:
+            json_text = json_text.split("```json")[1].split("```")[0]
+        elif "```" in json_text:
+            json_text = json_text.split("```")[1].split("```")[0]
+        result = _json.loads(json_text.strip())
+    except Exception:
+        logger.warning("  Could not parse pre-flight JSON response — proceeding to plan")
+        return {"status": "proceed_to_plan"}
+
+    verdict = result.get("verdict", "NOT_DONE").upper()
+    confidence = float(result.get("confidence", 0.0))
+    summary = result.get("summary", "")
+    req_statuses = result.get("requirements_status", [])
+    impl_guidance = result.get("implementation_guidance", [])
+
+    satisfied_count = sum(1 for r in req_statuses if r.get("satisfied"))
+    total_count = len(req_statuses) if req_statuses else len(func_reqs)
+
+    logger.info(f"  Verdict: {verdict} (confidence={confidence:.2f})")
+    logger.info(f"  Requirements: {satisfied_count}/{total_count} satisfied")
+    logger.info(f"  Implementation guidance items: {len(impl_guidance)}")
+    logger.info(f"  Summary: {summary[:200]}")
+
+    # ── Write trace artifact ──────────────────────────────────────────────
+    try:
+        ticket_id = getattr(ticket, "ticket_id", "unknown")
+        write_trace_artifact(
+            state["workspace_path"], ticket_id,
+            "preflight_check.json",
+            {
+                "verdict": verdict,
+                "confidence": confidence,
+                "satisfied": satisfied_count,
+                "total": total_count,
+                "summary": summary,
+                "requirements_status": req_statuses,
+                "implementation_guidance": impl_guidance,
+            }
+        )
+    except Exception:
+        pass
+
+    # ── Formatting for UI ──────────────────────────────────────────────────
+    agent_output = f"Verdict: {verdict}\nConfidence: {confidence:.2f}\n\nSummary:\n{summary}\n\nRequirements Checked:\n"
+    for r in req_statuses:
+        mark = "✅" if r.get("satisfied") else "❌"
+        req_text = r.get("requirement", "?")
+        evidence_text = r.get("evidence", "No evidence")
+        agent_output += f"- {mark} {req_text}\n  Evidence: {evidence_text}\n"
+
+    if impl_guidance:
+        agent_output += "\nImplementation Guidance:\n"
+        for g in impl_guidance:
+            agent_output += f"\n📋 {g.get('requirement', '?')}\n"
+            agent_output += f"   What: {g.get('what_to_do', '?')}\n"
+            agent_output += f"   File: {g.get('target_file', '?')}\n"
+            agent_output += f"   Integrate with: {g.get('integrate_with', '?')}\n"
+            if g.get("where_partial"):
+                agent_output += f"   Partial: {g.get('where_partial')}\n"
+
+    # ── Decision logic ────────────────────────────────────────────────────
+    # STRICT: Only skip if ALREADY_DONE AND confidence >= 0.90 AND all reqs met
+    if (
+        verdict == "ALREADY_DONE"
+        and confidence >= 0.90
+        and satisfied_count == total_count
+        and total_count > 0
+    ):
+        logger.info(
+            f"  ✅ PRE-FLIGHT: Ticket already implemented! "
+            f"({satisfied_count}/{total_count} requirements verified, "
+            f"confidence={confidence:.2f}). Skipping code generation."
+        )
+        return {
+            "status": "already_implemented",
+            "preflight_verdict": verdict,
+            "preflight_summary": summary,
+            "agent_output": agent_output
+        }
+
+    # Partially done — proceed but pass hints and guidance to planner
+    if verdict == "PARTIALLY_DONE" or (satisfied_count > 0 and satisfied_count < total_count):
+        missing = [
+            r.get("requirement", "?")
+            for r in req_statuses
+            if not r.get("satisfied")
+        ]
+        logger.info(
+            f"  ⚠️ PRE-FLIGHT: Partially implemented ({satisfied_count}/{total_count}). "
+            f"Missing: {missing[:5]}. Proceeding to planner with guidance."
+        )
+        return {
+            "status": "proceed_to_plan",
+            "preflight_verdict": "PARTIALLY_DONE",
+            "preflight_summary": summary,
+            "preflight_missing_requirements": missing,
+            "preflight_implementation_guidance": impl_guidance,
+            "agent_output": agent_output
+        }
+
+    # Not done — proceed with full guidance
+    logger.info(f"  PRE-FLIGHT: Not yet implemented ({satisfied_count}/{total_count}). Proceeding to planner.")
+    return {
+        "status": "proceed_to_plan",
+        "preflight_verdict": "NOT_DONE",
+        "preflight_summary": summary,
+        "preflight_implementation_guidance": impl_guidance,
+        "agent_output": agent_output
+    }
+
+
+def route_after_preflight(state: TicketToCodeState) -> str:
+    """
+    Route after pre-flight check:
+    - already_implemented → END (skip everything)
+    - anything else       → planning_scope_verification
+    """
+    if state.get("status") == "already_implemented":
+        logger.info("  [ROUTE] Pre-flight: already implemented → END")
+        return END
+    return "planning_scope_verification"
+
+
+def planning_scope_verification_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
+    """
+    Phase 2H-2: Planning Scope Verification
+    Verifies that claims implying scope changes (like 'new backend endpoint')
+    are actually absent from the repository before allowing the planner to duplicate work.
+    """
+    print("\n" + "="*80)
+    print(" ENTERING: planning_scope_verification_node() in workflow.py")
+    print("   Purpose: Prevent 'Evidence absent == Repository absent' semantic error")
+    print("="*80)
+    
+    from ticket_to_code.agents.planning_scope_verifier import PlanningScopeVerifier
+    
+    verifier = PlanningScopeVerifier(agents)
+    preflight_guidance = state.get("preflight_implementation_guidance") or []
+    evidence_items = state.get("evidence_items") or []
+    discovered_files = state.get("discovered_files") or []
+    
+    results = verifier.verify_guidance(preflight_guidance, evidence_items, discovered_files)
+    
+    return {
+        "planning_scope_verification_results": [r.model_dump() if hasattr(r, 'model_dump') else r.dict() for r in results]
+    }
+
+
 def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     """
     Phase 2: Architectural Planning
@@ -1831,6 +2406,73 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
         return {"status": "failed"}  # Re-assert; validate_candidates_node must also honour this
 
     logger.info(" PHASE 2: Architectural Planning")
+
+    # Pre-flight awareness: if partially implemented, narrow scope to missing reqs only
+    preflight_verdict = state.get("preflight_verdict")
+    preflight_missing = state.get("preflight_missing_requirements") or []
+    preflight_guidance = state.get("preflight_implementation_guidance") or []
+
+    _preflight_guidance_context = ""
+
+    if preflight_verdict == "PARTIALLY_DONE" and preflight_missing:
+        logger.info(f"  ⚠️ Pre-flight: PARTIALLY implemented. Focusing planner on {len(preflight_missing)} missing requirements:")
+        for i, req in enumerate(preflight_missing[:10], 1):
+            logger.info(f"     {i}. {req}")
+        logger.info(f"  Pre-flight summary: {state.get('preflight_summary', 'N/A')[:200]}")
+
+    if preflight_guidance:
+        logger.info(f"  📋 Pre-flight guidance: {len(preflight_guidance)} implementation items available")
+        _preflight_guidance_context = (
+            "\n=== PREFLIGHT IMPLEMENTATION GUIDANCE ===\n"
+            "The following guidance was produced by a pre-flight code audit.\n"
+            "Use it to generate PRECISE tasks — do NOT invent new files or methods\n"
+            "when the guidance specifies existing targets.\n\n"
+        )
+        for idx, g in enumerate(preflight_guidance, 1):
+            _preflight_guidance_context += f"GUIDANCE {idx}:\n"
+            _preflight_guidance_context += f"  Requirement: {g.get('requirement', '?')}\n"
+            _preflight_guidance_context += f"  What to do: {g.get('what_to_do', '?')}\n"
+            if g.get("target_file"):
+                _preflight_guidance_context += f"  Target file: {g['target_file']}\n"
+            if g.get("integrate_with"):
+                _preflight_guidance_context += f"  Integrate with: {g['integrate_with']}\n"
+            if g.get("pattern_reference"):
+                _preflight_guidance_context += f"  Pattern reference: {g['pattern_reference']}\n"
+            if g.get("dependencies"):
+                deps = g["dependencies"] if isinstance(g["dependencies"], list) else [g["dependencies"]]
+                _preflight_guidance_context += f"  Dependencies: {', '.join(str(d) for d in deps)}\n"
+            if g.get("where_partial"):
+                _preflight_guidance_context += f"  Partial impl: {g['where_partial']}\n"
+            _preflight_guidance_context += "\n"
+        _preflight_guidance_context += "=== END PREFLIGHT GUIDANCE ===\n"
+
+    scope_verifications = state.get("planning_scope_verification_results") or []
+    if scope_verifications:
+        _preflight_guidance_context += "\n=== PLANNING SCOPE VERIFICATION ===\n"
+        for v in scope_verifications:
+            _preflight_guidance_context += f"Claim: {v.get('claim', '?')}\n"
+            _preflight_guidance_context += f"Status: {v.get('status', '?')}\n"
+            
+            evidence_list = v.get('evidence', [])
+            if evidence_list:
+                _preflight_guidance_context += "Repository Evidence:\n"
+                for ev in evidence_list:
+                    _preflight_guidance_context += f"  - File: {ev.get('file', '?')}\n"
+                    if ev.get('symbol'):
+                        _preflight_guidance_context += f"    Symbol: {ev['symbol']}\n"
+                    _preflight_guidance_context += f"    Reason: {ev.get('reason', '?')}\n"
+            
+            _preflight_guidance_context += f"Planning Implication: {v.get('planning_implication', '?')}\n"
+            _preflight_guidance_context += "\n"
+            
+        _preflight_guidance_context += (
+            "CRITICAL CONSTRAINTS FOR PLANNER:\n"
+            "- VERIFIED_EXISTS: Existing repository capability has been established. Do not create duplicate implementation for that capability.\n"
+            "- VERIFIED_ABSENT: Capability absence has been strongly established. New implementation may be planned if required.\n"
+            "- UNKNOWN: Capability is unresolved. UNKNOWN is NOT evidence of absence. Do not silently convert UNKNOWN into 'create new implementation'.\n"
+            "=== END PLANNING SCOPE VERIFICATION ===\n"
+        )
+
     
     # NEW: Retrieve architectural context using RAG!
     logger.info("   Retrieving existing codebase patterns from RAG...")
@@ -2071,8 +2713,9 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
         CandidateRole.UNKNOWN.value:         5,
         CandidateRole.TEST.value:            6,
         CandidateRole.STYLE.value:           7,
-        CandidateRole.LOCK_FILE.value:       8,
-        CandidateRole.GENERATED.value:       9,
+        CandidateRole.REFERENCE.value:       8,
+        CandidateRole.LOCK_FILE.value:       9,
+        CandidateRole.GENERATED.value:      10,
     }
     active_discovered.sort(
         key=lambda x: (
@@ -2081,6 +2724,144 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
             x.get("path", ""),
         )
     )
+
+    # ── Domain Ownership Classification ───────────────────────────────────────
+    # Before the planner sees candidates, classify each file's ownership
+    # against the ticket's business domain.  Files that are relevant but
+    # architecturally wrong (e.g. area-service MembersService when ticket
+    # is about project-membership) are re-tagged as REFERENCE — passed to the
+    # planner as read-only context but never proposed for modification.
+    _reference_only_candidates: list = []
+    _domain_ownership_context = ""
+    try:
+        from ticket_to_code.agents.architecture_model import ArchitectureModel
+        from ticket_to_code.agents.domain_resolver import DomainResolver
+        from ticket_to_code.agents.ownership_resolver import OwnershipResolver
+
+        # Load architecture model from workspace
+        _arch_model = None
+        _ws_path = agents.workspace_path
+        for _yaml_loc in [
+            _ws_path / "brain" / "knowledge" / "architecture_model.yaml",
+            Path(__file__).parent / "config" / "architecture_model.yaml",
+        ]:
+            if _yaml_loc.exists():
+                _arch_model = ArchitectureModel.load_from_yaml(str(_yaml_loc))
+                logger.info(f"  🏗️ Architecture model loaded from {_yaml_loc.name}")
+                break
+
+        if _arch_model and _arch_model.services:
+            # 1. Resolve ticket → business domain(s)
+            _domain_resolver = DomainResolver(_arch_model)
+            _ticket_title = state["ticket"].title if hasattr(state.get("ticket"), "title") else ""
+            _ticket_desc = state["ticket"].description if hasattr(state.get("ticket"), "description") else ""
+            _domain_resolution = _domain_resolver.resolve(_ticket_title, _ticket_desc)
+
+            if _domain_resolution.has_resolution:
+                logger.info(
+                    f"  🏗️ Domain resolution: primary={_domain_resolution.primary_domains} "
+                    f"authorized={_domain_resolution.authorized_services} "
+                    f"confidence={_domain_resolution.confidence:.2f}"
+                )
+
+                # 2. Classify each candidate's ownership
+                _ownership_resolver = OwnershipResolver(_arch_model)
+                _all_domains = _domain_resolution.primary_domains + _domain_resolution.secondary_domains
+
+                for cand in active_discovered:
+                    _cand_path = cand.get("path", "")
+                    if not _cand_path:
+                        continue
+                    _ownership = _ownership_resolver.classify(_cand_path, _all_domains)
+                    cand["_ownership_verdict"] = _ownership.verdict.value
+                    cand["_ownership_policy"] = _ownership.policy.value
+                    cand["_ownership_service"] = _ownership.service_name
+                    cand["_ownership_expected"] = _ownership.expected_service
+                    cand["_ownership_is_hard"] = _ownership.is_hard
+
+                    # Re-tag candidates that MUST NOT be modified
+                    if _ownership.policy.value in ("DO_NOT_MODIFY", "REFERENCE_ONLY"):
+                        cand["candidate_role"] = CandidateRole.REFERENCE.value
+                        _reference_only_candidates.append(cand)
+                        logger.info(
+                            f"    ⛔ REFERENCE_ONLY: {_cand_path} "
+                            f"(verdict={_ownership.verdict.value}, "
+                            f"service={_ownership.service_name}, "
+                            f"expected={_ownership.expected_service}, "
+                            f"hard={_ownership.is_hard})"
+                        )
+
+                # 3. Build domain ownership context for the planner prompt
+                if _reference_only_candidates:
+                    _domain_ownership_context = (
+                        "\n=== DOMAIN OWNERSHIP (READ CAREFULLY) ===\n"
+                        f"Ticket domain: {', '.join(_domain_resolution.primary_domains)}\n"
+                        f"Authorized services: {', '.join(_domain_resolution.authorized_services)}\n"
+                        "The following files are in the candidate pool for CONTEXT ONLY.\n"
+                        "They are architecturally WRONG for this ticket's domain.\n"
+                        "You MUST NOT create modify/create tasks for these files:\n"
+                    )
+                    for rc in _reference_only_candidates:
+                        _domain_ownership_context += (
+                            f"  ❌ {rc['path']} (belongs to {rc.get('_ownership_service', '?')}, "
+                            f"but capability owned by {rc.get('_ownership_expected', '?')})\n"
+                        )
+                    _domain_ownership_context += "=== END DOMAIN OWNERSHIP ===\n"
+            else:
+                logger.info("  🏗️ Domain resolution: no confident match — ownership classification skipped")
+        else:
+            logger.info("  🏗️ No architecture model available — ownership classification skipped")
+    except Exception as _ownership_err:
+        logger.warning(f"  🏗️ Ownership classification failed (non-fatal): {_ownership_err}")
+
+    # ── Preflight Guidance Scoping & Capability Reuse ──
+    # If preflight guidance targets specific files within distinct project/service boundaries,
+    # candidates from external services/projects are treated as context-only REFERENCE
+    if preflight_guidance:
+        _preflight_targets = [
+            g.get("target_file", "").replace("\\", "/")
+            for g in preflight_guidance if g.get("target_file")
+        ]
+        if _preflight_targets:
+            _ws_reg = getattr(agents, "workspace_registry", None)
+            _repo_roots = _ws_reg.discover_repo_roots() if _ws_reg else []
+
+            def _get_project_boundary(p: str) -> Optional[str]:
+                p_norm = p.replace("\\", "/").strip("/")
+                if _ws_reg:
+                    r = _ws_reg.get_repo_for_path(p_norm, _repo_roots)
+                    if r:
+                        return r
+                parts = p_norm.split("/")
+                if len(parts) > 1:
+                    top_dir = parts[0]
+                    ws = Path(agents.workspace_path)
+                    candidate_dir = ws / top_dir
+                    if candidate_dir.is_dir():
+                        manifests = ("pom.xml", "package.json", "build.gradle", "build.gradle.kts", "go.mod", "Cargo.toml", "pyproject.toml")
+                        if any((candidate_dir / m).exists() for m in manifests):
+                            return top_dir
+                return None
+
+            _target_boundaries = {_get_project_boundary(pt) for pt in _preflight_targets}
+            _target_boundaries = {b for b in _target_boundaries if b}
+            if _target_boundaries:
+                for cand in active_discovered:
+                    _cand_p = (cand.get("path") or "").replace("\\", "/")
+                    _cand_boundary = _get_project_boundary(_cand_p)
+                    # If candidate belongs to a distinct project boundary outside targeted boundaries,
+                    # it is a cross-service dependency -> treat as context-only REFERENCE
+                    if _cand_boundary and _cand_boundary not in _target_boundaries:
+                        if cand.get("candidate_role") != CandidateRole.REFERENCE.value:
+                            cand["candidate_role"] = CandidateRole.REFERENCE.value
+                            _reference_only_candidates.append(cand)
+                            logger.info(
+                                f"  ⛔ PREFLIGHT SCOPE: Demoted cross-service candidate to REFERENCE_ONLY: "
+                                f"{_cand_p} (service '{_cand_boundary}' outside targeted services {_target_boundaries})"
+                            )
+
+    if _reference_only_candidates:
+        logger.info(f"  🏗️ {len(_reference_only_candidates)} candidate(s) re-tagged as REFERENCE_ONLY")
 
     _PLANNER_EXCLUDED_ROLES = {
         CandidateRole.LOCK_FILE.value,
@@ -2096,6 +2877,9 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     if not req_testing:
         _PLANNER_EXCLUDED_ROLES.add(CandidateRole.TEST.value)
 
+    # Also exclude REFERENCE (domain-wrong) candidates from the planner's modification pool
+    _PLANNER_EXCLUDED_ROLES.add(CandidateRole.REFERENCE.value)
+
     _planner_excluded = [
         c for c in active_discovered 
         if c["candidate_role"] in _PLANNER_EXCLUDED_ROLES or (c.get("path") and c["path"].replace('\\', '/') in [b.replace('\\', '/') for b in (blacklisted or [])])
@@ -2107,7 +2891,7 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
 
     if _planner_excluded:
         logger.info(
-            f"   Planner-excluded (LOCK_FILE/GENERATED/BLACKLISTED, trace-only): "
+            f"   Planner-excluded (LOCK_FILE/GENERATED/REFERENCE/BLACKLISTED, trace-only): "
             f"{[c['path'] for c in _planner_excluded]}"
         )
 
@@ -2125,16 +2909,62 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     # Ticket-global flat files are never written — cross-run chimeras are impossible.
     _run_trace_dir = agents.tracer.trace_dir  # None when TRACE_MODE is off
 
+    # ── Skill guidance injection ─────────────────────────────────────────────
+    # Keeps simple/isolated tickets fast: tags are derived cheaply (no LLM call)
+    # from the ticket text + discovered file paths, then loaded into planner
+    # guidance so it favors a minimal-diff plan over broad companion expansion.
     try:
+        from ticket_to_code.skills.loader import SkillLoader
+        _skill_tags = ["minimal-diff", "bug-isolation"]
+        _ticket_lower_for_skills = f"{state['ticket'].title} {state['ticket'].description}".lower()
+
+        def _is_frontend_relpath(p: str) -> bool:
+            norm = (p or "").replace("\\", "/").lower()
+            if norm.endswith((".html", ".htm", ".css", ".scss", ".sass", ".less", ".vue", ".svelte", ".jsx", ".tsx")):
+                return True
+            parts = norm.split("/")
+            if len(parts) > 1:
+                top_dir = parts[0]
+                ws = Path(agents.workspace_path)
+                cand_dir = ws / top_dir
+                if cand_dir.is_dir() and any((cand_dir / cfg).exists() for cfg in ("angular.json", "tsconfig.json", "package.json", "vite.config.ts", "next.config.js")):
+                    if not norm.endswith((".java", ".kt", ".scala", ".cs", ".go", ".rs", ".py", ".sql")):
+                        return True
+            return False
+
+        _ui_only = bool(active_discovered_for_planner) and all(
+            _is_frontend_relpath(c.get("path", ""))
+            for c in active_discovered_for_planner
+        )
+        _has_ui_intent = bool(re.search(r'\b(ui|frontend|component|template|view|modal|dialog|css|scss|html|angular|react|vue|page)\b', _ticket_lower_for_skills))
+        if _ui_only or _has_ui_intent:
+            _skill_tags.append("ui-fast-fix")
+        active_skills, skill_guidance = SkillLoader(agents.workspace_path).load_for_tags(_skill_tags)
+        if active_skills:
+            logger.info(f"  [Skills] Loaded: {[s.get('id') for s in active_skills]}")
+    except Exception as skill_exc:
+        logger.warning(f"  [Skills] Failed to load skill guidance (non-fatal): {skill_exc}")
+        active_skills, skill_guidance = [], ""
+
+    try:
+        # Inject preflight guidance + domain ownership context into codebase context
+        _enriched_context = codebase_context
+        if _preflight_guidance_context:
+            _enriched_context = _preflight_guidance_context + "\n" + _enriched_context
+        if _domain_ownership_context:
+            _enriched_context = _domain_ownership_context + "\n" + _enriched_context
+
         plan = agents.planner.create_plan(
             state["ticket"],
             state["requirements"],
-            codebase_context=codebase_context,           # ← RAG context passed here!
+            codebase_context=_enriched_context,              # ← RAG + domain ownership context
             discovered_files=active_discovered_for_planner,  # ← Real repo files (top-25, blacklist excluded)
             blacklisted_files=blacklisted,               # ← Tell the LLM which files are FORBIDDEN
             workspace_path=str(agents.workspace_path),   # ← Fix Bug 3: inject real file content
             verification_feedback=verification_results,  # ← FIX 4.3: Pass semantic feedback
             validation_failure_reason=state.get("validation_failure_reason"), # ← Feedback from gating
+            reference_only_files=_reference_only_candidates,  # ← Domain-wrong files (read-only context)
+            verified_evidence=state.get("verified_evidence"),  # ← Phase 5: inspected capabilities + code
         )
     except Exception as plan_err:
         if _run_trace_dir is not None and _run_trace_dir.exists():
@@ -2310,12 +3140,6 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
                 if not target_exists:
                     continue
 
-                # Record the real symbol to reuse/extend (whatever its name is).
-                if resolution.target_symbol and resolution.target_symbol != "(file)":
-                    task.target_method = resolution.target_symbol
-                    if resolution.target_symbol not in task.allowed_methods:
-                        task.allowed_methods.append(resolution.target_symbol)
-
                 note = (
                     f" | capability-reuse: existing '{resolution.target_symbol or target_norm}' "
                     f"in {target_norm} already fulfils this intent "
@@ -2323,16 +3147,38 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
                 )
                 task.selection_reason = (task.selection_reason or "") + note
 
+                _fnorm = (task.file_path or "").replace("\\", "/")
+                _same_file = _fnorm.endswith(target_norm) or target_norm.endswith(_fnorm)
                 task_type_val = getattr(task.task_type, "value", str(task.task_type)).lower()
-                if task_type_val == "create":
+
+                if not _same_file and task_type_val == "create":
+                    # Retarget the CREATE onto the file that already provides the capability.
                     task.task_type = TaskType.MODIFY
                     task.new_file_creation_allowed = False
-                    # Retarget onto the file that already provides the capability.
                     task.file_path = resolution.target_file
+                    if resolution.target_symbol and resolution.target_symbol != "(file)":
+                        task.target_method = resolution.target_symbol
+                        if resolution.target_symbol not in task.allowed_methods:
+                            task.allowed_methods.append(resolution.target_symbol)
                     logger.info(
                         f"   CREATE→MODIFY (capability): task '{task.id}' reuses existing "
                         f"'{resolution.target_symbol or target_norm}' in {target_norm}"
                     )
+                elif not _same_file and task_type_val == "modify":
+                    # The capability already exists in ANOTHER file — this task would
+                    # invent it in the wrong place (e.g. a new backend method when
+                    # members() already answers the intent). Demote to read-only
+                    # reference so the wrong file is never written.
+                    task.task_type = TaskType.READ_ONLY
+                    logger.info(
+                        f"   MODIFY→READ_ONLY (capability): task '{task.id}' would invent "
+                        f"'{', '.join(task.allowed_methods) or task.target_method or '?'}' in "
+                        f"{_fnorm}, but '{resolution.target_symbol or target_norm}' in "
+                        f"{target_norm} already fulfils it"
+                    )
+                # Same-file reuse is left untouched here; the pre-generation gate's
+                # duplicate-method detection handles same-file inventions so we do
+                # NOT pollute allowed_methods with the existing symbol.
 
             # Persist a trace for debugging/inspection.
             if _resolutions_trace and _run_trace_dir is not None and _run_trace_dir.exists():
@@ -2437,12 +3283,81 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
         "planner_reasoning": getattr(plan, "reasoning", "")
     }
     write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "planner_selection.json", artifact)
-    
+
+    # ── CONTRACT COMPLETENESS VALIDATION ─────────────────────────────────
+    # Check that every cross_file_contract.consumes has a matching produces.
+    # If Task A consumes "ProjectsService.isProjectMember" but no task
+    # produces it, that's an architectural gap that will cause TSC errors.
+    _all_produces: dict[str, str] = {}  # capability → producer task_id
+    _all_consumes: list[tuple[str, str, str]] = []  # (capability, consumer task_id, from_task)
+    for _task in plan.tasks:
+        _cfc = getattr(_task, "cross_file_contract", None)
+        if not _cfc:
+            continue
+        _cfc_dict = _cfc if isinstance(_cfc, dict) else (
+            _cfc.model_dump() if hasattr(_cfc, "model_dump") else {}
+        )
+        for _prod in (_cfc_dict.get("produces") or []):
+            _cap = _prod.get("capability", "") if isinstance(_prod, dict) else getattr(_prod, "capability", "")
+            if _cap:
+                _all_produces[_cap.lower().strip()] = _task.id
+        for _cons in (_cfc_dict.get("consumes") or []):
+            _cap = _cons.get("capability", "") if isinstance(_cons, dict) else getattr(_cons, "capability", "")
+            _from = _cons.get("from_task", "") if isinstance(_cons, dict) else getattr(_cons, "from_task", "")
+            if _cap:
+                _all_consumes.append((_cap.lower().strip(), _task.id, _from or ""))
+
+    _contract_gaps = []
+    for _cap, _consumer_id, _from_task in _all_consumes:
+        if _cap not in _all_produces:
+            # Check if from_task references a task that exists
+            _from_exists = any(
+                t.id == _from_task or t.file_path == _from_task
+                for t in plan.tasks
+            ) if _from_task else False
+
+            if not _from_exists:
+                _contract_gaps.append({
+                    "capability": _cap,
+                    "consumer_task": _consumer_id,
+                    "from_task_hint": _from_task,
+                    "severity": "HIGH",
+                    "description": (
+                        f"Task '{_consumer_id}' consumes '{_cap}' but no task produces it. "
+                        f"This will likely cause TS2339/TS2305 errors during generation."
+                    ),
+                })
+
+    if _contract_gaps:
+        logger.warning(
+            f"  ⚠️ CONTRACT COMPLETENESS: Found {len(_contract_gaps)} unresolved "
+            f"dependency gap(s) in the plan:"
+        )
+        for _gap in _contract_gaps:
+            logger.warning(
+                f"    🔴 '{_gap['capability']}' consumed by {_gap['consumer_task']} "
+                f"but no producer task found"
+            )
+        # Write gaps to trace for diagnostics
+        write_trace_artifact(
+            state["workspace_path"], state["ticket"].ticket_id,
+            "contract_gaps.json",
+            {"gaps": _contract_gaps, "total_produces": len(_all_produces),
+             "total_consumes": len(_all_consumes)},
+        )
+    else:
+        _gap_summary = (
+            f"produces={len(_all_produces)}, consumes={len(_all_consumes)}"
+            if _all_produces or _all_consumes else "no contracts"
+        )
+        logger.info(f"  ✅ CONTRACT COMPLETENESS: All dependencies satisfied ({_gap_summary})")
+
     return {
         "architectural_plan": plan,
         "discovered_files": active_discovered_for_planner,
         "planner_decisions": planner_decisions,
-        "status": "planning_complete"
+        "status": "planning_complete",
+        "contract_gaps": _contract_gaps if _contract_gaps else None,
     }
 
 
@@ -2623,7 +3538,7 @@ def validate_candidates_node(state: TicketToCodeState, agents: WorkflowAgents) -
                     "Planner produced no writable tasks and the requested change was not "
                     f"found in the codebase (not already implemented). {detail}"
                 ),
-                "status": "failed",
+                "status": "planning_needs_recovery",
             }
 
         return {
@@ -2834,6 +3749,141 @@ def validate_candidates_node(state: TicketToCodeState, agents: WorkflowAgents) -
     }
 
 
+# ============================================================================
+# PLANNING RECOVERY NODE
+# ============================================================================
+
+def planning_recovery_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
+    """
+    Diagnose WHY planning produced 0 writable tasks and determine recovery action.
+
+    Uses LLM-driven diagnosis from planning_recovery.py to classify the failure
+    and produce a structured PlanningRecoveryAction that feeds targeted context
+    into the next investigation cycle.
+
+    Recovery types route differently:
+      evidence_incomplete     → discover (targeted re-investigation)
+      evidence_contaminated   → discover (clean re-investigation)
+      wrong_candidates        → discover (expanded scope)
+      requirement_ambiguous   → END (need user input)
+      already_implemented     → END (no_action_required)
+      genuinely_unrecoverable → END (terminal, high-bar)
+    """
+    print("\n" + "=" * 80)
+    print(" ENTERING: planning_recovery_node() in workflow.py")
+    print("   Purpose: Diagnose planning failure and determine recovery action")
+    print("=" * 80)
+    logger.info("✅ PLANNING RECOVERY: Diagnosing planning failure")
+
+    from ticket_to_code.agents.planning_recovery import diagnose_planning_failure
+
+    ticket = state.get("ticket")
+    requirements = state.get("requirements")
+    evidence_items = state.get("evidence_items") or []
+    verification_results = state.get("semantic_verification_results") or []
+    validation_failure_reason = state.get("validation_failure_reason")
+    hypotheses = state.get("investigation_hypotheses") or []
+
+    # Check recovery budget — max 2 recovery cycles to prevent infinite loops
+    existing_action = state.get("planning_recovery_action")
+    recovery_cycle = 0
+    if existing_action:
+        # Extract cycle number from existing recovery_id (e.g. "R1A2B3" → cycle 1)
+        recovery_cycle = 1
+        if hasattr(existing_action, "recovery_id") and existing_action.recovery_id:
+            # Count how many recovery actions have been consumed
+            if getattr(existing_action, "status", "") == "consumed":
+                recovery_cycle = 2
+
+    max_recovery_cycles = 2
+    if recovery_cycle >= max_recovery_cycles:
+        logger.warning(
+            f"  Recovery budget exhausted ({recovery_cycle}/{max_recovery_cycles} cycles). "
+            f"Terminal failure."
+        )
+        return {
+            "status": "failed",
+            "validation_failure_reason": (
+                f"Planning recovery exhausted after {recovery_cycle} cycles. "
+                f"Original failure: {validation_failure_reason}"
+            ),
+        }
+
+    action = diagnose_planning_failure(
+        ticket=ticket,
+        requirements=requirements,
+        evidence_items=evidence_items,
+        verification_results=verification_results,
+        validation_failure_reason=validation_failure_reason,
+        hypotheses=hypotheses,
+    )
+
+    logger.info(f"  Recovery diagnosis: {action.recovery_type} (id={action.recovery_id})")
+    logger.info(f"  Reason: {action.reason}")
+
+    # Route based on recovery type
+    if action.recovery_type == "already_implemented":
+        logger.info("  ✅ Recovery diagnosis: ticket already implemented")
+        return {
+            "planning_recovery_action": action,
+            "status": "no_action_required",
+            "code_status": "code_already_satisfied",
+        }
+
+    if action.recovery_type == "requirement_ambiguous":
+        logger.warning("  ⚠️ Recovery diagnosis: requirement ambiguous (needs user input)")
+        return {
+            "planning_recovery_action": action,
+            "status": "need_more_info",
+            "clarification_question": action.reason,
+        }
+
+    if action.recovery_type == "genuinely_unrecoverable":
+        logger.error(f"  ❌ Recovery diagnosis: genuinely unrecoverable")
+        for pt in action.reasoning_points:
+            logger.error(f"    • {pt}")
+        return {
+            "planning_recovery_action": action,
+            "status": "failed",
+            "validation_failure_reason": (
+                f"Planning recovery determined genuinely unrecoverable: {action.reason}"
+            ),
+        }
+
+    # Recoverable types: evidence_incomplete, evidence_contaminated, wrong_candidates
+    # All route back to discover with structured recovery context
+    logger.info(f"  🔄 Recovery: routing back to discover with recovery context")
+    return {
+        "planning_recovery_action": action,
+        "status": "planning_recovering",
+        # Reset candidate retry count for the new discovery cycle
+        "candidate_retry_count": 0,
+    }
+
+
+def route_after_planning_recovery(state: TicketToCodeState) -> str:
+    """
+    Route after planning recovery diagnosis:
+    - planning_recovering   → discover (re-investigate with targeted context)
+    - no_action_required    → END (already implemented)
+    - need_more_info        → END (needs user clarification)
+    - failed                → END (genuinely unrecoverable or budget exhausted)
+    """
+    status = state.get("status", "")
+    if status == "planning_recovering":
+        logger.info("   Routing to discover with recovery context")
+        return "discover"
+    if status == "no_action_required":
+        logger.info("   Routing to END (already implemented per recovery)")
+        return END
+    if status == "need_more_info":
+        logger.info("   Routing to END (need user input per recovery)")
+        return END
+    # failed or anything else
+    logger.error(f"   Routing to END (terminal: status={status})")
+    return END
+
+
 def localize_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     """
     Phase 2.5: Repository Intelligence — Localization
@@ -2948,6 +3998,30 @@ def hypothesis_investigation_node(
         localized_tasks=localized_tasks,
     )
 
+    # ── Planning Recovery: inject targeted recovery hypothesis ─────────────
+    # When re-entering the pipeline after planning failure, the recovery action
+    # tells us WHERE to look. We synthesize a high-priority hypothesis from it.
+    recovery_action = state.get("planning_recovery_action")
+    if recovery_action and getattr(recovery_action, "status", "") == "active":
+        inv_target = getattr(recovery_action, "investigation_target", None)
+        inv_query = getattr(recovery_action, "investigation_query", None)
+        alt_terms = getattr(recovery_action, "alternative_search_terms", [])
+        if inv_query or inv_target:
+            from ticket_to_code.models import InvestigationHypothesis
+            recovery_hypothesis = InvestigationHypothesis(
+                id=f"recovery_{getattr(recovery_action, 'recovery_id', 'R0')}",
+                hypothesis=f"[RECOVERY] {getattr(recovery_action, 'reason', 'Planning failure recovery')}",
+                queries=[inv_query] if inv_query else [],
+                literals=alt_terms[:5] if alt_terms else [],
+                symbols=[inv_target] if inv_target else [],
+                confidence=0.9,  # High priority — this is the recovery direction
+            )
+            hypotheses.insert(0, recovery_hypothesis)
+            logger.info(
+                f"  🔄 Injected recovery hypothesis: target={inv_target}, "
+                f"query={inv_query}, terms={alt_terms[:3]}"
+            )
+
     logger.info(f"  Generated {len(hypotheses)} hypothesis(es):")
     for h in hypotheses:
         logger.info(
@@ -3004,11 +4078,64 @@ def evidence_collection_loop_node(
             "status": "evidence_collected",
         }
 
+    ui_callback = _get_transient(state, "_ui_callback")
+
+    # ── Evidence sub-step collector for real-time UI updates ──────────
+    # Each sub-step is a dict emitted by the evidence loop at key moments
+    # (stage_0, iteration_start, search_result, verdict, iteration_end).
+    # Stored in state so main.py can broadcast them via WebSocket.
+    _evidence_substeps: list = []
+
+    def _evidence_step_callback(step_data: dict):
+        """Emit sub-steps to live UI AND collect for history/debug."""
+        from datetime import datetime
+        enriched = {
+            **step_data,
+            "timestamp": datetime.now().isoformat(),
+        }
+        _evidence_substeps.append(enriched)
+
+        # ── LIVE BROADCAST: push directly to WebSocket via put() ──
+        # This is the thread-safe broadcast function from main.py,
+        # registered as a transient. Without this, sub-steps only
+        # appear after the entire node completes (buffered, not real-time).
+        if ui_callback:
+            _sub_type = enriched.get("type", "")
+            _sub_msg = enriched.get("message", "")
+            _icon_map = {
+                "stage_0_start": "🔍",
+                "stage_0_result": "🔍",
+                "iteration_start": "🔄",
+                "search_result": "🔎",
+                "verdict": "✅" if enriched.get("decision") == "include" else "❌",
+                "iteration_end": "📊",
+                "early_stop": "✅",
+            }
+            _icon = _icon_map.get(_sub_type, "⚙️")
+            try:
+                ui_callback({
+                    "phase": "evidence_collection_loop",
+                    "status": "in_progress",
+                    "message": f"{_icon} {_sub_msg}" if _sub_msg else f"{_icon} {_sub_type}",
+                    "data": {
+                        "node": "evidence_collection_loop",
+                        "sub_step_type": _sub_type,
+                        **{k: v for k, v in enriched.items()
+                           if k not in ("type", "message", "timestamp")},
+                    },
+                    "timestamp": enriched["timestamp"],
+                })
+            except Exception as _ui_exc:
+                logger.debug(f"  Live UI broadcast failed (non-fatal): {_ui_exc}")
+
     collect_result = agents.evidence_loop.collect(
         hypotheses=hypotheses,
         localized_tasks=localized_tasks,
         ticket=ticket,
         investigation=state.get("investigation_result"),
+        step_callback=_evidence_step_callback,
+        requirements=state.get("requirements"),
+        recovery_context=state.get("planning_recovery_action"),
     )
 
     # collect() returns 3-tuple: (items, confidence, clarification_question)
@@ -3035,6 +4162,7 @@ def evidence_collection_loop_node(
             "evidence_items": evidence_items,
             "status": "need_more_info",
             "clarification_question": clarification_question,
+            "_evidence_substeps": _evidence_substeps,
             "semantic_verification_results": [
                 {
                     "file_path": v.get("file_path", fp),
@@ -3073,10 +4201,249 @@ def evidence_collection_loop_node(
     # Carry agentic verdicts forward for semantic_verification_node
     agentic_verdicts = getattr(agents.evidence_loop, "_agentic_verdicts", {})
 
+    # ── Phase 5: Build verified evidence block for the planner ────────────
+    # Extracts progressive inspection results (structural knowledge + actual
+    # source code regions) and serializes them as a structured text block
+    # that the planner can reason about. Preserves provenance: file, class,
+    # methods, relationships, contracts, actual code, facts, questions.
+    verified_evidence = ""
+    _inspections = getattr(agents.evidence_loop, "_artifact_inspections", {})
+    _ev_knowledge = getattr(agents.evidence_loop, "_evidence_knowledge", None)
+    if _inspections:
+        parts = []
+        for fp, insp in _inspections.items():
+            if not insp.facts and not insp.methods and not insp.type_dependencies:
+                continue
+            section = f"\nFILE: {fp}\n"
+            if insp.class_name:
+                section += f"  Class: {insp.class_name}\n"
+            if insp.methods:
+                section += f"  Methods:\n"
+                for m in insp.methods:
+                    sig = f"({m.signature})" if m.signature else "()"
+                    ret = f" → {m.return_type}" if m.return_type else ""
+                    loc = f" [L{m.line_start}-{m.line_end}]" if m.line_start else ""
+                    section += f"    {m.name}{sig}{ret}{loc}\n"
+            if insp.relevant_methods:
+                section += f"  RELEVANT TO TICKET: {', '.join(m.name for m in insp.relevant_methods)}\n"
+            if insp.type_dependencies:
+                unique_deps = list(dict.fromkeys(insp.type_dependencies))
+                section += f"  Type dependencies: {', '.join(unique_deps[:12])}\n"
+            if insp.api_contracts:
+                section += f"  API contracts: {', '.join(insp.api_contracts[:5])}\n"
+            # Relationship provenance
+            _verdict = agentic_verdicts.get(fp, {})
+            _reason = _verdict.get("reason", "")
+            if _reason:
+                section += f"  Discovery reason: {_reason[:200]}\n"
+            section += f"  Inspection depth: {insp.inspection_depth}\n"
+            section += f"  Providers: {', '.join(insp.providers_used)}\n"
+            # Actual source code regions (the critical piece)
+            for method_name, region in insp.relevant_code_regions.items():
+                code = region.get("code", "")
+                if code:
+                    section += f"  --- ACTUAL CODE: {method_name}() L{region.get('start')}-{region.get('end')} ---\n"
+                    for line in code.splitlines()[:40]:
+                        section += f"    {line}\n"
+                    section += f"  --- END CODE ---\n"
+            # Facts with provenance
+            if insp.facts:
+                section += f"  Verified facts:\n"
+                for f in insp.facts:
+                    prov = f"[{f.source}]" if f.source else ""
+                    conf = f" (confidence={f.confidence:.1f})" if f.confidence and f.confidence < 1.0 else ""
+                    section += f"    {prov} {f.fact}{conf}\n"
+            # Questions (unresolved)
+            if insp.questions:
+                # Deduplicate questions
+                seen_q = set()
+                unique_questions = []
+                for q in insp.questions:
+                    if q not in seen_q:
+                        seen_q.add(q)
+                        unique_questions.append(q)
+                if unique_questions:
+                    section += f"  Open questions:\n"
+                    for q in unique_questions[:5]:
+                        section += f"    ? {q}\n"
+            parts.append(section)
+
+        if parts:
+            verified_evidence = "\n".join(parts)
+            logger.info(
+                f"  Phase 5: Built verified_evidence block with "
+                f"{len(parts)} inspected file(s), "
+                f"{sum(len(i.relevant_code_regions) for i in _inspections.values())} code region(s)"
+            )
+
+    # ── Phase 5b: Synthesize BehavioralUnderstanding (understand-first) ───────
+    # Composes existing signals (inspections + relationships + contracts +
+    # semantic constraints + reuse decisions + change authorization) into an
+    # ordered, plan-ready understanding. No new gate/agent/phase.
+    try:
+        from ticket_to_code.agents.behavioral_understanding import (
+            build_behavioral_understanding,
+        )
+        _ticket_bu = state.get("ticket")
+        _authorized_bu: set[str] = set()
+        for _attr in ("expected_changed_files", "expected_owner_files"):
+            for _f in (getattr(_ticket_bu, _attr, None) or []):
+                if _f:
+                    _authorized_bu.add(str(_f))
+        # Evidence-proven primary feature targets from localization ownership.
+        # A discovered file is only a change candidate when ownership proves it
+        # directly implements the requested behavior — discovery alone is not proof.
+        _primary_targets_bu: set[str] = set()
+        for _d in (state.get("discovered_files") or []):
+            if not isinstance(_d, dict):
+                continue
+            _dp = _d.get("path") or ""
+            _ot = _d.get("ownership_type") or (_d.get("cluster") or {}).get("ownership_type") or ""
+            if _dp and str(_ot).upper() in ("PRIMARY_OWNER", "PRIMARY_FEATURE_TARGET", "DISPLAY_OWNER"):
+                _primary_targets_bu.add(str(_dp))
+        # Phase B inputs: feature phrase (surfacing) + per-file semantic relevance
+        # from evidence collection. derive_primary_targets proves the primary
+        # feature target by INSPECTION, never by score/filename alone.
+        from ticket_to_code.agents.localization_agent import extract_feature_phrase as _efp
+        _feature_tokens_bu = _efp(
+            f"{getattr(_ticket_bu, 'title', '') or ''} "
+            f"{getattr(_ticket_bu, 'description', '') or ''}"
+        )
+        _semantic_scores_bu: dict = {}
+        for _e in (evidence_items or []):
+            _efpath = getattr(_e, "file_path", "") or ""
+            if _efpath:
+                _semantic_scores_bu[_efpath] = {
+                    "decision": "include",
+                    "score": float(getattr(_e, "relevance_score", 0.0) or 0.0),
+                }
+        _bu = build_behavioral_understanding(
+            ticket_title=getattr(_ticket_bu, "title", "") or "",
+            ticket_description=getattr(_ticket_bu, "description", "") or "",
+            requirements_text=str(state.get("requirements") or ""),
+            inspections=_inspections or {},
+            relationships=getattr(_ev_knowledge, "relationships", None) if _ev_knowledge else None,
+            api_contracts=getattr(_ev_knowledge, "api_contracts", None) if _ev_knowledge else None,
+            unresolved=getattr(_ev_knowledge, "unresolved_questions", None) if _ev_knowledge else None,
+            evidence_files=[getattr(e, "file_path", "") for e in (evidence_items or []) if getattr(e, "file_path", "")],
+            authorized_files=_authorized_bu,
+            scope_declared=bool(_authorized_bu),
+            primary_targets=_primary_targets_bu,
+            feature_tokens=_feature_tokens_bu,
+            semantic_scores=_semantic_scores_bu,
+        )
+        if _ev_knowledge is not None:
+            try:
+                setattr(_ev_knowledge, "behavioral_understanding", _bu)
+            except Exception:
+                pass
+        _bu_block = _bu.to_planning_block()
+        if _bu_block:
+            verified_evidence = _bu_block + "\n\n" + (verified_evidence or "")
+            logger.info(
+                f"  Phase 5b: BehavioralUnderstanding synthesized "
+                f"(delta={len(_bu.behavioral_delta)}, reuse={len(_bu.reuse_decisions)}, "
+                f"change_candidates={len(_bu.change_candidates)}, "
+                f"references={len(_bu.reference_artifacts)}, conf={_bu.confidence:.2f})"
+            )
+            # ── Forensic trace (Section 26): capability / reuse / understanding ──
+            for _c in _bu.existing_capabilities[:8]:
+                _prov = "grounded" if getattr(_c, "grounded", True) else "rag"
+                logger.info(
+                    f"  [CAPABILITY] [{_prov}] {(_c.owner + '.') if _c.owner else ''}{_c.name}"
+                    f"{('(' + _c.signature + ')') if _c.signature else ''}"
+                )
+            for _d in _bu.reuse_decisions[:8]:
+                logger.info(
+                    f"  [REUSE] {_d.decision.upper()} '{_d.requirement}'"
+                    f"{(' → ' + _d.existing_symbol) if _d.existing_symbol else ''}: {_d.reason}"
+                )
+            for _d in _bu.behavioral_delta[:6]:
+                logger.info(f"  [UNDERSTANDING] delta: {_d}")
+            for _cc in _bu.change_candidates[:10]:
+                logger.info(f"  [PLAN] change_candidate: {_cc}")
+            for _rf in _bu.reference_artifacts[:10]:
+                logger.info(f"  [PLAN] read_only_reference: {_rf}")
+    except Exception as _bu_exc:
+        logger.debug(f"  Phase 5b BehavioralUnderstanding skipped (non-fatal): {_bu_exc}")
+
+    # ── TicketScopeProof Construction & Validation ───────────────────────────
+    _ticket_scope_proof = None
+    try:
+        from ticket_to_code.agents.ticket_scope_proof import (
+            TicketScopeProof, ScopeGraph, EvidenceRole, OwnershipResolver,
+            resolve_structural_companions, validate_scope_graph,
+        )
+        _ticket_obj = state.get("ticket")
+        _tid = str(getattr(_ticket_obj, "ticket_id", "TICKET") or "TICKET")
+        _title = str(getattr(_ticket_obj, "title", "") or "")
+        _desc = str(getattr(_ticket_obj, "description", "") or "")
+
+        _providers: set[str] = set()
+        _related_context: set[str] = set()
+        _dependencies: set[str] = set()
+        _candidate_anchors: list[str] = []
+
+        for _ei in evidence_items:
+            _efp = getattr(_ei, "file_path", "")
+            if not _efp:
+                continue
+            _erole = getattr(_ei, "evidence_role", None) or getattr(_ei, "role", None)
+            if _erole == EvidenceRole.PROVIDER or _efp.endswith(".service.ts") or _efp.endswith("Service.java"):
+                _providers.add(_efp)
+            elif _erole == EvidenceRole.RELATED_CONTEXT:
+                _related_context.add(_efp)
+            elif _erole == EvidenceRole.DEPENDENCY:
+                _dependencies.add(_efp)
+            else:
+                _candidate_anchors.append(_efp)
+
+        _owner_resolver = OwnershipResolver(workspace_path=state.get("workspace_path"))
+        _tokens = [t for t in re.split(r'[-_.\s]+', _title.lower()) if len(t) > 2]
+        _primary_anchor, _conf, _reason = _owner_resolver.resolve_owner(
+            ticket_title=_title,
+            ticket_description=_desc,
+            candidate_files=_candidate_anchors,
+            anchor_tokens=_tokens,
+        )
+
+        _companions: set[str] = set()
+        if _primary_anchor:
+            _companions = resolve_structural_companions(_primary_anchor, workspace_root=state.get("workspace_path"))
+
+        _scope_graph = ScopeGraph(
+            ticket_id=_tid,
+            primary_anchor=_primary_anchor,
+            companions=_companions,
+            dependencies=_dependencies,
+            providers=_providers,
+            related_context=_related_context,
+        )
+        _is_valid, _val_errors = validate_scope_graph(_scope_graph)
+        _is_proven = bool(_primary_anchor and _conf >= 0.70 and _is_valid)
+
+        _ticket_scope_proof = TicketScopeProof(
+            ticket_id=_tid,
+            scope_graph=_scope_graph,
+            is_scope_proven=_is_proven,
+            proof_reasoning=_reason if _primary_anchor else "No proven anchor",
+        )
+        state["ticket_scope_proof"] = _ticket_scope_proof
+        logger.info(
+            f"  🔒 TicketScopeProof generated: proven={_is_proven}, "
+            f"anchor={_primary_anchor}, writable={len(_scope_graph.all_writable_files())}, "
+            f"readonly={len(_scope_graph.all_readonly_files())}"
+        )
+    except Exception as _tsp_err:
+        logger.debug(f"  ScopeProof construction skipped: {_tsp_err}")
+
     return {
         "evidence_items": evidence_items,
         "query_expansion_map": expansion_map,
+        "verified_evidence": verified_evidence,  # Phase 5: for planner
         "status": "evidence_collected",
+        "_evidence_substeps": _evidence_substeps,
+        "ticket_scope_proof": _ticket_scope_proof,
         "semantic_verification_results": [
             {
                 "file_path": v.get("file_path", fp),
@@ -3176,6 +4543,29 @@ def evidence_ranking_node(
             f"items for non-evidence group members"
         )
 
+    # ── Step 2.5: Discover repository roots for ranking context ───────
+    # WorkspaceRegistryManager is the single owner of repository identity.
+    # It discovers Git repository boundaries once, then batch-resolves
+    # every candidate path → its containing repository root (or None).
+    from ticket_to_code.storage.workspace_registry import WorkspaceRegistryManager
+
+    registry_mgr = WorkspaceRegistryManager(str(workspace_path))
+    repo_roots = registry_mgr.discover_repo_roots()
+    candidate_paths = {e.file_path.replace("\\", "/") for e in evidence_items}
+    repo_root_map = registry_mgr.build_repo_root_map(candidate_paths, repo_roots)
+
+    # Log repository identity for each candidate (traceable)
+    orphan_count = sum(1 for v in repo_root_map.values() if v is None)
+    logger.info(
+        f"  [RepoIdentity] {len(repo_root_map)} candidates, "
+        f"{len(repo_root_map) - orphan_count} in recognized repos, "
+        f"{orphan_count} orphan(s)"
+    )
+    for fp, repo in sorted(repo_root_map.items()):
+        logger.info(
+            f"    candidate={fp}  repo={repo if repo is not None else '<orphan>'}"
+        )
+
     # ── Step 3: Rank all evidence (including injected group members) ──────
     ranker = EvidenceRankingEngine()
     ranked_items, ranked_files = ranker.rank(
@@ -3183,13 +4573,14 @@ def evidence_ranking_node(
         hypotheses=hypotheses,
         localized_tasks=localized_tasks,
         expansion_map=state.get("query_expansion_map") or {},
+        repo_root_map=repo_root_map,
     )
 
     if ranked_files:
         top = ranked_files[0]
         logger.info(
             f"  Ranking complete: {len(ranked_files)} unique files, "
-            f"top='{top.file_path}' ({top.final_score:.3f})"
+            f"top='{top.file_path}' ({top.final_score:.3f}) repo={top.repo_root or '<orphan>'}"
         )
 
     # ── Step 4: Trace ────────────────────────────────────────────────────
@@ -3209,12 +4600,28 @@ def evidence_ranking_node(
     except Exception:
         pass  # Tracing is best-effort
 
+    # ── v3: Populate TicketExecutionContext with component groups ──────────
+    try:
+        _exec_ctx = _get_transient(state, "exec_ctx")
+        if _exec_ctx:
+            _exec_ctx.set_component_groups(component_groups)
+            reqs = state.get("requirements")
+            if reqs:
+                _exec_ctx.set_requirements(
+                    functional=getattr(reqs, "functional_requirements", []) or [],
+                    technical=getattr(reqs, "technical_requirements", []) or [],
+                )
+            logger.info(f"  [v3] ExecCtx updated: {len(component_groups)} component groups")
+    except Exception as _ectx_err:
+        logger.debug(f"  [v3] ExecCtx update failed (non-fatal): {_ectx_err}")
+
     return {
         "evidence_items": ranked_items,
         "ranked_files": ranked_files,
         "component_groups": component_groups,
         "status": "evidence_ranked",
     }
+
 
 
 def grounded_understanding_node(
@@ -3542,6 +4949,18 @@ def grounded_understanding_node(
         f"    hypotheses ✅    : {grounded.hypotheses_confirmed}\n"
         f"    hypotheses ❌    : {grounded.hypotheses_refuted}"
     )
+
+    # ── v3: Populate TicketExecutionContext with grounded understanding ────
+    try:
+        _exec_ctx = _get_transient(state, "exec_ctx")
+        if _exec_ctx:
+            _exec_ctx.set_grounded_understanding(grounded)
+            # Set plan tasks if available
+            if plan and getattr(plan, "tasks", None):
+                _exec_ctx.set_plan(plan.tasks)
+            logger.info("  [v3] ExecCtx updated: grounded understanding + plan")
+    except Exception as _ectx_err:
+        logger.debug(f"  [v3] ExecCtx update failed (non-fatal): {_ectx_err}")
 
     return {
         "grounded_understanding": grounded,
@@ -4173,9 +5592,10 @@ def _find_component_companions(
         if rel and rel not in existing_paths and (workspace_path / rel).is_file():
             results.append((rel, "sibling_colocation"))
 
-    # Strategy 3 (model_import_follow): follow relative imports that point to
+    # Strategy 3 (model_import_reference): follow relative imports that point to
     # model/interface/dto files — e.g. import { DisplayedMember } from '../../shared/models/displayed-member'
-    # These must be in the plan so new interface properties are actually added.
+    # Invariant: Import != Writable. These are gathered as READ-ONLY reference context,
+    # NEVER as writable tasks.
     if content:
         _model_import_re = re.compile(
             r"import\s*\{[^}]+\}\s*from\s*['\"](\.[^'\"]+)['\"]",
@@ -4191,7 +5611,7 @@ def _find_component_companions(
                         workspace_path,
                     )
                     if _cand and _cand not in existing_paths and (workspace_path / _cand).is_file():
-                        results.append((_cand, "model_import_follow"))
+                        results.append((_cand, "model_import_reference"))
                         break
 
     seen: set = set()
@@ -4312,10 +5732,25 @@ def _make_companion_task(
                 f"Update to support: {source_title}. {source_desc}"
             )
     else:
-        # Fallback: generic description (pre-Component-Group behavior)
+        # Fallback: generic description when source_task is not provided
         companion_instruction = (
             f"Companion of {source_file} resolved via {strategy}. Edit alongside the "
             f"component so the UI change is applied across template/style/i18n."
+        )
+
+    # Invariant: DISCOVERY != READ_ONLY_REFERENCE != CHANGE_TARGET != AUTHORIZED_CHANGE_TARGET
+    # Imported models, types, DTOs, and consumer references are READ_ONLY reference context.
+    is_reference_only = strategy in (
+        "model_import_reference", "model_import_follow",
+        "type_consumer_reference", "type_consumer_follow",
+        "data_model_gap"
+    )
+    task_type = TaskType.READ_ONLY if is_reference_only else TaskType.MODIFY
+    if is_reference_only:
+        ownership = "READ_ONLY"
+        companion_instruction = (
+            f"Read-only reference context: {strategy} of '{Path(source_file).name}'. "
+            f"Provided for type/contract awareness only — strictly read-only, DO NOT modify."
         )
 
     return DevelopmentTask(
@@ -4323,7 +5758,7 @@ def _make_companion_task(
         title=f"Companion ({strategy}): {Path(file_path).name}",
         description=companion_instruction,
         file_path=file_path,
-        task_type=TaskType.MODIFY,
+        task_type=task_type,
         language=lang,
         localization_confidence=0.7,
         localization_reason=f"companion_colocation: {strategy} of {source_file}",
@@ -4371,6 +5806,26 @@ def ownership_completeness_node(
 
     writable_tasks = [t for t in plan.tasks if t.task_type.value != "read_only"]
 
+    def _is_frontend_task_file(p: str) -> bool:
+        norm = (p or "").replace("\\", "/").lower()
+        if norm.endswith((".html", ".htm", ".css", ".scss", ".sass", ".less", ".vue", ".svelte", ".jsx", ".tsx")):
+            return True
+        parts = norm.split("/")
+        if len(parts) > 1:
+            top_dir = parts[0]
+            cand_dir = workspace_path / top_dir
+            if cand_dir.is_dir() and any((cand_dir / cfg).exists() for cfg in ("angular.json", "tsconfig.json", "package.json", "vite.config.ts", "next.config.js")):
+                if not norm.endswith((".java", ".kt", ".scala", ".cs", ".go", ".rs", ".py", ".sql")):
+                    return True
+        return False
+
+    # UI-only tickets (all writable files in frontend/UI modules, no compiled backend
+    # files) rarely need the full companion safety net — cap it tighter so a
+    # simple validator/component fix doesn't balloon into a dozen extra files.
+    _ui_only_ticket = bool(writable_tasks) and all(
+        _is_frontend_task_file(t.file_path) for t in writable_tasks
+    )
+
     # ── Enrich ticket_lower with grounded understanding root cause ────────────
     grounded = state.get("grounded_understanding")
     if grounded and grounded.root_cause:
@@ -4386,15 +5841,29 @@ def ownership_completeness_node(
 
     logger.info(f"  Ticket intent: layout={is_layout}, data={is_data}")
 
+    from ticket_to_code.agents.canonical_path import canonical_repo_path
+
     # Collect existing paths (we never add duplicates)
-    # Also include any extra context files from GroundedUnderstanding
-    existing_paths: Set[str] = {
-        t.file_path.replace("\\", "/") for t in plan.tasks
-    }
+    # Using workspace-rooted canonical repository-relative identity
+    tasks_by_path: dict[str, Any] = {}
+    existing_paths: Set[str] = set()
+    for t in plan.tasks:
+        cp = canonical_repo_path(t.file_path, workspace_path)
+        if cp:
+            existing_paths.add(cp)
+            tasks_by_path[cp] = t
+        else:
+            p_clean = t.file_path.replace("\\", "/").strip("/")
+            existing_paths.add(p_clean)
+            tasks_by_path[p_clean] = t
+
     if grounded:
-        existing_paths.update(
-            p.replace("\\", "/") for p in (grounded.readonly_context_files or [])
-        )
+        for p in (grounded.readonly_context_files or []):
+            cp = canonical_repo_path(p, workspace_path)
+            if cp:
+                existing_paths.add(cp)
+            else:
+                existing_paths.add(p.replace("\\", "/").strip("/"))
 
     # ── Ownership type summary ───────────────────────────────────────────────
     ownership_summary: dict = {}
@@ -4473,8 +5942,9 @@ def ownership_completeness_node(
     # With Component Group Architecture, the planner already sees component
     # groups and creates tasks for each file that needs changes. This section
     # is now a SAFETY NET that catches any companion files the planner missed.
-    # Cap is per-component-group (6 groups) instead of per-file.
-    _COMPANION_GROUP_CAP = 12
+    # Cap is per-component-group (6 groups) instead of per-file. Tighter for
+    # UI-only tickets, which rarely need the full safety net.
+    _COMPANION_GROUP_CAP = 4 if _ui_only_ticket else 12
     companion_records: list = []
     companion_groups_added = 0
     for task in list(writable_tasks):
@@ -4484,31 +5954,40 @@ def ownership_completeness_node(
         for comp_path, strategy in _find_component_companions(
             task.file_path, workspace_path, existing_paths
         ):
-            if comp_path in existing_paths:
+            canon_comp = canonical_repo_path(comp_path, workspace_path) or comp_path.replace("\\", "/")
+            if canon_comp in existing_paths:
                 # Already in the plan (planner created a task for it via
-                # component group context) — skip to prevent double-injection
+                # component group context or prior discovery) — merge provenance
+                existing_task = tasks_by_path.get(canon_comp)
+                if existing_task:
+                    existing_task.localization_reason = (
+                        f"{getattr(existing_task, 'localization_reason', '')}; "
+                        f"merged_companion: {strategy} from {task.file_path}"
+                    )
                 logger.info(
-                    f"   Companion [{strategy}]: {comp_path} SKIPPED "
-                    f"(already in plan from component group)"
+                    f"   Companion [{strategy}]: {canon_comp} MERGED into existing task "
+                    f"(preventing duplicate task generation)"
                 )
                 continue
             if companion_groups_added >= _COMPANION_GROUP_CAP:
                 break
             logger.info(
-                f"   Companion [{strategy}]: {comp_path} (safety net for {task.file_path})"
+                f"   Companion [{strategy}]: {canon_comp} (safety net for {task.file_path})"
             )
-            expanded_tasks.append(_make_companion_task(
-                file_path=comp_path,
+            new_comp_task = _make_companion_task(
+                file_path=canon_comp,
                 task_index=len(plan.tasks) + len(expanded_tasks) + 1,
                 source_file=task.file_path,
                 strategy=strategy,
                 source_task=task,
-            ))
-            existing_paths.add(comp_path)
-            companions_for_this_task.append(comp_path)
+            )
+            expanded_tasks.append(new_comp_task)
+            existing_paths.add(canon_comp)
+            tasks_by_path[canon_comp] = new_comp_task
+            companions_for_this_task.append(canon_comp)
             companion_records.append({
                 "source_file": task.file_path,
-                "companion": comp_path,
+                "companion": canon_comp,
                 "strategy": strategy,
                 "safety_net": True,
             })
@@ -4520,19 +5999,22 @@ def ownership_completeness_node(
         for i18n_path, strategy in _find_i18n_owner_files(
             ticket_lower, workspace_path, existing_paths
         ):
-            if i18n_path in existing_paths or len(expanded_tasks) >= _COMPANION_GROUP_CAP:
+            canon_i18n = canonical_repo_path(i18n_path, workspace_path) or i18n_path.replace("\\", "/")
+            if canon_i18n in existing_paths or len(expanded_tasks) >= _COMPANION_GROUP_CAP:
                 continue
-            logger.info(f"   Companion [{strategy}]: {i18n_path} (ticket i18n key)")
-            expanded_tasks.append(_make_companion_task(
-                file_path=i18n_path,
+            logger.info(f"   Companion [{strategy}]: {canon_i18n} (ticket i18n key)")
+            new_i18n_task = _make_companion_task(
+                file_path=canon_i18n,
                 task_index=len(plan.tasks) + len(expanded_tasks) + 1,
                 source_file="ticket i18n keys",
                 strategy=strategy,
-            ))
-            existing_paths.add(i18n_path)
+            )
+            expanded_tasks.append(new_i18n_task)
+            existing_paths.add(canon_i18n)
+            tasks_by_path[canon_i18n] = new_i18n_task
             companion_records.append({
                 "source_file": "ticket",
-                "companion": i18n_path,
+                "companion": canon_i18n,
                 "strategy": strategy,
             })
 
@@ -4846,6 +6328,15 @@ def dataflow_verification_node(state: TicketToCodeState, agents: WorkflowAgents)
     else:
         logger.info("  ✅ DataFlow: all template bindings have corresponding data suppliers")
 
+    # ── v3: Populate TicketExecutionContext with data flow reports ─────────
+    try:
+        _exec_ctx = _get_transient(state, "exec_ctx")
+        if _exec_ctx and reports:
+            _exec_ctx.set_dataflow_reports(reports)
+            logger.info(f"  [v3] ExecCtx updated: {len(reports)} data flow reports")
+    except Exception as _ectx_err:
+        logger.debug(f"  [v3] ExecCtx dataflow update failed (non-fatal): {_ectx_err}")
+
     return result
 
 
@@ -4887,17 +6378,38 @@ def rag_for_code_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     """
     Phase 3B: RAG Context Retrieval for CODE GENERATION (B2 - cascading context).
 
-    Uses ContextRetrievalService which cascades through:
-      RAG → Neo4j → SQLite → Grep → DirectRead
-    so code generation never receives zero context.
+    CONDITIONAL: Only runs if the plan contains at least one CREATE task.
+    For MODIFY-only tickets, the code generator already has:
+      - Full existing file content
+      - Import context from SQLite symbol index
+      - Cross-file context from ContextAssembler
+      - Session context from previously-generated files
+      - Contract context (produces/consumes from planner)
+
+    When it runs, it runs ONCE — the same context is shared
+    across ALL CREATE tasks in the generation session.
     """
+    plan = _get_plan(state)
+
+    # Check if any task is a CREATE (new file) task
+    has_create = False
+    if plan and plan.tasks:
+        has_create = any(
+            getattr(t, "task_type", None) and
+            getattr(t.task_type, "value", str(t.task_type)) == "create"
+            for t in plan.tasks
+        )
+
+    if not has_create:
+        logger.info("⚡ PHASE 3B: Skipped — MODIFY-only ticket (no CREATE tasks)")
+        return {"code_rag_context": []}
+
+    # CREATE tasks need architectural pattern context since there's no
+    # existing file content to learn conventions from.
     logger.info("⚡ PHASE 3B: Context Retrieval for Code (cascading — B2)")
 
     run_ctx: Optional[RunContext] = _get_transient(state, "run_ctx")
-    if run_ctx:
-        run_ctx.start_phase("rag_for_code")
-
-    plan = _get_plan(state)
+    # start_phase/end_phase handled by _phase_tracked_node wrapper
 
     try:
         svc = ContextRetrievalService(
@@ -4925,8 +6437,7 @@ def rag_for_code_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
         if run_ctx:
             run_ctx.degrade("context_retrieval", HealthLevel.FAILED, str(exc))
     finally:
-        if run_ctx:
-            run_ctx.end_phase("rag_for_code")
+        pass  # end_phase handled by _phase_tracked_node wrapper
 
     return {"code_rag_context": code_context}
 
@@ -5113,6 +6624,138 @@ Angular/TypeScript (Jasmine + Karma) for .ts/.spec.ts files.
     }
 
 
+def _build_task_explanation(
+    task,
+    task_index: int,
+    total_tasks: int,
+    previously_written: dict,
+    prev_explanations: list,
+) -> dict:
+    """Build a human-readable explanation of what code generation will do for this task.
+
+    This serves two purposes:
+      1. UI display: shown in the transparent workflow before code gen starts
+      2. LLM context: accumulated across tasks so task N knows what tasks 1..N-1 did
+
+    Returns a dict with:
+      - task_id, task_index, total_tasks
+      - file_path, change_type
+      - purpose: human-readable WHY
+      - produces: list of symbol names this task will create
+      - consumes: list of symbol names this task uses from others
+      - previously_written_summary: list of {file, exports} from earlier tasks
+      - explanation_text: fully formatted multi-line string for UI
+    """
+    from pathlib import Path
+
+    change_type = getattr(task.task_type, "value", str(task.task_type))
+    basename = Path(task.file_path).name
+
+    # ── Purpose (WHY) ──
+    purpose = task.description[:300] if task.description else task.title
+
+    # ── Produces / Consumes (WHAT cross-file) ──
+    produces = []
+    consumes = []
+    contract = getattr(task, "cross_file_contract", None)
+    if contract:
+        for bp in (contract.produces or []):
+            label = bp.capability
+            if bp.data_shape:
+                label += f" [{bp.data_shape}]"
+            produces.append(label)
+        for bp in (contract.consumes or []):
+            label = bp.capability
+            if bp.data_shape:
+                label += f" [{bp.data_shape}]"
+            src = f" (from {bp.from_task})" if bp.from_task else ""
+            consumes.append(f"{label}{src}")
+
+    # ── Previously written files summary ──
+    prev_summary = []
+    for fp, content in (previously_written or {}).items():
+        if not content:
+            continue
+        # Extract key exports from the file content
+        exports = []
+        for line in (content or "").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("export ") and any(
+                kw in stripped for kw in ("class ", "interface ", "enum ", "type ", "function ", "const ")
+            ):
+                exports.append(stripped[:100])
+            elif stripped.startswith(("public ", "protected ")) and "(" in stripped:
+                sig = stripped.split("{")[0].strip()
+                if len(sig) > 10:
+                    exports.append(sig[:100])
+        prev_summary.append({
+            "file": fp,
+            "basename": Path(fp).name,
+            "exports": exports[:10],
+        })
+
+    # ── Build formatted explanation text for UI ──
+    lines = [
+        f"📋 Task {task_index}/{total_tasks}: {task.title}",
+        f"📁 File: {task.file_path}",
+        f"🔄 Change: {change_type.upper()}",
+        f"",
+        f"📝 Purpose:",
+        f"   {purpose}",
+    ]
+
+    if produces:
+        lines.append("")
+        lines.append("🔧 Will CREATE these symbols:")
+        for p in produces:
+            lines.append(f"   • {p}")
+
+    if consumes:
+        lines.append("")
+        lines.append("📥 Will USE these from other files:")
+        for c in consumes:
+            lines.append(f"   • {c}")
+
+    if prev_summary:
+        lines.append("")
+        lines.append(f"✅ Previously written ({len(prev_summary)} files):")
+        for ps in prev_summary[:8]:
+            lines.append(f"   📄 {ps['basename']}")
+            for exp in ps["exports"][:5]:
+                lines.append(f"      ↳ {exp}")
+
+    if task.dependencies:
+        lines.append("")
+        lines.append(f"🔗 Depends on: {', '.join(task.dependencies)}")
+
+    explanation_text = "\n".join(lines)
+
+    result = {
+        "task_id": task.id,
+        "task_index": task_index,
+        "total_tasks": total_tasks,
+        "file_path": task.file_path,
+        "basename": basename,
+        "change_type": change_type,
+        "purpose": purpose,
+        "produces": produces,
+        "consumes": consumes,
+        "previously_written_summary": prev_summary,
+        "dependencies": task.dependencies or [],
+        "explanation_text": explanation_text,
+    }
+
+    # Add to accumulated context for the next task
+    prev_explanations.append({
+        "task_id": task.id,
+        "file": task.file_path,
+        "produces": produces,
+        "consumes": consumes,
+    })
+
+    return result
+
+
 def generate_code_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     """
     Phase 4B: Generate Implementation Code SECOND (TDD)
@@ -5145,6 +6788,44 @@ EVIDENCE SUMMARY ({len(grounded.evidence)} items):
 {chr(10).join(f'  [{e.source}] {e.file_path}: {e.content_snippet[:80]}' for e in grounded.evidence[:8])}
 """
     
+    # ── Semantic constraints (cardinality/per-item/read-only/duplicate/persistence) ──
+    # Deterministically extracted so behavioral requirements compilation cannot
+    # see reach the generator BEFORE it writes code.
+    from ticket_to_code.agents.semantic_requirements import extract_semantic_constraints
+    _sem = extract_semantic_constraints(
+        getattr(state["ticket"], "title", "") or "",
+        getattr(state["ticket"], "description", "") or "",
+        str(state.get("requirements") or ""),
+    )
+    semantic_constraints_block = _sem.to_prompt_block()
+    if semantic_constraints_block:
+        logger.info(
+            f"  🧭 Semantic constraints: cardinality={_sem.cardinality} "
+            f"read_only={_sem.read_only} duplicate={_sem.duplicate_prevention} "
+            f"persistence={_sem.persistence}"
+        )
+
+    # ── Generation readiness (advisory) ──────────────────────────────────────
+    try:
+        from ticket_to_code.agents.generation_readiness_gate import assess_generation_readiness
+        _sc_obj = _get_transient(state, "semantic_contract")
+        _readiness = assess_generation_readiness({
+            "requirements": state.get("requirements"),
+            "contracts": getattr(_sc_obj, "items", None) if _sc_obj else None,
+            "verified_capabilities": state.get("evidence_items"),
+            "existing_behavior": state.get("grounded_understanding"),
+            "semantic_constraints": semantic_constraints_block or None,
+            "justified_files": [t.file_path for t in _get_plan(state).tasks],
+            "untouched_files": [t.file_path for t in _get_plan(state).tasks if t.task_type.value == "read_only"],
+            "cross_file_dependencies": state.get("architectural_plan"),
+        })
+        if _readiness.is_blocking():
+            logger.warning(f"  ⚠️ Generation readiness: {_readiness.summary()} (advisory — proceeding)")
+        else:
+            logger.info(f"  ✅ Generation readiness: {_readiness.summary()}")
+    except Exception as _rd_exc:
+        logger.debug(f"  Generation readiness skipped (non-fatal): {_rd_exc}")
+
     code_generation_prompt = f"""
 You are generating PRODUCTION CODE to satisfy pre-written tests.
 
@@ -5161,6 +6842,7 @@ Ticket: {state['ticket'].title}
 Requirements: {state['requirements']}
 Plan: {state['architectural_plan']}
 {grounded_context_str}
+{semantic_constraints_block}
 Architecture Context (from existing code):
 {state['code_rag_context']}
 
@@ -5225,9 +6907,238 @@ Angular/TypeScript for .ts/.html/.scss files.
         if _np and _ot:
             _ownership_map[_np] = _ot
 
+    # ── Helper: Build GenerationHandoff from validated generated content ──────
+    def _build_generation_handoff(
+        task_id: str,
+        file_path: str,
+        content: str,
+        validation_status: str,
+        impl_state,
+    ):
+        """Create a GenerationHandoff from validated generated content.
+
+        Called ONLY after validation passes. Extracts machine facts (exports,
+        imports) from the generated code and attaches AI explanation from
+        the task metadata.
+
+        Returns None if the content is empty or extraction fails.
+        """
+        import re as _re
+        import time as _time
+        from ticket_to_code.models import GenerationHandoff, VerifiedSymbol
+
+        if not content or not content.strip():
+            return None
+
+        _ext = Path(file_path).suffix.lower()
+
+        # ── Extract exports (machine facts) ──────────────────────────────
+        # Primary: WorkspaceSymbolScanner.scan_content() for grounded signatures
+        # (owner class, params, return type, source line, visibility).
+        # Fallback: existing regex extraction if scanner fails or yields nothing.
+        _exports = []
+        _extraction_method = "regex"
+
+        try:
+            from ticket_to_code.agents.workspace_symbol_scanner import WorkspaceSymbolScanner
+            _scanner = WorkspaceSymbolScanner(".")
+            _file_syms = _scanner.scan_content(content, file_path)
+
+            for sym in _file_syms.symbols:
+                # Skip private symbols — they are not consumer contracts
+                if sym.access_level in ("private",):
+                    continue
+
+                # Build grounded signature for methods/functions
+                _sig = ""
+                if sym.kind in ("method", "function") and sym.params is not None:
+                    _params_str = ", ".join(sym.params[:8])
+                    _ret = sym.return_type or "void"
+                    _sig = f"{sym.name}({_params_str}): {_ret}"
+                elif sym.kind == "property" and sym.type_hint:
+                    _sig = f"{sym.name}: {sym.type_hint}"
+
+                _exports.append(VerifiedSymbol(
+                    name=sym.name,
+                    kind=sym.kind,
+                    owner=sym.owner_class or "",
+                    signature=_sig,
+                    file_path=file_path,
+                    export_status=(
+                        "exported" if sym.access_level in ("public", None, "")
+                        else "internal"
+                    ),
+                    source_line=sym.source_line,
+                    extraction_method=_file_syms.extraction_method,
+                ))
+
+            # Ensure top-level class/interface names are included even if
+            # they weren't emitted as individual symbols above
+            for cls_name in (_file_syms.class_names or []):
+                if not any(e.name == cls_name for e in _exports):
+                    _exports.append(VerifiedSymbol(
+                        name=cls_name,
+                        kind="class",
+                        owner="",
+                        file_path=file_path,
+                        export_status="exported",
+                        extraction_method=_file_syms.extraction_method,
+                    ))
+
+            if _exports:
+                _extraction_method = _file_syms.extraction_method
+
+        except Exception as _scan_exc:
+            logger.debug(
+                f"  [Handoff] scan_content failed for {file_path}: {_scan_exc}, "
+                f"falling back to regex"
+            )
+
+        # ── Regex fallback (if scanner produced nothing) ──────────────────
+        if not _exports:
+            if _ext in (".ts", ".js", ".tsx", ".jsx"):
+                # TypeScript/JavaScript: export class/interface/enum/type/const/function
+                for m in _re.finditer(
+                    r'export\s+(?:default\s+)?(?:abstract\s+)?'
+                    r'(class|interface|enum|type|const|function|let|var)\s+(\w+)',
+                    content,
+                ):
+                    kind, name = m.group(1), m.group(2)
+                    _exports.append(VerifiedSymbol(
+                        name=name,
+                        kind=kind,
+                        file_path=file_path,
+                        export_status="exported",
+                        extraction_method="regex",
+                    ))
+            elif _ext == ".py":
+                # Python: top-level class/def (no underscore prefix = public)
+                for m in _re.finditer(r'^(class|def)\s+(\w+)', content, _re.MULTILINE):
+                    kind_raw, name = m.group(1), m.group(2)
+                    if not name.startswith("_"):
+                        _exports.append(VerifiedSymbol(
+                            name=name,
+                            kind="class" if kind_raw == "class" else "function",
+                            file_path=file_path,
+                            export_status="exported",
+                            extraction_method="regex",
+                        ))
+            elif _ext in (".java", ".kt"):
+                # Java/Kotlin: public class/interface/enum
+                for m in _re.finditer(
+                    r'(?:public\s+)?(?:abstract\s+)?'
+                    r'(class|interface|enum)\s+(\w+)',
+                    content,
+                ):
+                    kind, name = m.group(1), m.group(2)
+                    _exports.append(VerifiedSymbol(
+                        name=name,
+                        kind=kind,
+                        file_path=file_path,
+                        export_status="exported",
+                        extraction_method="regex",
+                    ))
+
+        # ── Extract imports ──────────────────────────────────────────────
+        _imports = []
+        if _ext in (".ts", ".js", ".tsx", ".jsx"):
+            _imports = _re.findall(
+                r"""(?:import|from)\s+(?:\{[^}]*\}\s+from\s+)?['"]([^'"]+)['"]""",
+                content,
+            )
+        elif _ext == ".py":
+            for m in _re.finditer(
+                r'(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))',
+                content,
+            ):
+                _imports.append(m.group(1) or m.group(2))
+        elif _ext in (".java", ".kt"):
+            _imports = _re.findall(r'import\s+([\w.]+);', content)
+
+        # ── AI explanation (suggestive, not authoritative) ────────────────
+        _task_obj = None
+        try:
+            for t in _get_plan(state).tasks:
+                if t.id == task_id:
+                    _task_obj = t
+                    break
+        except Exception:
+            pass
+
+        _what_changed = ""
+        _why = ""
+        _how_to_consume = ""
+        if _task_obj:
+            _what_changed = getattr(_task_obj, "title", "")
+            _why = getattr(_task_obj, "description", "")
+            # Suggest import path from file path (suggestive, not authoritative)
+            _stem = file_path.replace("\\", "/")
+            if "/src/" in _stem:
+                _how_to_consume = _stem.split("/src/", 1)[-1].rsplit(".", 1)[0]
+
+        return GenerationHandoff(
+            task_id=task_id,
+            file_path=file_path,
+            timestamp=_time.time(),
+            created_symbols=_exports,
+            exports=_exports,
+            imports=_imports,
+            validation_status=validation_status,
+            extraction_method=_extraction_method,
+            what_changed=_what_changed,
+            why=_why,
+            how_to_consume=_how_to_consume,
+        )
+
     _sorted_tasks = _sort_tasks_by_execution_order(_get_plan(state).tasks)
 
-    # ── Phase 0: Generate Definition of Done (before any code generation) ────
+    # ── Phase 0a: Initialize ImplementationState for four-pillar consistency ──
+    _impl_state = None
+    try:
+        from ticket_to_code.agents.implementation_state import ImplementationState
+        _impl_state = ImplementationState.from_workflow_state(state)
+        # Run blueprint verification before generation starts
+        from ticket_to_code.agents.blueprint_verifier import BlueprintVerifier
+        _bp_verifier = BlueprintVerifier(
+            symbol_resolver=getattr(agents, "symbol_resolver", None),
+            workspace_path=Path(state.get("workspace_path", "")),
+        )
+        _arch_plan = state.get("architectural_plan")
+        if _arch_plan and _impl_state.signature_blueprints:
+            _bp_verifier.verify_blueprints(
+                blueprints=_impl_state.signature_blueprints,
+                plan=_arch_plan,
+                impl_state=_impl_state,
+            )
+        logger.info(
+            f"  ✅ Phase 0a: ImplementationState initialized — "
+            f"{len(_impl_state.signature_blueprints)} blueprints, "
+            f"{len(_impl_state.generated_files)} prior files"
+        )
+
+        # ── Phase 0a.1: Initialize RelationshipRegistry (Pillar 6) ──
+        # Aggregation layer over existing providers — does NOT replace them.
+        try:
+            from ticket_to_code.agents.relationship_registry import RelationshipRegistry
+            _registry = RelationshipRegistry()
+            _arch_plan_for_reg = state.get("architectural_plan")
+            if _arch_plan_for_reg:
+                _reg_count = _registry.register_from_plan(_arch_plan_for_reg)
+                logger.info(
+                    f"  ✅ Phase 0a.1: RelationshipRegistry initialized — "
+                    f"{_reg_count} PLANNED relationships seeded from plan"
+                )
+            _impl_state.relationship_registry = _registry
+        except Exception as _reg_exc:
+            logger.warning(
+                f"  ⚠️ RelationshipRegistry init failed (non-fatal): {_reg_exc}"
+            )
+
+    except Exception as _is_exc:
+        logger.warning(f"  ⚠️ ImplementationState init failed (non-fatal): {_is_exc}")
+        _impl_state = None
+
+    # ── Phase 0b: Generate Definition of Done (before any code generation) ────
     # The checklist is consumed by Phase 5 (ChecklistVerifier) after build succeeds.
     if not state.get("definition_of_done"):
         try:
@@ -5247,12 +7158,203 @@ Angular/TypeScript for .ts/.html/.scss files.
         except Exception as _dod_exc:
             logger.warning(f"  ⚠️ Phase 0 (ChecklistAgent) failed: {_dod_exc}")
 
-    logger.info("  Execution order:")
-    for _ot in _sorted_tasks:
-        if getattr(_ot.task_type, "value", str(_ot.task_type)) != "read_only":
-            logger.info(f"    [{getattr(_ot.task_type,'value',str(_ot.task_type)).upper():6}] {_ot.file_path}")
+    # ── Dependency-depth batching ──────────────────────────────────────────
+    # Group independent tasks so we can log batch boundaries during generation.
+    # Tasks within the same batch have no mutual dependencies.
+    _task_batches = _group_tasks_into_batches(_sorted_tasks)
+    _task_to_batch: dict[str, int] = {}
+    for _batch_idx, _batch in enumerate(_task_batches):
+        for _bt in _batch:
+            _task_to_batch[_bt.id] = _batch_idx
 
+    logger.info(f"  Execution order ({len(_task_batches)} batches):")
+    for _batch_idx, _batch in enumerate(_task_batches):
+        _writable = [t for t in _batch if getattr(t.task_type, "value", str(t.task_type)) != "read_only"]
+        if _writable:
+            logger.info(f"    ─── Batch {_batch_idx} ({len(_writable)} task{'s' if len(_writable) != 1 else ''}) ───")
+            for _ot in _writable:
+                logger.info(f"      [{getattr(_ot.task_type,'value',str(_ot.task_type)).upper():6}] {_ot.file_path}")
+
+
+    # ── PLAN→GENERATION GATE: activate reuse / scope / readiness ─────────────
+    # Drops speculative shared-model changes and CREATE tasks that duplicate an
+    # existing capability, so unnecessary files are never generated. Hard-blocks
+    # (returns to planning) only when nothing survives or there is no grounding.
+    try:
+        from ticket_to_code.agents.pre_generation_gate import filter_generation_tasks
+        from ticket_to_code.agents.capability_reuse_resolver import CapabilityReuseResolver
+
+        _ev_files: set[str] = set()
+        for _e in (state.get("evidence_items") or []):
+            _efp = getattr(_e, "file_path", "") or ""
+            if _efp:
+                _ev_files.add(_efp)
+        for _d in (state.get("discovered_files") or []):
+            _dfp = (_d.get("path") if isinstance(_d, dict) else getattr(_d, "path", "")) or ""
+            if _dfp:
+                _ev_files.add(_dfp)
+
+        _ticket_obj = state.get("ticket")
+        _req_files: set[str] = set()
+        for _attr in ("expected_changed_files", "expected_owner_files"):
+            for _rf in (getattr(_ticket_obj, _attr, None) or []):
+                if _rf:
+                    _req_files.add(str(_rf))
+        if not _req_files:
+            _req_files = set(_ev_files)  # fall back to evidence-backed set
+
+        # ── Change authorization scope (evidence is NOT authorization) ──
+        _authorized: set[str] = set()
+        for _attr in ("expected_changed_files", "expected_owner_files"):
+            for _af in (getattr(_ticket_obj, _attr, None) or []):
+                if _af:
+                    _authorized.add(str(_af))
+
+        # Ingest preflight guidance target files and companions into _authorized scope
+        _preflight_guidance = state.get("preflight_implementation_guidance") or []
+        for _g in _preflight_guidance:
+            _tf = _g.get("target_file")
+            if _tf:
+                _authorized.add(str(_tf))
+                try:
+                    from ticket_to_code.agents.companion_resolver import CompanionResolver
+                    _cr = CompanionResolver()
+                    for _comp in _cr.get_companion_files(_tf):
+                        _authorized.add(str(_comp))
+                except Exception:
+                    pass
+
+        _forbidden = {str(x) for x in (getattr(_ticket_obj, "forbidden_files", None) or []) if x}
+        _scope_declared = bool(_authorized or _forbidden)
+        _ticket_text_low = " ".join(filter(None, [
+            str(getattr(_ticket_obj, "title", "") or ""),
+            str(getattr(_ticket_obj, "description", "") or ""),
+            " ".join(getattr(_ticket_obj, "labels", []) or []),
+        ])).lower()
+        _ticket_targets_config = any(
+            k in _ticket_text_low for k in (
+                "config", "configuration", "application.yml", "application.yaml",
+                ".env", "environment variable", "yaml", "properties file",
+            )
+        )
+
+        _sr = getattr(agents, "symbol_resolver", None)
+        _reuse_resolver = CapabilityReuseResolver(
+            symbol_resolver=_sr,
+            symbol_index=getattr(_sr, "_index", None) if _sr else None,
+        )
+
+        # Hybrid capability resolver (semantic + repo-search + LLM judgement).
+        # Rejects tasks that invent a new method/file when an existing capability
+        # already satisfies the intent — the fix for planner full-stack invention.
+        _semantic_resolver = None
+        if os.environ.get("AVIATOR_CAPABILITY_RESOLVE", "1") != "0":
+            try:
+                from ticket_to_code.agents.task_level_analyzer import SemanticCapabilityResolver
+                _semantic_resolver = SemanticCapabilityResolver(
+                    rag_engine=getattr(agents, "rag_engine", None),
+                    repo_search_engine=getattr(agents, "repo_search", None),
+                    llm=getattr(getattr(agents, "planner", None), "llm", None)
+                        or getattr(agents, "llm", None),
+                    workspace_path=str(getattr(agents, "workspace_path", "") or ""),
+                )
+            except Exception as _sem_err:
+                logger.warning(f"   Hybrid capability resolver unavailable: {_sem_err}")
+
+        # Grounding present unless BOTH verified capabilities and contracts are absent.
+        _grounding_present = bool(state.get("evidence_items")) or bool(
+            _get_transient(state, "semantic_contract")
+        )
+
+        # Evidence-proven change targets (BehavioralUnderstanding). Under no
+        # declared scope, only these may become CHANGE_TARGET — discovery alone
+        # never authorizes a write (DISCOVERED != CHANGE_TARGET).
+        _proven_targets: set[str] = set()
+        _bu_obj = getattr(
+            getattr(agents, "evidence_loop", None), "_evidence_knowledge", None
+        )
+        _bu_obj = getattr(_bu_obj, "behavioral_understanding", None)
+        if _bu_obj is not None:
+            _proven_targets = {str(x) for x in (getattr(_bu_obj, "change_candidates", None) or [])}
+        _scope_proof_workflow = state.get("ticket_scope_proof")
+        if _scope_proof_workflow is not None and getattr(_scope_proof_workflow, "status", None) == "PROVEN":
+            _approved_targets = set(_scope_proof_workflow.approved_writable_files)
+            if _proven_targets:
+                _proven_targets = _proven_targets.intersection(_approved_targets)
+            else:
+                _proven_targets = _approved_targets
+
+        _gate = filter_generation_tasks(
+            tasks=_sorted_tasks,
+            evidence_files=_ev_files,
+            ticket_required_files=_req_files,
+            reuse_resolver=_reuse_resolver,
+            grounding_present=_grounding_present,
+            authorized_files=_authorized,
+            forbidden_files=_forbidden,
+            scope_declared=_scope_declared,
+            ticket_targets_config=_ticket_targets_config,
+            semantic_resolver=_semantic_resolver,
+            proven_targets=_proven_targets,
+            workspace_root=state.get("workspace_path"),
+            scope_proof=state.get("ticket_scope_proof"),
+        )
+        for _rej in _gate.rejected:
+            logger.warning(
+                f"  🚧 Pre-generation gate REJECTED {_rej.file_path}: {_rej.reason}"
+            )
+        if _gate.hard_block:
+            _rc = int(state.get("candidate_retry_count", 0) or 0)
+            logger.error(
+                f"  ⛔ Pre-generation gate hard-block: {_gate.block_reason} — "
+                f"returning to planning (retry {_rc + 1})."
+            )
+            return {
+                "status": "generation_gate_blocked",
+                "candidate_retry_count": _rc + 1,
+                "validation_failure_reason": _gate.block_reason,
+            }
+        if _gate.rejected:
+            _sorted_tasks = list(_gate.accepted)
+            logger.info(
+                f"  🚧 Pre-generation gate: {len(_gate.rejected)} task(s) rejected, "
+                f"{len([t for t in _sorted_tasks if t.task_type.value != 'read_only'])} writable remain."
+            )
+        # Authoritatively sync allowed_files from surviving tasks and verified scope proof
+        _sp = state.get("ticket_scope_proof")
+        allowed_files = [
+            t.file_path for t in _sorted_tasks
+            if getattr(t.task_type, "value", str(t.task_type)) != "read_only"
+            and (_sp is None or _sp.is_file_writable(t.file_path, workspace_root=state.get("workspace_path")))
+        ]
+    except Exception as _gate_exc:
+        logger.debug(f"  Pre-generation gate skipped (non-fatal): {_gate_exc}")
+
+    _current_batch_idx = -1  # Track batch transitions
     for task in _sorted_tasks:
+        # ── Batch boundary marker ─────────────────────────────────────────
+        # When we cross into a new batch, log the transition. All contracts
+        # from the previous batch are now registered and available to tasks
+        # in this new batch via ImplementationState and RelationshipRegistry.
+        _this_batch = _task_to_batch.get(task.id, -1)
+        if _this_batch != _current_batch_idx:
+            _current_batch_idx = _this_batch
+            _batch_tasks = _task_batches[_this_batch] if _this_batch < len(_task_batches) else []
+            _batch_writable = [t for t in _batch_tasks if getattr(t.task_type, "value", str(t.task_type)) != "read_only"]
+            if _batch_writable:
+                logger.info(
+                    f"\n  ╔══════════════════════════════════════════════════════╗\n"
+                    f"  ║  BATCH {_this_batch} — {len(_batch_writable)} independent task(s)            ║\n"
+                    f"  ╚══════════════════════════════════════════════════════╝"
+                )
+                if _this_batch > 0 and _impl_state:
+                    _prior_surfaces = len(_impl_state.api_surfaces)
+                    _prior_handoffs = len(getattr(_impl_state, '_handoffs', {}))
+                    logger.info(
+                        f"  📋 Contracts available from prior batches: "
+                        f"{_prior_surfaces} API surfaces, {_prior_handoffs} handoffs"
+                    )
+
         # READ_ONLY tasks are context-only — never write files
         if task.task_type.value == "read_only":
             logger.info(f"  ⏩ Skipping read_only task [{task.id}]: {task.title}")
@@ -5347,6 +7449,55 @@ Angular/TypeScript for .ts/.html/.scss files.
             generator._workspace_path = str(state.get("workspace_path", ""))
             # Inject fresh session-generated files for incremental cross-file context.
             generator._session_files = state.get("_run_generated_map", {})
+            # Inject ImplementationState for blueprint-driven context + post-gen recording.
+            if _impl_state is not None:
+                generator._impl_state = _impl_state
+
+            # ── PER-TASK EXPLANATION (human-readable + LLM context) ────────────
+            # Before writing code, build a clear explanation of:
+            #   1. WHY this file is being changed (purpose)
+            #   2. WHAT symbols it will create (produces)
+            #   3. WHAT symbols it will use from earlier tasks (consumes)
+            #   4. WHAT was already generated (previously written files + exports)
+            # This explanation is:
+            #   - Stored in state for the UI to display
+            #   - Accumulated so the NEXT task sees the full chain
+            _task_explanations = state.setdefault("_task_explanations", [])
+            _prev_explanations = state.setdefault("_accumulated_context", [])
+
+            _explanation = _build_task_explanation(
+                task=task,
+                task_index=len(_task_explanations) + 1,
+                total_tasks=len([t for t in _sorted_tasks if t.task_type.value != "read_only"]),
+                previously_written=state.get("_run_generated_map", {}),
+                prev_explanations=_prev_explanations,
+            )
+            _task_explanations.append(_explanation)
+            logger.info(
+                f"\n{'='*70}\n"
+                f"📋 TASK EXPLANATION [{_explanation['task_index']}/{_explanation['total_tasks']}]\n"
+                f"   File: {_explanation['file_path']}\n"
+                f"   Purpose: {_explanation['purpose']}\n"
+                f"   Produces: {', '.join(_explanation.get('produces', []))}\n"
+                f"   Consumes: {', '.join(_explanation.get('consumes', []))}\n"
+                f"   Previously written: {len(_explanation.get('previously_written_summary', []))} files\n"
+                f"{'='*70}\n"
+            )
+
+
+            # ── Per-file token accounting ─────────────────────────────────────
+            # Snapshot budget before generation to compute per-file delta.
+            _file_tokens_before = None
+            try:
+                _run_ctx = _get_transient(state, "run_ctx")
+                if _run_ctx and hasattr(_run_ctx, "budget"):
+                    _file_tokens_before = (
+                        _run_ctx.budget.tokens_in,
+                        _run_ctx.budget.tokens_out,
+                        _run_ctx.budget.llm_calls,
+                    )
+            except Exception:
+                pass
 
             # Invoke returned generator (no broad try-except, per user instructions)
             code = generator.generate_code(
@@ -5357,6 +7508,42 @@ Angular/TypeScript for .ts/.html/.scss files.
                 allowed_files=allowed_files,
                 readonly_files=readonly_files,
             )
+
+            # ── Per-file token result ─────────────────────────────────────────
+            try:
+                if _file_tokens_before and _run_ctx:
+                    _tin_after = _run_ctx.budget.tokens_in
+                    _tout_after = _run_ctx.budget.tokens_out
+                    _calls_after = _run_ctx.budget.llm_calls
+                    _file_tin = _tin_after - _file_tokens_before[0]
+                    _file_tout = _tout_after - _file_tokens_before[1]
+                    _file_calls = _calls_after - _file_tokens_before[2]
+
+                    # Estimate input breakdown from last prompt components (char-based, ~4 chars/token)
+                    _est_task_chars = len(task.description or "") + len(task.title or "")
+                    _est_existing_chars = len(existing_content or "")
+                    _est_rag_chars = sum(len(str(c.get("content", ""))) for c in (state.get("code_rag_context") or [])[:5])
+                    _est_session_chars = len(getattr(generator, "_last_session_context", "") or "")
+                    _est_contract_chars = len(getattr(generator, "_last_contract_context", "") or "")
+                    _est_impl_chars = len(getattr(generator, "_last_impl_context", "") or "")
+
+                    _est_div = max(1, 4)  # ~4 chars per token
+                    logger.info(
+                        f"\n  ┌─ TOKEN ACCOUNTING: {Path(task.file_path).name} ──────────\n"
+                        f"  │ Input:   ~{_file_tin:,} tokens  ({_file_calls} LLM call{'s' if _file_calls != 1 else ''})\n"
+                        f"  │   Task desc:       ~{_est_task_chars // _est_div:,} tokens\n"
+                        f"  │   Existing source:  ~{_est_existing_chars // _est_div:,} tokens\n"
+                        f"  │   RAG context:      ~{_est_rag_chars // _est_div:,} tokens\n"
+                        f"  │   Session context:  ~{_est_session_chars // _est_div:,} tokens\n"
+                        f"  │   Contracts:        ~{_est_contract_chars // _est_div:,} tokens\n"
+                        f"  │   Impl handoffs:    ~{_est_impl_chars // _est_div:,} tokens\n"
+                        f"  │ Output:  ~{_file_tout:,} tokens\n"
+                        f"  │ Total:   ~{_file_tin + _file_tout:,} tokens\n"
+                        f"  │ Batch:   {_task_to_batch.get(task.id, '?')}\n"
+                        f"  └──────────────────────────────────────"
+                    )
+            except Exception as _tok_exc:
+                logger.debug(f"  Per-file token accounting failed (non-fatal): {_tok_exc}")
 
             # ── PATCH VALIDATION: check scope before writing to disk ──────────
             validation = validator.validate(code, task, existing_content)
@@ -5574,10 +7761,189 @@ Angular/TypeScript for .ts/.html/.scss files.
                         f"fix_build will need to correct: {_bad_props}"
                     )
 
+            # ── PRE-WRITE CHECKPOINT (transaction/rollback) ────────────────────
+            if _impl_state is not None:
+                _impl_state.create_checkpoint(
+                    file_path=code.file_path,
+                    description=f"Pre-write for task {task.id}",
+                )
+
             output_path.write_text(code.content, encoding='utf-8')
             # Record the new content so later tasks in this run see the fresh shapes.
             _written_key = code.file_path.replace("\\", "/").lower()
             state.setdefault("_run_generated_map", {})[_written_key] = code.content
+
+            # ── POST-WRITE INCREMENTAL VALIDATION (blueprint + dependency health) ─
+            if _impl_state is not None:
+                try:
+                    from ticket_to_code.agents.incremental_validator import IncrementalValidator
+                    _inc_validator = IncrementalValidator(
+                        impl_state=_impl_state,
+                        symbol_resolver=getattr(agents, "symbol_resolver", None),
+                        workspace_path=Path(state.get("workspace_path", "")),
+                    )
+                    _val_result = _inc_validator.validate_generated(
+                        task_id=task.id,
+                        file_path=code.file_path,
+                    )
+                    if not _val_result.is_clean and _val_result.dependency_issues:
+                        # Dependency breakage detected — rollback to checkpoint
+                        logger.warning(
+                            f"  ⛔ Dependency breakage detected — rolling back {code.file_path}"
+                        )
+                        rolled_back_content = _impl_state.rollback_last(code.file_path)
+                        if rolled_back_content is not None:
+                            output_path.write_text(rolled_back_content, encoding='utf-8')
+                            state["_run_generated_map"][_written_key] = rolled_back_content
+                            logger.info(
+                                f"  ↩️  Rolled back {code.file_path} to pre-patch state"
+                            )
+                            _silent_failures = state.setdefault("_patch_failures", [])
+                            _silent_failures.append({
+                                "file": code.file_path,
+                                "reason": f"dependency_rollback:{_val_result.dependency_issues[:2]}",
+                                "allowed_methods": task.allowed_methods or [],
+                            })
+                            if attempt + 1 < len(candidate_paths):
+                                continue
+                            break
+                    elif not _val_result.is_clean:
+                        logger.warning(
+                            f"  ⚠️ Incremental validation: {_val_result.summary}"
+                        )
+                    # Sync state back so downstream tasks see updated blueprints
+                    _impl_state.sync_to_workflow_state(state)
+
+                    # ── SHARED-TYPE IMPACT GUARD (Change 2) ─────────────────────────
+                    # For MODIFY tasks, reject destructive changes to existing shared
+                    # types (removed fields / optional→required) unless the ticket
+                    # explicitly references the field. Advisory: blocks handoff only.
+                    try:
+                        if str(getattr(task.task_type, "value", "")) == "modify":
+                            _old_shared = state.get("original_file_contents", {}).get(
+                                task.file_path
+                            ) or state.get("original_file_contents", {}).get(
+                                code.file_path
+                            )
+                            if _old_shared:
+                                from ticket_to_code.agents.workspace_symbol_scanner import (
+                                    WorkspaceSymbolScanner,
+                                )
+                                from ticket_to_code.agents.shared_type_guard import (
+                                    detect_shared_type_regressions,
+                                )
+                                _sc = WorkspaceSymbolScanner(
+                                    state.get("workspace_path", ""),
+                                    lsp_client=getattr(agents, "lsp_client", None),
+                                )
+                                _ticket_obj = state.get("ticket")
+                                _ticket_text = " ".join(filter(None, [
+                                    str(getattr(_ticket_obj, "title", "") or ""),
+                                    str(getattr(_ticket_obj, "description", "") or ""),
+                                ]))
+                                _regs = detect_shared_type_regressions(
+                                    old_content=_old_shared,
+                                    new_content=code.content,
+                                    file_path=code.file_path,
+                                    scanner=_sc,
+                                    ticket_text=_ticket_text,
+                                )
+                                for _r in _regs:
+                                    _val_result.shared_type_violations.append(_r.describe())
+                                if _regs:
+                                    _val_result.is_clean = False
+                                    logger.warning(
+                                        f"  🛡️ Shared-type guard: {len(_regs)} destructive "
+                                        f"change(s) in {code.file_path} — handoff blocked: "
+                                        f"{[r.describe() for r in _regs][:3]}"
+                                    )
+                    except Exception as _st_exc:
+                        logger.debug(f"  Shared-type guard skipped (non-fatal): {_st_exc}")
+
+                    # ── GENERATION HANDOFF (Cross-File Intelligence v4) ─────────────
+                    # Create a GenerationHandoff for all successfully generated
+                    # artifacts that did NOT cause dependency breakage.
+                    # Architecture warnings no longer block handoff creation:
+                    # downstream tasks need actual verified signatures (what
+                    # exists), tagged with appropriate validation_status.
+                    #   clean                       → validated_generation authority
+                    #   generated_with_warnings     → candidate_generation authority
+                    #   generated_with_arch_warning → candidate_generation authority
+                    #
+                    # Change 1/2: unresolved outbound references and destructive
+                    # shared-type changes BLOCK handoff — a hallucinated or
+                    # contract-breaking artifact must not propagate a fake-verified
+                    # contract to consumers. The file stays on disk for the
+                    # attribution-aware error resolver.
+                    if _val_result.unresolved_references:
+                        logger.warning(
+                            f"  ⛔ Handoff blocked for {code.file_path}: "
+                            f"{len(_val_result.unresolved_references)} unresolved reference(s): "
+                            f"{_val_result.unresolved_references[:3]}"
+                        )
+                    if (
+                        not _val_result.dependency_issues
+                        and not _val_result.unresolved_references
+                        and not _val_result.shared_type_violations
+                    ):
+                        if _val_result.is_clean:
+                            _handoff_status = "clean"
+                        elif _val_result.architecture_violations:
+                            _handoff_status = "generated_with_arch_warning"
+                        else:
+                            _handoff_status = "generated_with_warnings"
+
+                        try:
+                            _handoff = _build_generation_handoff(
+                                task_id=task.id,
+                                file_path=code.file_path,
+                                content=code.content,
+                                validation_status=_handoff_status,
+                                impl_state=_impl_state,
+                            )
+                            if _handoff:
+                                _impl_state.add_handoff(_handoff)
+
+                                # ── Pillar 6: Update RelationshipRegistry ──
+                                # Upgrade PLANNED → VERIFIED with actual exports
+                                # and detect API contracts from framework annotations.
+                                if _impl_state.relationship_registry:
+                                    try:
+                                        _impl_state.relationship_registry.register_from_handoff(
+                                            _handoff, task
+                                        )
+                                        # Detect API contracts in generated code
+                                        from ticket_to_code.agents.api_contract_detector import (
+                                            APIContractDetector,
+                                        )
+                                        _api_detector = APIContractDetector()
+                                        _api_contracts = _api_detector.detect_contracts(
+                                            code.file_path, code.content
+                                        )
+                                        for _ac in _api_contracts:
+                                            _impl_state.relationship_registry.register_api_contract(
+                                                source_file=code.file_path,
+                                                endpoint=_ac.endpoint,
+                                                method=_ac.method,
+                                                response_type=_ac.response_type,
+                                                request_type=_ac.request_type,
+                                            )
+                                        # Try SymbolResolver enrichment
+                                        _resolver = getattr(agents, "symbol_resolver", None)
+                                        if _resolver:
+                                            _impl_state.relationship_registry.register_from_symbol_resolver(
+                                                _resolver, code.file_path, code.content
+                                            )
+                                    except Exception as _reg_exc:
+                                        logger.debug(
+                                            f"  Registry update failed (non-fatal): {_reg_exc}"
+                                        )
+                        except Exception as _ho_exc:
+                            logger.debug(
+                                f"  Handoff creation failed (non-fatal): {_ho_exc}"
+                            )
+                except Exception as _iv_exc:
+                    logger.debug(f"  Incremental validation failed (non-fatal): {_iv_exc}")
 
             # ── POST-WRITE BINDING VERIFICATION (Read → Think → Write → Verify) ─
             # After writing an HTML file, immediately verify that every Angular binding
@@ -5697,6 +8063,8 @@ Angular/TypeScript for .ts/.html/.scss files.
                             f"DO NOT use different property names — the HTML is already written with these exact names."
                         )
                         generator._session_files = state.get("_run_generated_map", {})
+                        if _impl_state is not None:
+                            generator._impl_state = _impl_state
                         try:
                             _prop_code = generator.generate_code(
                                 task=_prop_retry_task,
@@ -5825,8 +8193,33 @@ Angular/TypeScript for .ts/.html/.scss files.
                 import json as _json_fix
                 from langchain_core.messages import SystemMessage, HumanMessage
                 from ticket_to_code.llm_utils import llm_invoke as _llm_invoke
+                from ticket_to_code.agents.diagnostic_normalizer import normalize_diagnostics
+                from ticket_to_code.agents.diagnostic_localizer import (
+                    DiagnosticLocalizer,
+                    RepairContextTier,
+                    FailureOwner,
+                )
+
+                _diagnostic_localizer: DiagnosticLocalizer = state.setdefault(
+                    "_diagnostic_localizer",
+                    DiagnosticLocalizer(
+                        state.get("workspace_path"),
+                        scope_proof=state.get("ticket_scope_proof"),
+                    )
+                )
+                if getattr(_diagnostic_localizer, "scope_proof", None) is None:
+                    _diagnostic_localizer.scope_proof = state.get("ticket_scope_proof")
 
                 for _err_attempt in range(3):
+                    _norm_diags = normalize_diagnostics(_live_errors)
+                    if not _diagnostic_localizer.can_attempt_repair(_norm_diags, max_attempts=2):
+                        logger.warning(
+                            f"  🛑 [{_live_label}] Identical compile errors unchanged after 2 attempts — "
+                            f"terminating repair loop to prevent token burn"
+                        )
+                        break
+
+                    _diagnostic_localizer.record_attempt(_norm_diags)
                     _current_content = output_path.read_text(encoding="utf-8") if output_path.exists() else code.content
 
                     # ── Collect ALL files mentioned in errors (cross-file awareness) ──
@@ -5936,6 +8329,50 @@ Angular/TypeScript for .ts/.html/.scss files.
                             _snippet = "\n".join(_rc.splitlines()[:80])
                             _other_files_section += f"\nRELATED FILE (first 80 lines): {_rf}\n```\n{_snippet}\n```\n"
 
+                    # ── Fix 2: Auto-resolve unknown types from compile errors ──
+                    # When errors mention unknown methods/properties on a type,
+                    # look up the type definition and include it so the LLM doesn't guess.
+                    try:
+                        _sqlite_store = getattr(getattr(agents, 'localizer', None), 'sqlite_store', None)
+                        if _sqlite_store and _live_errors:
+                            import re as _re_type
+                            # Match patterns like "cannot find method X on type Y" or
+                            # "Property 'X' does not exist on type 'Y'"
+                            _type_patterns = [
+                                _re_type.compile(r"type\s+'([A-Z][A-Za-z0-9_]+)'", _re_type.IGNORECASE),
+                                _re_type.compile(r"interface\s+'?([A-Z][A-Za-z0-9_]+)'?", _re_type.IGNORECASE),
+                                _re_type.compile(r"on\s+(?:the\s+)?'?([A-Z][A-Za-z0-9_]+)'?\s+(?:interface|class)", _re_type.IGNORECASE),
+                            ]
+                            _resolved_types = set()
+                            for _err_line in _live_errors[:10]:
+                                for _tp in _type_patterns:
+                                    for _tm in _tp.finditer(_err_line):
+                                        _type_name = _tm.group(1)
+                                        if _type_name not in _resolved_types and len(_resolved_types) < 3:
+                                            _resolved_types.add(_type_name)
+                                            # Look up the type definition in SQLite
+                                            try:
+                                                _type_rows = _sqlite_store._conn.execute(
+                                                    "SELECT DISTINCT path FROM symbols WHERE name LIKE ? LIMIT 3",
+                                                    (f"%{_type_name}%",)
+                                                ).fetchall()
+                                                for (_type_path,) in _type_rows:
+                                                    if _type_path and _type_path not in _all_error_files:
+                                                        _type_abs = _ws_root / _type_path
+                                                        if _type_abs.exists():
+                                                            _type_content = _type_abs.read_text(encoding="utf-8", errors="ignore")
+                                                            _type_snippet = "\n".join(_type_content.splitlines()[:100])
+                                                            _other_files_section += (
+                                                                f"\nTYPE DEFINITION (auto-resolved from error): {_type_path}\n"
+                                                                f"```\n{_type_snippet}\n```\n"
+                                                            )
+                                                            logger.info(f"  [{_live_label}] Auto-resolved type '{_type_name}' → {_type_path}")
+                                                            break
+                                            except Exception:
+                                                pass
+                    except Exception as _type_exc:
+                        logger.debug(f"  [{_live_label}] Type auto-resolve failed (non-fatal): {_type_exc}")
+
                     # Ticket + task context so the fix preserves the original goal
                     _ticket_obj = state.get("ticket")
                     _ticket_title = getattr(_ticket_obj, "title", "") or ""
@@ -5975,14 +8412,73 @@ Angular/TypeScript for .ts/.html/.scss files.
                         "- Only fix files shown below — do NOT invent new files\n"
                         "- Respond with JSON only, no markdown fences"
                     )
+                    # ── Context localization & failure attribution ──
+                    _tier = (
+                        RepairContextTier.TIER_1_LOCALIZED_METHOD
+                        if _err_attempt == 0
+                        else RepairContextTier.TIER_4_WHOLE_FILE_ESCALATION
+                    )
+                    _loc_ctx = _diagnostic_localizer.localize_context(
+                        code.file_path,
+                        _current_content,
+                        _norm_diags,
+                        tier=_tier,
+                        planned_tasks=state.get("planned_tasks", []),
+                    )
+
+                    _attrib_section = ""
+                    if _loc_ctx.attribution:
+                        _at = _loc_ctx.attribution
+                        if _at.owner == FailureOwner.PROVIDER and _at.is_provider_writable:
+                            _attrib_section = (
+                                f"⚠️ FAILURE ATTRIBUTION (PROVIDER - GENERATED/WRITABLE):\n"
+                                f"Symbol '{_at.missing_symbol}' is missing on provider type '{_at.provider_type}'.\n"
+                                f"Provider file: {_at.provider_file or 'unknown'} (writable={_at.is_provider_writable})\n"
+                                f"This provider is authorized for modification. You may add the missing method to the provider rather than stripping consumer calls.\n\n"
+                            )
+                        elif _at.owner == FailureOwner.CROSS_FILE_CONTRACT and getattr(_at, "is_protected_provider", False):
+                            _alt_text = ""
+                            if getattr(_at, "alternative_capability", None) and _at.alternative_capability.is_semantically_compatible:
+                                _alt = _at.alternative_capability
+                                _alt_text = (
+                                    f"✅ VERIFIED REPOSITORY ALTERNATIVE:\n"
+                                    f"  Method: {_alt.signature}\n"
+                                    f"  Evidence: {_alt.compatibility_reason}\n"
+                                    f"  Instruction: Adapt `{code.file_path}` to call this verified capability instead of non-existent '{_at.missing_symbol}'.\n\n"
+                                )
+                            else:
+                                _alt_text = (
+                                    f"❌ NO VERIFIED ALTERNATIVE CAPABILITY EXISTS for '{_at.missing_symbol}'.\n"
+                                    f"  Instruction: Do NOT invent methods on '{_at.provider_file}'. If no alternative exists in the repository, report UNRESOLVED/REPLAN.\n\n"
+                                )
+                            _methods_list = "\n".join(f"  - {m.signature}" for m in getattr(_at, "inspected_methods", [])[:6]) if getattr(_at, "inspected_methods", None) else "  (none)"
+                            _attrib_section = (
+                                f"⚠️ FAILURE ATTRIBUTION (CROSS_FILE_CONTRACT - PROTECTED PROVIDER):\n"
+                                f"Provider file '{_at.provider_file or _at.provider_type}' is PROTECTED and MUST NOT BE MODIFIED.\n"
+                                f"Real public methods on protected provider:\n{_methods_list}\n\n"
+                                f"{_alt_text}"
+                            )
+
+                    if _loc_ctx.context_tier == RepairContextTier.TIER_1_LOCALIZED_METHOD:
+                        _primary_file_block = (
+                            f"PRIMARY FILE (Tier 1 Localized Context around `{_loc_ctx.target_method_name}`): {code.file_path}\n"
+                            f"```\n{_loc_ctx.prompt_snippet}\n```\n"
+                        )
+                    else:
+                        _primary_file_block = (
+                            f"PRIMARY FILE (Tier 4 Whole File Context): {code.file_path}\n"
+                            f"```\n{_current_content}\n```\n"
+                        )
+
                     _fix_user = (
                         f"TICKET: {_ticket_title}\n{_ticket_desc}\n\n"
                         f"TASK BEING IMPLEMENTED: {_task_title}\n{_task_desc}\n\n"
                         + (f"FUNCTIONAL REQUIREMENTS (must still be satisfied after fix):\n{_func_reqs}\n\n" if _func_reqs else "")
                         + f"COMPILE ERRORS:\n"
                         + "\n".join(f"  {e}" for e in _live_errors[:20])
-                        + f"\n\n{_error_method_section}"
-                        + f"PRIMARY FILE: {code.file_path}\n```\n{_current_content}\n```\n"
+                        + f"\n\n{_attrib_section}"
+                        + f"{_error_method_section}"
+                        + _primary_file_block
                         + _other_files_section
                         + "\nFix all errors using target_content/replacement_content edits. Do NOT rewrite the file. Return JSON."
                     )
@@ -5992,6 +8488,12 @@ Angular/TypeScript for .ts/.html/.scss files.
                             [SystemMessage(content=_fix_system), HumanMessage(content=_fix_user)]
                         )
                         _fix_raw = _fix_response.content if hasattr(_fix_response, "content") else str(_fix_response)
+                        _usage = getattr(_fix_response, "usage_metadata", {}) or {}
+                        _tok = _usage.get("total_tokens", 0) if isinstance(_usage, dict) else 0
+                        if not _tok:
+                            _tok = len(_fix_user.split()) + len(_fix_raw.split())
+                        _diagnostic_localizer.telemetry.tsc_tokens += _tok
+                        _diagnostic_localizer.telemetry.total_tokens += _tok
 
                         # Parse JSON response
                         _json_m = _re_fix.search(r'\{.*\}', _fix_raw, _re_fix.DOTALL)
@@ -6218,6 +8720,8 @@ Angular/TypeScript for .ts/.html/.scss files.
                     generator._sqlite_store = getattr(agents.localizer, "sqlite_store", None)
                     generator._workspace_path = str(state.get("workspace_path", ""))
                     generator._session_files = state.get("_run_generated_map", {})
+                    if _impl_state is not None:
+                        generator._impl_state = _impl_state
                     _retry_code = generator.generate_code(
                         task=task,
                         requirements=state["requirements"],
@@ -6421,29 +8925,123 @@ Angular/TypeScript for .ts/.html/.scss files.
         for _w in _sd_warnings:
             logger.warning(f"  ⚠️ [SpringData] {_w}")
         state["_spring_data_warnings"] = _sd_warnings
+
+    # ── v4: Semantic Contract — Pre-Build Validation ──────────────────────────
+    # Build a contract from the planned changes and verify it against the
+    # generated code. Broken invariants are surfaced as warnings and stored
+    # in state for the error resolution agent to consume.
+    try:
+        from ticket_to_code.agents.semantic_contract import SemanticContractBuilder
+        from ticket_to_code.agents.symbol_resolver import SymbolResolver
+        from ticket_to_code.agents.component_structure_provider import ComponentStructureProvider
+
+        _sc_symbol_index = getattr(agents.localizer, "symbol_index", None)
+        _sc_resolver = SymbolResolver(_sc_symbol_index) if _sc_symbol_index else None
+        _sc_provider = None
+        try:
+            _sc_provider = ComponentStructureProvider(
+                workspace_path=str(Path(state["workspace_path"])),
+                symbol_index=_sc_symbol_index,
+                component_groups=state.get("component_groups") or [],
+            )
+        except Exception:
+            pass
+
+        _sc_builder = SemanticContractBuilder(
+            symbol_resolver=_sc_resolver,
+            component_provider=_sc_provider,
+        )
+
+        # Build contract from changed file list
+        _sc_changed_files = list(written_file_paths)
+        _ticket_obj = state.get("ticket")
+        _sc_ticket_id = getattr(_ticket_obj, "ticket_id", "") if _ticket_obj else ""
+
+        if _sc_changed_files:
+            _sc_contract = _sc_builder.build_from_file_changes(
+                ticket_id=_sc_ticket_id,
+                changed_files=_sc_changed_files,
+                description=getattr(_ticket_obj, "title", "") if _ticket_obj else "",
+            )
+
+            # Verify the contract
+            _sc_broken = _sc_builder.verify(_sc_contract)
+            if _sc_broken:
+                logger.warning(
+                    f"  ⚠️ [v4] Semantic Contract: {len(_sc_broken)} broken item(s) "
+                    f"detected pre-build"
+                )
+                for _bi in _sc_broken[:10]:
+                    logger.warning(f"    {_bi}")
+
+            # Store contract in state for error resolution to consume
+            _set_transient(state, "semantic_contract", _sc_contract)
+            logger.info(
+                f"  [v4] Semantic Contract: {len(_sc_contract.items)} items, "
+                f"{len(_sc_broken)} broken"
+            )
+    except Exception as _sc_err:
+        logger.debug(f"  [v4] Semantic Contract build failed (non-fatal): {_sc_err}")
     
-    # ── POST-GENERATION SCOPE VALIDATION ─────────────────────────────────────
+    # ── POST-GENERATION PATCH SCOPE GATE (Zero File Leaks) ───────────────────
+    from ticket_to_code.agents.ticket_scope_proof import (
+        verify_post_generation_scope,
+        revert_unauthorized_changes,
+    )
+    _sp = state.get("ticket_scope_proof")
+    _approved_set = set(allowed_files)
+    if _sp and hasattr(_sp, "scope_graph"):
+        _proven_set = set(_sp.scope_graph.all_writable_files())
+        if _proven_set:
+            _approved_set = _approved_set.intersection(_proven_set) or _proven_set
+
+    # 1. In-memory write tracking check
     files_written = set(written_file_paths)
-    files_allowed_set = set(allowed_files)
-    unauthorized = files_written - files_allowed_set
+    unauthorized = set()
+    for fw in files_written:
+        norm_fw = fw.replace("\\", "/").lower().strip()
+        if not any(
+            norm_fw == af.replace("\\", "/").lower().strip()
+            or norm_fw.endswith("/" + af.replace("\\", "/").lower().strip())
+            or af.replace("\\", "/").lower().strip().endswith("/" + norm_fw)
+            for af in _approved_set
+        ):
+            unauthorized.add(fw)
+
+    # 2. Hard filesystem status / git diff check
+    _is_fs_clean, _fs_violations, _fs_unauthorized = verify_post_generation_scope(
+        workspace_path=state["workspace_path"],
+        approved_writable_files=_approved_set,
+        original_contents=state.get("original_file_contents"),
+        pre_run_manifest=state.get("pre_run_workspace_manifest"),
+    )
+    unauthorized.update(_fs_unauthorized)
+
     if unauthorized:
         logger.error(
-            f" SCOPE VIOLATION: {len(unauthorized)} file(s) written outside the "
-            f"approved list — this should not happen. Files: {unauthorized}"
+            f"⛔ SCOPE_PROOF_VIOLATION: {len(unauthorized)} file(s) modified/created outside "
+            f"approved writable scope: {sorted(unauthorized)}"
         )
-        # Remove unauthorized writes from the result and delete the written files
+        # Safely revert unapproved mutations on disk
+        _revert_log = revert_unauthorized_changes(
+            workspace_path=state["workspace_path"],
+            unauthorized_files=unauthorized,
+            original_contents=state.get("original_file_contents"),
+            pre_run_manifest=state.get("pre_run_workspace_manifest"),
+        )
+        for _rl in _revert_log:
+            logger.warning(f"  🛡️ {_rl}")
+
+        # Purge unauthorized writes from generated_code
         clean = []
         for code in generated_code:
-            if code.file_path in unauthorized:
-                bad_path = Path(state["workspace_path"]) / code.file_path
-                if bad_path.exists():
-                    if code.file_path in state.get("original_file_contents", {}):
-                        bad_path.write_text(state["original_file_contents"][code.file_path], encoding='utf-8')
-                        logger.warning(f"  ️  Reverted unauthorized modification to original state: {bad_path}")
-                    else:
-                        bad_path.unlink()
-                        logger.warning(f"  ️  Deleted unauthorized new file: {bad_path}")
-            else:
+            code_norm = code.file_path.replace("\\", "/").lower().strip()
+            if not any(
+                code_norm == u.replace("\\", "/").lower().strip()
+                or code_norm.endswith("/" + u.replace("\\", "/").lower().strip())
+                or u.replace("\\", "/").lower().strip().endswith("/" + code_norm)
+                for u in unauthorized
+            ):
                 clean.append(code)
         generated_code = clean
 
@@ -6537,6 +9135,7 @@ Angular/TypeScript for .ts/.html/.scss files.
             "validation_failure_reason": reason,
             "status": "candidates_invalid",
             "original_file_contents": state.get("original_file_contents", {}),
+            "_task_explanations": state.get("_task_explanations", []),
         }
 
     # DEBUG LOG
@@ -6555,7 +9154,8 @@ Angular/TypeScript for .ts/.html/.scss files.
     return {
         "generated_code": generated_code,
         "code_status": "code_generated",  # CODE BRANCH status
-        "original_file_contents": state.get("original_file_contents", {})
+        "original_file_contents": state.get("original_file_contents", {}),
+        "_task_explanations": state.get("_task_explanations", []),
     }
 
 
@@ -6717,18 +9317,51 @@ def _check_html_syntax(content: str, file_path: str) -> list[str]:
 
 def _find_ng_root(workspace: Path) -> Optional[Path]:
     """
-    Find the Angular project root — a directory that contains angular.json or
-    tsconfig.json.  Checks the common sub-directory names first, then falls
-    back to the workspace root itself.
+    Find the frontend project root — a directory that contains angular.json,
+    tsconfig.json, or package.json with a build script.
+
+    Strategy (fast → exhaustive):
+    1. Check common sub-directory names first (instant).
+    2. If none match, scan all top-level subdirectories (one level deep).
+    3. Fall back to the workspace root itself.
     """
-    for subdir in ("xchange-ui", "ui", "frontend", "client", "app", "."):
+    _COMMON_FRONTEND_DIRS = (
+        "ui", "frontend", "client", "app", "web", "webapp",
+        "web-app", "web-ui",
+    )
+    
+    # Fast path: check common names
+    for subdir in _COMMON_FRONTEND_DIRS:
         candidate = workspace / subdir
-        if candidate.is_dir() and (
-            (candidate / "angular.json").exists()
-            or (candidate / "tsconfig.json").exists()
-        ):
+        if candidate.is_dir() and _has_frontend_config(candidate):
             return candidate
+    
+    # Check workspace root itself
+    if _has_frontend_config(workspace):
+        return workspace
+    
+    # Exhaustive: scan all top-level subdirectories
+    try:
+        for entry in workspace.iterdir():
+            if entry.is_dir() and entry.name not in _COMMON_FRONTEND_DIRS:
+                if _has_frontend_config(entry):
+                    return entry
+    except (PermissionError, OSError):
+        pass
+
     return None
+
+
+def _has_frontend_config(directory: Path) -> bool:
+    """Check if a directory looks like a frontend project root."""
+    return (
+        (directory / "angular.json").exists()
+        or (directory / "tsconfig.json").exists()
+        or (directory / "next.config.js").exists()
+        or (directory / "next.config.mjs").exists()
+        or (directory / "vite.config.ts").exists()
+        or (directory / "vite.config.js").exists()
+    )
 
 
 def _extract_error_line_context(
@@ -6858,15 +9491,20 @@ def _collect_type_definition_files(
 
 
 def _build_err_fingerprint(errors: list) -> str:
-    """Stable error fingerprint: keeps error TYPE, ignores line numbers and punctuation."""
-    parts: set[str] = set()
-    for e in (errors or [])[:20]:
-        e2 = re.sub(r":\d+(?::\d+)?", " ", str(e)).lower()
-        e2 = re.sub(r"[^a-z ]+", " ", e2)
-        tokens = " ".join(w for w in e2.split() if len(w) > 2)
-        if tokens:
-            parts.add(tokens)
-    return "|".join(sorted(parts))
+    """Stable error fingerprint using normalized diagnostic identity.
+
+    Delegates to the DiagnosticNormalizer pipeline so fingerprints are based on
+    structured diagnostic fields (code, basename, entities) rather than raw
+    compiler text. This means:
+      - Same error at different line numbers → same fingerprint
+      - Same error with different absolute paths → same fingerprint
+      - Genuinely different errors → different fingerprint
+    """
+    from ticket_to_code.agents.diagnostic_normalizer import (
+        normalize_diagnostics, diagnostic_fingerprint,
+    )
+    diagnostics = normalize_diagnostics([str(e) for e in (errors or [])])
+    return diagnostic_fingerprint(diagnostics)
 
 
 def _find_java_module_root(file_path: str, workspace_path: str) -> "Optional[tuple[Path, str]]":
@@ -7206,26 +9844,53 @@ def patch_gate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     logger.info("🔒 PATCH GATE: Checking scope, apply, and secrets")
 
     run_ctx: Optional[RunContext] = _get_transient(state, "run_ctx")
-    if run_ctx:
-        run_ctx.start_phase("patch_gate")
+    # start_phase/end_phase handled by _phase_tracked_node wrapper
 
     generated_code = state.get("generated_code") or []
     plan = _get_plan(state)
     workspace_path = state["workspace_path"]
 
-    # Collect writable file paths from the plan
+    # Collect writable file paths from validated TicketScopeProof (or fallback to plan)
+    _sp = state.get("ticket_scope_proof")
     allowed_files: set = set()
-    if plan:
+    if _sp and hasattr(_sp, "scope_graph"):
+        allowed_files = {
+            f.replace("\\", "/") for f in _sp.scope_graph.all_writable_files()
+        }
+    elif plan:
         allowed_files = {
             t.file_path.replace("\\", "/")
             for t in (plan.tasks or [])
             if t.task_type.value != "read_only"
         }
 
+    # ── Hard Filesystem / Git Status Diff Check (Zero File Leaks) ────────────
+    from ticket_to_code.agents.ticket_scope_proof import (
+        verify_post_generation_scope,
+        revert_unauthorized_changes,
+    )
+    _is_fs_clean, _fs_violations, _fs_unauthorized = verify_post_generation_scope(
+        workspace_path=workspace_path,
+        approved_writable_files=allowed_files,
+        original_contents=state.get("original_file_contents"),
+        pre_run_manifest=state.get("pre_run_workspace_manifest"),
+    )
+    gate_failures: list = []
+    if not _is_fs_clean:
+        logger.error(
+            f"⛔ PATCH GATE SCOPE VIOLATION: Filesystem contains unauthorized changes: {sorted(_fs_unauthorized)}"
+        )
+        revert_unauthorized_changes(
+            workspace_path=workspace_path,
+            unauthorized_files=_fs_unauthorized,
+            original_contents=state.get("original_file_contents"),
+            pre_run_manifest=state.get("pre_run_workspace_manifest"),
+        )
+        for v in _fs_violations:
+            gate_failures.append(v)
+
     gate = PatchGate(repo_path=workspace_path)
     head_commit = PatchGate.current_head(workspace_path)
-
-    gate_failures: list = []
 
     for gen in generated_code:
         diff = getattr(gen, "content", "") or ""
@@ -7271,7 +9936,7 @@ def patch_gate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
 
     if run_ctx:
         run_ctx.validation_passed = len(gate_failures) == 0
-        run_ctx.end_phase("patch_gate")
+        # end_phase handled by _phase_tracked_node wrapper
 
     if gate_failures:
         logger.error(
@@ -7495,6 +10160,28 @@ def import_validation_node(state: TicketToCodeState, agents: WorkflowAgents) -> 
         if not fixes:
             continue
 
+        # Deterministic, repository-verified imports. Surface as a user-visible
+        # action (default APPLY); a wired provider may veto within 60s. When no
+        # provider is present (benchmark/CI) they are applied as before.
+        _import_hints = [h for h, _ in fixes]
+        _imp_provider = _get_transient(state, "_decision_provider")
+        _imp_ui_cb = _get_transient(state, "_ui_callback")
+        if _imp_provider is not None:
+            from ticket_to_code.agents.user_decision_gate import (
+                request_user_decision, build_import_payload,
+            )
+            _imp_choice = request_user_decision(
+                provider=_imp_provider,
+                payload=build_import_payload(getattr(gen, "file_path", ""), _import_hints),
+                options=["apply", "skip"], default="apply", timeout=60.0,
+            )
+            if _imp_choice == "skip":
+                logger.info(
+                    f"  import_validation: user skipped {len(_import_hints)} "
+                    f"verified import(s) for {gen.file_path}"
+                )
+                continue
+
         # Apply each import fix using the same logic as _inject_meta_imports
         from ticket_to_code.models import GeneratedCode as _GC  # avoid circular at module level
         dummy = type("_D", (), {"imports": [f for f, _ in fixes], "content": content, "language": gen.language})()
@@ -7512,6 +10199,20 @@ def import_validation_node(state: TicketToCodeState, agents: WorkflowAgents) -> 
                         f"  import_validation: injected {len(fixes)} import(s) into {gen.file_path}: "
                         + ", ".join(hint for hint, _ in fixes[:5])
                     )
+                    if _imp_ui_cb:
+                        try:
+                            from datetime import datetime as _dt
+                            _imp_ui_cb({
+                                "phase": "import_validation", "status": "applied",
+                                "message": f"➕ Added {len(fixes)} verified import(s) to {Path(gen.file_path).name}",
+                                "data": {"node": "import_validation",
+                                         "event_type": "verified_imports_added",
+                                         "file": gen.file_path,
+                                         "imports": _import_hints[:10]},
+                                "timestamp": _dt.now().isoformat(),
+                            })
+                        except Exception:
+                            pass
                 except Exception as e:
                     logger.warning(f"  import_validation: write failed for {gen.file_path}: {e}")
 
@@ -7532,6 +10233,11 @@ def build_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     """
     logger.info(" PHASE 5: Build Project")
 
+    # Invalidate the search cache because earlier nodes (generate/repair)
+    # may have written or modified files.
+    if hasattr(agents, "repo_search") and agents.repo_search:
+        agents.repo_search.invalidate_index()
+
     # ── Angular / TypeScript compile check ────────────────────────────────────
     # If any generated file is a TypeScript source, verify it compiles cleanly
     # using the TypeScript compiler.  This catches errors (wrong property names,
@@ -7539,6 +10245,7 @@ def build_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     # developer but the agent would never see.
     generated = state.get("generated_code", [])
     ts_files = [g for g in generated if g.file_path.endswith((".ts", ".tsx"))]
+    ts_build_result = None  # Track TS errors without short-circuiting
     if ts_files:
         ng_root = _find_ng_root(Path(state["workspace_path"]))
         if ng_root:
@@ -7548,37 +10255,38 @@ def build_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
             )
             ts_result = _run_tsc_check(ng_root)
             if ts_result is not None:
-                # Compile errors found — let fix_build_errors_node correct them
-                logger.error(f"  ❌ TypeScript compile FAILED — routing to fix_build")
-                agents.tracer.record_build(ts_result)
-                
-                log_content = f"Command: tsc --noEmit (Failed in {ng_root})\nExit Code: {ts_result.exit_code}\n\nSTDOUT:\n{ts_result.stdout}\n\nSTDERR:\n{ts_result.stderr}"
-                write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "build_output.log", log_content)
-                
-                return {"build_result": ts_result}
-
-            logger.info("  ✅ TypeScript compile OK")
-
-            # For pure Angular tickets (no .NET/.java files generated), the tsc
-            # check IS the build — return success immediately so we don't try
-            # to run msbuild/dotnet on an Angular project.
-            non_ts = [
-                g for g in generated
-                if not g.file_path.endswith((".ts", ".tsx", ".html", ".scss", ".css"))
-            ]
-            if not non_ts:
-                logger.info("   Pure Angular project — skipping .NET/Java build step")
-                _ok = BuildResult(
-                    status=BuildStatus.SUCCESS,
-                    exit_code=0,
-                    errors=[],
-                    stdout="TypeScript compile: OK",
-                    stderr="",
-                )
-                agents.tracer.record_build(_ok)
-                return {"build_result": _ok}
+                # Compile errors found — store but DON'T return yet.
+                # We still need to check Java/backend builds too so ALL errors are visible.
+                logger.error(f"  ❌ TypeScript compile FAILED — {len(ts_result.errors)} error(s)")
+                ts_build_result = ts_result
+            else:
+                logger.info("  ✅ TypeScript compile OK")
         else:
             logger.warning("  ⚠️ TypeScript files generated but no Angular project root found — skipping tsc check")
+
+    # For pure Angular tickets (no .NET/.java files generated), return TS result directly
+    non_ts_check = [
+        g for g in generated
+        if not g.file_path.endswith((".ts", ".tsx", ".html", ".scss", ".css"))
+    ]
+    if not non_ts_check:
+        if ts_build_result:
+            # Pure Angular with TS errors — route to fix_build
+            logger.error("  ❌ Pure Angular project — routing TS errors to fix_build")
+            agents.tracer.record_build(ts_build_result)
+            log_content = f"Command: tsc --noEmit (Failed)\nExit Code: {ts_build_result.exit_code}\n\nSTDOUT:\n{ts_build_result.stdout}\n\nSTDERR:\n{ts_build_result.stderr}"
+            write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "build_output.log", log_content)
+            return {"build_result": ts_build_result}
+        logger.info("   Pure Angular project — skipping .NET/Java build step")
+        _ok = BuildResult(
+            status=BuildStatus.SUCCESS,
+            exit_code=0,
+            errors=[],
+            stdout="TypeScript compile: OK",
+            stderr="",
+        )
+        agents.tracer.record_build(_ok)
+        return {"build_result": _ok}
 
     # ── .NET / Java / other build ──────────────────────────────────────────────
     
@@ -7615,45 +10323,39 @@ def build_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
             
         logger.info(f"Checking modified service directory: {service_dir}")
         
-        # Determine build tool for this service
+        # Determine build tool for this service via file-based detection
+        # Works for ANY project — Java/Gradle/Maven, Node.js, Python, C#, etc.
         executor = None
         project_file = None
         
-        # Hardcoded CC4E architecture map for instant build routing
-        CC4E_SERVICE_MAP = {
-            "issues-service": ("java-gradle", "build.gradle"),
-            "project-service": ("java-gradle", "build.gradle"),
-            "area-service": ("java-maven", "pom.xml"),
-            "se-connector-apis": ("java-maven", "pom.xml"),
-            "sagas-service": ("java-gradle", "build.gradle"),
-            "bim-gateway": ("java-gradle", "build.gradle"),
-            "ene-load-service": ("java-gradle", "build.gradle"),
-            "xchange-ui": ("nodejs", "package.json")
-        }
+        # Build file detection priority (most specific → least specific)
+        _BUILD_FILE_MAP = [
+            ("build.gradle",      "java-gradle"),
+            ("build.gradle.kts",  "java-gradle"),
+            ("pom.xml",           "java-maven"),
+            ("package.json",      "nodejs"),
+            ("angular.json",      "nodejs"),
+            ("pyproject.toml",    "python"),
+            ("setup.py",          "python"),
+            ("requirements.txt",  "python"),
+            ("*.csproj",          "dotnet"),
+            ("*.sln",             "dotnet"),
+            ("Cargo.toml",        "rust"),
+            ("go.mod",            "go"),
+        ]
         
-        if service_dir in CC4E_SERVICE_MAP:
-            tech, p_file = CC4E_SERVICE_MAP[service_dir]
-            executor = ExecutionEngineFactory.create(str(workspace), tech)
-            project_file = f"{service_dir}/{p_file}"
-        else:
-            if (service_path / "pom.xml").exists():
-                executor = ExecutionEngineFactory.create(str(workspace), "java-maven")
-                project_file = f"{service_dir}/pom.xml"
-            elif (service_path / "build.gradle").exists():
-                executor = ExecutionEngineFactory.create(str(workspace), "java-gradle")
-                project_file = f"{service_dir}/build.gradle"
-            elif (service_path / "package.json").exists():
-                executor = ExecutionEngineFactory.create(str(workspace), "nodejs")
-                project_file = f"{service_dir}/package.json"
-            elif (service_path / "pyproject.toml").exists():
-                executor = ExecutionEngineFactory.create(str(workspace), "python")
-                project_file = f"{service_dir}/pyproject.toml"
-            elif (service_path / "setup.py").exists():
-                executor = ExecutionEngineFactory.create(str(workspace), "python")
-                project_file = f"{service_dir}/setup.py"
-            elif (service_path / "requirements.txt").exists():
-                executor = ExecutionEngineFactory.create(str(workspace), "python")
-                project_file = f"{service_dir}/requirements.txt"
+        for build_file, tech in _BUILD_FILE_MAP:
+            if "*" in build_file:
+                # Glob-based detection (e.g., *.csproj)
+                matches = list(service_path.glob(build_file))
+                if matches:
+                    executor = ExecutionEngineFactory.create(str(workspace), tech)
+                    project_file = f"{service_dir}/{matches[0].name}"
+                    break
+            elif (service_path / build_file).exists():
+                executor = ExecutionEngineFactory.create(str(workspace), tech)
+                project_file = f"{service_dir}/{build_file}"
+                break
         
         if not executor or not project_file:
             logger.warning(f"Could not determine build tool for {service_dir}, trying fallback detect")
@@ -7693,7 +10395,23 @@ def build_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     if failed_results:
         # Take the first failure as the primary result
         first_fail_dir, first_fail_res = next((d, r) for d, r in build_results if r.status.value != "success")
-        logger.error(f"Build failed in {first_fail_dir}: {len(first_fail_res.errors)} errors")
+
+        # Merge TS errors if both TS and Java failed
+        if ts_build_result and ts_build_result is not first_fail_res:
+            merged_errors = list(ts_build_result.errors) + list(first_fail_res.errors)
+            merged_stdout = f"TS errors:\n{ts_build_result.stdout}\n\nJava errors ({first_fail_dir}):\n{first_fail_res.stdout}"
+            merged_stderr = f"{ts_build_result.stderr}\n{first_fail_res.stderr}"
+            first_fail_res = BuildResult(
+                status=BuildStatus.FAILURE,
+                exit_code=first_fail_res.exit_code,
+                errors=merged_errors,
+                stdout=merged_stdout,
+                stderr=merged_stderr,
+            )
+            logger.error(f"Build failed in BOTH TypeScript and {first_fail_dir}: {len(merged_errors)} total errors")
+        else:
+            logger.error(f"Build failed in {first_fail_dir}: {len(first_fail_res.errors)} errors")
+
         agents.tracer.record_build(first_fail_res)
         
         log_content = f"Command: auto (Failed in {first_fail_dir})\nExit Code: {first_fail_res.exit_code}\n\nSTDOUT:\n{first_fail_res.stdout}\n\nSTDERR:\n{first_fail_res.stderr}"
@@ -7712,6 +10430,13 @@ def build_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
         )
         
         return {"build_result": first_fail_res}
+    elif ts_build_result:
+        # Java builds all passed but TS had errors — return TS errors
+        logger.error(f"Java builds OK but TypeScript compile FAILED — {len(ts_build_result.errors)} error(s)")
+        agents.tracer.record_build(ts_build_result)
+        log_content = f"Command: tsc (Failed)\nExit Code: {ts_build_result.exit_code}\n\nSTDOUT:\n{ts_build_result.stdout}\n\nSTDERR:\n{ts_build_result.stderr}"
+        write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "build_output.log", log_content)
+        return {"build_result": ts_build_result}
     else:
         logger.info("✅ All modified services built successfully")
         # Return the last successful result
@@ -7821,18 +10546,192 @@ def test_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
         }
 
 
+def _wire_agent_context(
+    agent,
+    state: TicketToCodeState,
+    agents: WorkflowAgents,
+    workspace_path: "Path",
+):
+    """Wire v2/v3/v4 pipeline context into an ErrorResolutionAgent.
+
+    Extracted from fix_build_errors_node so it can be called once per
+    resolution pass without duplicating 80+ lines of context wiring.
+    """
+    # ── v2: Pass full context so the agent can make intelligent decisions ──
+    agent.pre_edit_snapshots = state.get("original_file_contents") or {}
+    agent.our_modified_files = set(
+        (getattr(g, "file_path", "") or "").replace("\\", "/").lower()
+        for g in (state.get("generated_code") or [])
+    )
+    agent.scope_proof = state.get("ticket_scope_proof")
+    ticket_obj = state.get("ticket")
+    agent.ticket_description = str(getattr(ticket_obj, "description", "")) if ticket_obj else ""
+
+    # ── v3: Wire pipeline context into agent ──────────────────────────────
+    # TicketExecutionContext: accumulated knowledge from investigation → planning
+    exec_ctx = _get_transient(state, "exec_ctx")
+    if exec_ctx:
+        agent.exec_ctx = exec_ctx
+        logger.info(f"  [v3] ErrorResolutionAgent: exec_ctx attached (ticket={exec_ctx.ticket_id})")
+
+    # ComponentStructureProvider: cross-file structural analysis for READ_COMPONENT
+    provider = None
+    try:
+        from ticket_to_code.agents.component_structure_provider import ComponentStructureProvider
+        component_groups = state.get("component_groups") or []
+        # Reuse the workspace symbol index from the localizer if available
+        symbol_index = getattr(agents.localizer, "symbol_index", None)
+        provider = ComponentStructureProvider(
+            workspace_path=str(workspace_path),
+            symbol_index=symbol_index,
+            component_groups=component_groups,
+        )
+        agent.component_provider = provider
+        logger.info(f"  [v3] ComponentStructureProvider attached ({len(component_groups)} groups)")
+    except Exception as _csp_err:
+        logger.debug(f"  [v3] ComponentStructureProvider init failed (non-fatal): {_csp_err}")
+
+    # ── v4: Wire Diagnostic Intelligence Pipeline ─────────────────────────
+    # SymbolResolver → RelationshipAnalyzer → FixLocalizer → FixHypothesisBuilder
+    # These give the agent structured evidence instead of raw error text.
+    symbol_index = getattr(agents.localizer, "symbol_index", None)
+    try:
+        from ticket_to_code.agents.symbol_resolver import SymbolResolver
+        from ticket_to_code.agents.relationship_analyzer import RelationshipAnalyzer
+        from ticket_to_code.agents.fix_localizer import FixLocalizer
+        from ticket_to_code.agents.fix_hypothesis_builder import FixHypothesisBuilder
+
+        if symbol_index:
+            resolver = SymbolResolver(symbol_index)
+            agent.symbol_resolver = resolver
+
+            rel_analyzer = RelationshipAnalyzer(
+                symbol_resolver=resolver,
+                component_provider=provider,
+                workspace_path=workspace_path,
+            )
+            agent.relationship_analyzer = rel_analyzer
+
+            localizer = FixLocalizer(
+                symbol_resolver=resolver,
+                relationship_analyzer=rel_analyzer,
+                component_provider=provider,
+            )
+            agent.fix_localizer = localizer
+
+            agent.hypothesis_builder = FixHypothesisBuilder()
+
+            logger.info("  [v4] Diagnostic Intelligence Pipeline: fully wired")
+        else:
+            logger.info("  [v4] No symbol_index available — diagnostic intelligence skipped")
+    except Exception as _di_err:
+        logger.debug(f"  [v4] Diagnostic Intelligence init failed (non-fatal): {_di_err}")
+
+    # ── v4: Pass Semantic Contract from code generation ───────────────────
+    _sc = _get_transient(state, "semantic_contract")
+    if _sc:
+        agent.semantic_contract = _sc
+        logger.info(
+            f"  [v4] Semantic Contract attached: {len(_sc.items)} items, "
+            f"{len(_sc.broken_items)} broken"
+        )
+
+
 def fix_build_errors_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
+    """Fix build errors using technology-partitioned resolution passes.
+
+    Pipeline:
+      1. Normalize raw errors → StructuredDiagnostic[]
+      2. Resolve contexts → ResolutionContext[]
+      3. For EACH context (sequentially):
+         a. Try Enhancement 12 (dependency resolution) first
+         b. Try Enhancement 4 (adaptive strategy switching)
+         c. Create ErrorResolutionAgent with correct compile_tool + compile_root
+         d. Run resolution loop
+         e. Write modified files to disk (WORKSPACE REFRESH)
+      4. Return updated retry count
+
+    Sequential execution is deliberate: each pass must see the current
+    workspace state, including changes made by previous passes.
     """
-    Debug Node: Fix Build Errors
-    
-    Uses ErrorResolutionAgent to autonomously fix build errors using an agentic loop.
-    """
-    logger.info(" DEBUG: Fixing Build Errors (Agentic Loop)")
-    
+    logger.info(" DEBUG: Fixing Build Errors (Technology-Partitioned Resolution)")
+
     normalized_build_errors = normalize_error_lines(state["build_result"].errors)
     logger.info(f"Analyzing {len(normalized_build_errors)} build errors...")
 
-    # ── Enhancement 12: Dependency Resolution ─────────────────────────────
+    # ── Change A: repair ONLY ticket/generated errors; never pre-existing/infra ──
+    # The router already diverts infra-only and all-pre-existing builds. In the
+    # MIXED case (baseline + ticket errors) we strip the baseline errors here so
+    # the resolver spends no iterations on files the ticket never touched.
+    # EXCEPTION: when the user explicitly chose FIX, keep the pre-existing errors
+    # and authorize (only) those files for repair.
+    _pre_existing_decision = str(state.get("pre_existing_decision", "leave") or "leave")
+    _authorized_pre_existing = set(state.get("authorized_pre_existing_files") or [])
+    try:
+        from ticket_to_code.agents.build_diagnostic_classifier import (
+            classify_build_diagnostics,
+        )
+        _our_files: set[str] = set()
+        for _g in (state.get("generated_code") or []):
+            _fp = (getattr(_g, "file_path", "") or "").replace("\\", "/").lower()
+            if _fp:
+                _our_files.add(_fp)
+        for _ofp in (state.get("original_file_contents") or {}).keys():
+            _our_files.add(str(_ofp).replace("\\", "/").lower())
+        _report = classify_build_diagnostics(normalized_build_errors, _our_files)
+        if _pre_existing_decision == "fix":
+            logger.info(
+                "  [fix_build] user authorized FIX of pre-existing errors — "
+                f"repairing all {len(normalized_build_errors)} error(s) incl. "
+                f"{len(_report.pre_existing)} pre-existing."
+            )
+        else:
+            _blocking = [d.raw for d in _report.blocking]
+            if _blocking and len(_blocking) < len(normalized_build_errors):
+                logger.info(
+                    f"  [fix_build] Differential filter: repairing {len(_blocking)} "
+                    f"ticket/generated error(s), ignoring "
+                    f"{len(normalized_build_errors) - len(_blocking)} pre-existing/infra line(s)"
+                )
+                normalized_build_errors = _blocking
+    except Exception as _flt_exc:
+        logger.debug(f"  [fix_build] differential filter skipped (non-fatal): {_flt_exc}")
+
+    # ── Pillar 6: Escalate cross-file context tier on build failure ──
+    # When TS2339/TS2551-like errors occur, the current context tier
+    # (e.g., signature) may be insufficient. Escalate to provide more
+    # detailed cross-file context on the next generation attempt.
+    try:
+        _impl_state_fix = None
+        try:
+            from ticket_to_code.agents.implementation_state import ImplementationState
+            _impl_state_fix = ImplementationState.from_workflow_state(state)
+        except Exception:
+            pass
+
+        if _impl_state_fix and _impl_state_fix.relationship_registry:
+            import re as _re_esc
+            _escalated_files = set()
+            for err_line in normalized_build_errors[:20]:
+                # Extract file path from error like "src/app/file.ts(12,3): error TS2339..."
+                _file_match = _re_esc.match(r'([^\s(]+\.\w+)', str(err_line))
+                if _file_match:
+                    _err_file = _file_match.group(1)
+                    if _err_file not in _escalated_files:
+                        new_tier = _impl_state_fix.relationship_registry.escalate_tier(
+                            target_file=_err_file,
+                            reason=str(err_line)[:150],
+                        )
+                        _escalated_files.add(_err_file)
+            if _escalated_files:
+                logger.info(
+                    f"  [RelationshipRegistry] Escalated context tier for "
+                    f"{len(_escalated_files)} file(s) with build errors"
+                )
+    except Exception as _esc_exc:
+        logger.debug(f"  Tier escalation failed (non-fatal): {_esc_exc}")
+
+    # ── Enhancement 12: Dependency Resolution (runs once, before partitioning) ──
     try:
         dep_result = agents.dependency_resolver.resolve(
             build_errors=normalized_build_errors,
@@ -7878,41 +10777,106 @@ def fix_build_errors_node(state: TicketToCodeState, agents: WorkflowAgents) -> d
     except Exception as exc:
         logger.debug(f"Enhancement 4 check failed (non-fatal): {exc}")
 
-    # ── Agentic Fix Loop ───────────────────────────────────────────────────
+    # ── Step 1: Normalize → StructuredDiagnostic[] ────────────────────────
+    from ticket_to_code.agents.diagnostic_normalizer import normalize_diagnostics
+    from ticket_to_code.agents.resolution_context import resolve_contexts
     from ticket_to_code.agents.error_resolution_agent import ErrorResolutionAgent
     from aviator.services.llm import LLMRegistry
     from pathlib import Path
-    
-    llm = getattr(agents, "llm", None) or getattr(getattr(agents, "code_generator", None), "llm", None) or LLMRegistry.get_llm(assistant=True)
-    sqlite_store = getattr(agents.localizer, "sqlite_store", None)
-    workspace_path = Path(state["workspace_path"])
-    
-    agent = ErrorResolutionAgent(llm, workspace_path, sqlite_store)
 
-    # ── v2: Pass full context so the agent can make intelligent decisions ──
-    agent.pre_edit_snapshots = state.get("original_file_contents") or {}
-    agent.our_modified_files = set(
-        (getattr(g, "file_path", "") or "").replace("\\", "/").lower()
-        for g in (state.get("generated_code") or [])
+    workspace_path = Path(state["workspace_path"])
+    llm = (
+        getattr(agents, "llm", None)
+        or getattr(getattr(agents, "code_generator", None), "llm", None)
+        or LLMRegistry.get_llm(assistant=True)
     )
-    ticket_obj = state.get("ticket")
-    agent.ticket_description = str(getattr(ticket_obj, "description", "")) if ticket_obj else ""
-    agent.compile_root = _find_ng_root(workspace_path)
-    
-    # Run the loop to get modified files
-    modified_files = agent.resolve_errors(normalized_build_errors)
-    
-    # Write any remaining files to disk (COMPILE tool already writes during the loop,
-    # but this catches files modified after the last COMPILE call)
-    for fp, fixed_content in modified_files.items():
-        abs_path = workspace_path / fp
-        abs_path.parent.mkdir(parents=True, exist_ok=True)
-        abs_path.write_text(fixed_content, encoding="utf-8")
-        logger.info(f"  Wrote fix to disk: {fp}")
+    sqlite_store = getattr(agents.localizer, "sqlite_store", None)
+
+    diagnostics = normalize_diagnostics(normalized_build_errors)
+
+    # ── Step 2: Partition → ResolutionContext[] ───────────────────────────
+    contexts = resolve_contexts(diagnostics, workspace_path)
+
+    if not contexts:
+        # Fallback: if normalization couldn't parse any diagnostics,
+        # create a single context with the raw errors
+        logger.warning("  No structured diagnostics parsed — falling back to single-context mode")
+        agent = ErrorResolutionAgent(llm, workspace_path, sqlite_store)
+        agent.compile_root = _find_ng_root(workspace_path)
+        _wire_agent_context(agent, state, agents, workspace_path)
+        agent.authorized_pre_existing = set(_authorized_pre_existing)
+        modified_files = agent.resolve_errors(normalized_build_errors)
+        _scope_proof = state.get("ticket_scope_proof")
+        for fp, fixed_content in modified_files.items():
+            if _scope_proof and not _scope_proof.is_file_writable(fp, workspace_root=workspace_path):
+                logger.error(
+                    f"  🛡️ SCOPE_PROOF_VIOLATION in repair: File '{fp}' is not in approved writable scope. Disk write blocked."
+                )
+                continue
+            abs_path = workspace_path / fp
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            abs_path.write_text(fixed_content, encoding="utf-8")
+            logger.info(f"  Wrote fix to disk: {fp}")
+        return {
+            "retry_attempt": state.get("retry_attempt", 0) + 1,
+            "status": "fixes_applied",
+        }
+
+    logger.info(
+        f"  Partitioned {len(diagnostics)} diagnostics into "
+        f"{len(contexts)} resolution context(s):"
+    )
+    for ctx in contexts:
+        logger.info(
+            f"    {ctx.language}/{ctx.build_tool} @ {ctx.compile_root} "
+            f"({len(ctx.diagnostics)} errors, {len(ctx.source_files)} files)"
+        )
+
+    # ── Step 3: Sequential resolution passes ──────────────────────────────
+    all_modified: dict[str, str] = {}
+    for i, ctx in enumerate(contexts):
+        logger.info(
+            f"\n  ═══ Resolution Pass {i + 1}/{len(contexts)}: "
+            f"{ctx.language}/{ctx.build_tool} ═══"
+        )
+
+        agent = ErrorResolutionAgent(llm, workspace_path, sqlite_store)
+        agent.compile_tool = ctx.build_tool
+        agent.compile_root = ctx.compile_root
+        _wire_agent_context(agent, state, agents, workspace_path)
+        agent.authorized_pre_existing = set(_authorized_pre_existing)
+
+        # Pass ONLY this context's errors to the agent
+        ctx_errors = [d.raw for d in ctx.diagnostics]
+        modified_files = agent.resolve_errors(ctx_errors)
+
+        # WORKSPACE REFRESH: Write to disk so next pass sees current state
+        _scope_proof = state.get("ticket_scope_proof")
+        for fp, fixed_content in modified_files.items():
+            if _scope_proof and not _scope_proof.is_file_writable(fp, workspace_root=workspace_path):
+                logger.error(
+                    f"  🛡️ SCOPE_PROOF_VIOLATION in repair pass {i+1}: File '{fp}' is not in approved writable scope. Disk write blocked."
+                )
+                continue
+            abs_path = workspace_path / fp
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            abs_path.write_text(fixed_content, encoding="utf-8")
+            logger.info(f"  Wrote fix to disk: {fp}")
+
+        all_modified.update(modified_files)
+        if hasattr(agent, "audit_trail") and agent.audit_trail:
+            trail = state.setdefault("repair_audit_trail", [])
+            trail.extend(agent.audit_trail)
+
+    logger.info(
+        f"  Resolution complete: {len(all_modified)} file(s) modified "
+        f"across {len(contexts)} pass(es)"
+    )
 
     return {
         "retry_attempt": state.get("retry_attempt", 0) + 1,
-        "status": "fixes_applied"
+        "status": "fixes_applied",
+        "repair_audit_trail": state.get("repair_audit_trail", []),
     }
 
 
@@ -8316,10 +11280,11 @@ def route_after_unified_analysis(state: TicketToCodeState):
 def route_after_validate_candidates(state: TicketToCodeState) -> str:
     """
     Route after candidate validation:
-    - validated            → localize  (normal forward path)
-    - failed (hard stop)   → END       (discovery exhausted all cycles)
-    - invalid, retries < max → plan    (re-rank with blacklist, no re-discovery)
-    - invalid, retries >= max → discover (full rediscovery with expanded scope)
+    - validated                    → localize  (normal forward path)
+    - no_action_required           → END       (ticket already implemented)
+    - planning_needs_recovery      → planning_recovery (diagnose + recover)
+    - invalid, retries < max       → plan      (re-rank with blacklist, no re-discovery)
+    - invalid, retries >= max      → discover  (full rediscovery with expanded scope)
     """
     print(f"DEBUG route_after_validate_candidates: status='{state.get('status')}', retry_count={state.get('candidate_retry_count')}")
     if state.get("status") == "candidates_validated":
@@ -8327,6 +11292,9 @@ def route_after_validate_candidates(state: TicketToCodeState) -> str:
     if state.get("status") == "no_action_required":
         logger.info("   Routing to END with terminal no_action_required")
         return END
+    if state.get("status") == "planning_needs_recovery":
+        logger.info("   Routing to planning_recovery (0 writable tasks — diagnosing)")
+        return "planning_recovery"
     if state.get("status") == "failed":
         logger.error("   Routing to END due to discovery hard stop")
         return END
@@ -8388,8 +11356,26 @@ def route_after_generate_code(state: TicketToCodeState) -> str:
             f"   Empty-patch retry {retry_count}/{max_retries} — re-planning with blacklist"
         )
         return "plan"
-    # Route through edit_loop (adaptive free-form loop) before patch_gate
-    return "edit_loop"
+
+    # ── Pre-generation gate hard-block → return to planning (bounded) ──
+    if state.get("status") == "generation_gate_blocked":
+        retry_count = int(state.get("candidate_retry_count", 0) or 0)
+        max_retries = int(state.get("max_candidate_retries", 2) or 2)
+        if retry_count >= max_retries:
+            logger.warning(
+                f"   Pre-generation gate block persisted {retry_count}/{max_retries} — "
+                f"proceeding to edit_loop rather than looping."
+            )
+            return "edit_loop"
+        logger.info(
+            f"   Pre-generation gate block — re-planning ({retry_count}/{max_retries})"
+        )
+        return "plan"
+
+    # If code generation completed cleanly, proceed directly to patch_gate -> build.
+    # Edit loop is reserved for error recovery (escalated or failed patches).
+    logger.info("  ✅ Code generation completed cleanly — proceeding directly to patch_gate")
+    return "patch_gate"
 
 
 # ============================================================================
@@ -8443,6 +11429,7 @@ def edit_loop_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
         workspace_path=workspace_path,
         llm=llm,
         symbol_index=symbol_index,
+        ui_callback=_get_transient(state, "_ui_callback"),
     )
 
     # If we re-entered via the requirement-satisfaction loop, tell the edit loop
@@ -8584,10 +11571,24 @@ def outcome_check_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict
         response = llm_invoke(llm, [
             SystemMessage(content="""You are a code reviewer verifying that a code generation
 system correctly implemented a feature ticket. Your job is to check whether the
-generated code changes actually satisfy the stated functional requirements.
+generated code changes actually satisfy the stated functional requirements —
+BEHAVIORALLY, not just syntactically.
 
-For each requirement, state clearly: SATISFIED, PARTIAL, or MISSING.
-Be concise and specific — reference exact method names, property names, or file names."""),
+For each requirement, state clearly one of: SATISFIED, PARTIAL, MISSING, or UNCERTAIN.
+(UNCERTAIN = the diff does not give you enough evidence to decide; do NOT guess PASS.)
+
+Pay special attention to SCOPE / QUANTIFIER alignment — a very common defect:
+- If a requirement applies to EACH / EVERY / ALL / per selected item, verify the
+  code handles the collection (loops/maps over items, per-row state), NOT just a
+  single element. Treat conditions like `if (items.length === 1)`,
+  `items[0]`, `.first()`, or single-selection-only branches as a RED FLAG when
+  the requirement is plural/per-item.
+- Flag contradictory or over-narrow conditions that would make the behavior
+  apply in fewer cases than the requirement demands.
+- Flag global/shared state used where per-item state is required.
+
+Be concise and specific — reference exact method names, property names, file
+names, and the offending condition when you find one."""),
             HumanMessage(content=f"""TICKET: {ticket.title}
 
 FUNCTIONAL REQUIREMENTS:
@@ -8597,12 +11598,13 @@ CODE CHANGES (unified diff):
 {diff_summary}
 
 For each requirement, output:
-- [SATISFIED/PARTIAL/MISSING] <requirement text>: <one-line reason>
+- [SATISFIED/PARTIAL/MISSING/UNCERTAIN] <requirement text>: <one-line reason; cite the exact condition/symbol if PARTIAL/MISSING/UNCERTAIN>
 
 Then output one of:
-VERDICT: CORRECT  (all requirements satisfied)
-VERDICT: PARTIAL  (some requirements missing)
-VERDICT: INCOMPLETE  (major requirements missing)"""),
+VERDICT: CORRECT     (all requirements satisfied)
+VERDICT: PARTIAL     (some requirements partial/missing, incl. scope/quantifier gaps)
+VERDICT: INCOMPLETE  (major requirements missing)
+VERDICT: UNCERTAIN   (insufficient evidence to confirm key requirements)"""),
         ])
 
         result_text = getattr(response, "content", str(response))
@@ -8613,6 +11615,8 @@ VERDICT: INCOMPLETE  (major requirements missing)"""),
             verdict = "PARTIAL"
         elif "VERDICT: INCOMPLETE" in result_text:
             verdict = "INCOMPLETE"
+        elif "VERDICT: UNCERTAIN" in result_text:
+            verdict = "UNCERTAIN"
 
         logger.info(f"  ✅ Outcome check verdict: {verdict}")
         logger.info(f"  Details:\n{result_text[:600]}")
@@ -8628,7 +11632,57 @@ VERDICT: INCOMPLETE  (major requirements missing)"""),
         # Count this as a remediation attempt only when the ticket is NOT satisfied,
         # so the bounded loop in route_after_outcome_check can terminate.
         _prev_attempt = int(state.get("outcome_fix_attempt", 0) or 0)
-        _next_attempt = _prev_attempt + 1 if verdict in ("PARTIAL", "INCOMPLETE") else _prev_attempt
+        _next_attempt = _prev_attempt + 1 if verdict in ("PARTIAL", "INCOMPLETE", "UNCERTAIN") else _prev_attempt
+
+        # ── CompletenessGate: Post-Build Semantic & Invariant Verification ──
+        from ticket_to_code.agents.completeness_gate import CompletenessGate
+
+        structured_reqs = []
+        if requirements:
+            f_reqs = getattr(requirements, "functional_requirements", []) or []
+            for idx, r in enumerate(f_reqs):
+                structured_reqs.append({
+                    "id": f"REQ-{idx+1}",
+                    "text": str(r),
+                    "requires_test": False,
+                })
+
+        modified_set = set()
+        for g in generated_code:
+            fp = getattr(g, "file_path", "")
+            if fp:
+                modified_set.add(fp)
+        for mf in state.get("modified_files", []):
+            modified_set.add(mf)
+
+        auth_files = set(state.get("authorized_writable_files", []))
+        if not auth_files:
+            auth_files = {getattr(g, "file_path", "") for g in generated_code if getattr(g, "file_path", "")}
+
+        test_res = state.get("test_result")
+        tests_passed = (test_res.status.value in ("all_passed", "success")) if test_res and hasattr(test_res, "status") else None
+        build_errors = state.get("build_errors", []) or []
+
+        completeness_verdict = CompletenessGate.evaluate(
+            ticket_id=getattr(ticket, "id", "ticket-001"),
+            ticket_title=getattr(ticket, "title", ""),
+            ticket_description=getattr(ticket, "description", ""),
+            requirements=structured_reqs,
+            change_targets=state.get("change_targets", []) or [],
+            modified_files=modified_set,
+            authorized_files=auth_files,
+            build_passed=bool(state.get("build_status") in ("success", "passed", "clean", "skipped") or not build_errors),
+            tests_passed=tests_passed,
+            cross_artifact_passed=True,
+            remaining_diagnostics=build_errors,
+            workspace_path=workspace_path,
+        )
+
+        logger.info(f"  🏁 COMPLETENESS GATE VERDICT: {completeness_verdict.status} — {completeness_verdict.summary}")
+        if not completeness_verdict.is_complete and verdict == "CORRECT":
+            verdict = "INCOMPLETE"
+            remediation = (remediation + "\n" if remediation else "") + "\n".join(completeness_verdict.uncovered_requirements)
+            _next_attempt = _prev_attempt + 1
 
         # ── Phase 5: Mechanical checklist verification ────────────────────────
         # Run ChecklistVerifier against the definition-of-done from Phase 0.
@@ -8675,6 +11729,7 @@ VERDICT: INCOMPLETE  (major requirements missing)"""),
                         "checklist_pass_rate": _vr.pass_rate,
                         "checklist_items": _vr.items,
                     },
+                    "completeness_verdict": completeness_verdict,
                     "outcome_remediation": remediation or None,
                     "outcome_fix_attempt": _next_attempt,
                     "unresolved_checklist_items": _unresolved,
@@ -8688,6 +11743,7 @@ VERDICT: INCOMPLETE  (major requirements missing)"""),
                 "details": result_text,
                 "files_checked": [getattr(g, "file_path", "") for g in generated_code],
             },
+            "completeness_verdict": completeness_verdict,
             "outcome_remediation": remediation or None,
             "outcome_fix_attempt": _next_attempt,
         }
@@ -8715,7 +11771,7 @@ def route_after_outcome_check(state: TicketToCodeState):
     attempt = int(state.get("outcome_fix_attempt", 0) or 0)
     max_attempts = int(state.get("max_outcome_fix_attempts", 1) or 1)
 
-    if verdict in ("PARTIAL", "INCOMPLETE") and attempt <= max_attempts:
+    if verdict in ("PARTIAL", "INCOMPLETE", "UNCERTAIN") and attempt <= max_attempts:
         # Check if we have Tier 2 backup candidates that haven't been promoted yet
         tier2 = state.get("tier2_candidates") or []
         expansion_count = int(state.get("context_expansion_count", 0) or 0)
@@ -8736,67 +11792,415 @@ def route_after_outcome_check(state: TicketToCodeState):
             )
             return "edit_loop"
 
-    if verdict in ("PARTIAL", "INCOMPLETE"):
+    if verdict in ("PARTIAL", "INCOMPLETE", "UNCERTAIN"):
         logger.info(
             f"  ⚠️ Requirements {verdict} but remediation budget exhausted or no "
-            f"actionable items — finalizing with warnings."
+            f"actionable items — finalizing with warnings (NOT marked fully verified)."
         )
     return "memory_update"
 
 
 def context_expand_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     """
-    Promote Tier 2 backup candidates into the active discovered_files list.
+    PARTIAL Recovery Architecture — smart context expansion when outcome_check
+    found PARTIAL/INCOMPLETE.
 
-    This runs when outcome_check found PARTIAL/INCOMPLETE — meaning the
-    current solution (from Tier 1 files only) doesn't fully satisfy the
-    ticket.  By promoting Tier 2 files, the system self-corrects even if
-    the re-ranker was overly aggressive in filtering.
+    Strategy (4 steps, each only runs if the previous didn't resolve the gap):
+
+      Step 1: Evidence Reuse
+        Check if existing evidence files from the investigation phase already
+        cover the unsatisfied requirements.
+
+      Step 2: Targeted Re-investigation
+        When evidence doesn't cover the gap, use the specific unsatisfied
+        requirements as focused search queries to find relevant files.
+
+      Step 3: Second Sufficiency Check
+        Evaluate whether the combined (old + new) evidence is now sufficient.
+        Only proceed to re-plan if the system has confidence the gap is covered.
+
+      Step 4: Tier 2 Fallback
+        Last resort — promote Tier 2 backup candidates blindly.
 
     Flow: context_expand → plan (re-plan with expanded context) → generate_code → ...
     """
     tier2 = state.get("tier2_candidates") or []
-    current_discovered = state.get("discovered_files") or []
+    _original_discovered_count = len(state.get("discovered_files") or [])
+    current_discovered = list(state.get("discovered_files") or [])  # shallow copy to avoid aliasing
     expansion_count = int(state.get("context_expansion_count", 0) or 0)
-
-    if not tier2:
-        logger.info("  context_expand: no Tier 2 candidates available — skipping")
-        return {"context_expansion_count": expansion_count + 1}
-
-    # Merge Tier 2 candidates into the discovered_files list
     existing_paths = {c.get("path") for c in current_discovered}
     promoted = 0
-    for candidate in tier2[:10]:  # Cap at 10 promotions
-        if candidate.get("path") not in existing_paths:
-            candidate["_tier"] = "promoted_from_tier2"
-            current_discovered.append(candidate)
-            existing_paths.add(candidate.get("path"))
-            promoted += 1
 
-    logger.info(
-        f"  📦→✅ Context expansion: promoted {promoted} Tier 2 files into "
-        f"discovered_files (total now: {len(current_discovered)})"
-    )
-    for c in tier2[:promoted]:
+    outcome_result = state.get("outcome_check_result") or {}
+    unsatisfied = outcome_result.get("unsatisfied_requirements") or []
+    evidence_items = state.get("evidence_items") or []
+
+    # ── Step 1: Evidence Reuse ────────────────────────────────────────────
+    # Check if evidence files from the investigation phase already cover
+    # the unsatisfied requirements.
+    if unsatisfied and evidence_items:
+        _unsatisfied_text = " ".join(str(r) for r in unsatisfied).lower()
+        evidence_candidates = []
+        for item in evidence_items:
+            _path = getattr(item, "file_path", None) or (item.get("file_path") if isinstance(item, dict) else "") or ""
+            if not _path or _path in existing_paths:
+                continue
+            # Check if evidence item's content/facts relate to unsatisfied reqs
+            _facts = str(getattr(item, "facts", "") if not isinstance(item, dict) else item.get("facts", "")).lower()
+            _role = str(getattr(item, "role", "") if not isinstance(item, dict) else item.get("role", "")).lower()
+            _content = str(getattr(item, "content_snippet", "") if not isinstance(item, dict) else item.get("content_snippet", "")).lower()
+            _combined = f"{_facts} {_role} {_content}"
+            if any(word in _combined for word in _unsatisfied_text.split()[:10] if len(word) > 4):
+                evidence_candidates.append({"path": _path, "_tier": "promoted_from_evidence"})
+
+        if evidence_candidates:
+            for ec in evidence_candidates[:8]:
+                if ec["path"] not in existing_paths:
+                    current_discovered.append(ec)
+                    existing_paths.add(ec["path"])
+                    promoted += 1
+            logger.info(
+                f"  📋→✅ Step 1 (Evidence Reuse): promoted {promoted} evidence files "
+                f"into discovered_files"
+            )
+            for ec in evidence_candidates[:promoted]:
+                logger.info(f"    + {ec['path']}  (source=evidence_ledger)")
+
+    # ── Step 2: Targeted Re-investigation ─────────────────────────────────
+    # When evidence from Step 1 doesn't cover the gap, use unsatisfied
+    # requirements as focused search queries to find relevant files.
+    if promoted == 0 and unsatisfied:
         logger.info(
-            f"    + {c.get('path')}  "
-            f"(rerank_score={c.get('rerank_score', '?')}, "
-            f"reason={c.get('rerank_reason', '')[:50]})"
+            f"  🔍 Step 2 (Targeted Re-investigation): evidence didn't cover gap, "
+            f"searching for {len(unsatisfied)} unsatisfied requirement(s)"
+        )
+        workspace_path = state.get("workspace_path", "")
+        if workspace_path:
+            try:
+                from ticket_to_code.agents.repository_search_engine import RepositorySearchEngine
+                _search_engine = RepositorySearchEngine(Path(workspace_path))
+
+                _targeted_finds = []
+                _skip_words = {"the", "and", "for", "with", "that", "this", "from", "should",
+                               "must", "have", "been", "not", "are", "was", "will", "can",
+                               "need", "also", "each", "when", "into", "does"}
+                for _req in unsatisfied[:5]:  # Cap at 5 requirements
+                    _req_text = str(_req).lower()
+                    _keywords = [
+                        w for w in _req_text.split()
+                        if len(w) > 3 and w not in _skip_words
+                    ][:4]
+
+                    if not _keywords:
+                        continue
+
+                    # Search by filename first (most precise)
+                    for _kw in _keywords:
+                        _fname_hits = _search_engine.search_filename(
+                            _kw, max_results=3
+                        )
+                        for _hit in _fname_hits:
+                            _match_path = _hit.file_path if hasattr(_hit, "file_path") else str(_hit)
+                            if _match_path not in existing_paths:
+                                _targeted_finds.append({
+                                    "path": _match_path,
+                                    "_tier": "targeted_reinvestigation",
+                                    "search_keyword": _kw,
+                                    "requirement": str(_req)[:100],
+                                })
+
+                    # Then search by content literal (broader)
+                    for _kw in _keywords[:2]:  # Limit to 2 content searches
+                        _content_hits = _search_engine.search_literal(
+                            _kw, max_results=3
+                        )
+                        for _hit in _content_hits:
+                            _match_path = _hit.file_path if hasattr(_hit, "file_path") else str(_hit)
+                            if _match_path not in existing_paths:
+                                _targeted_finds.append({
+                                    "path": _match_path,
+                                    "_tier": "targeted_reinvestigation",
+                                    "search_keyword": _kw,
+                                    "requirement": str(_req)[:100],
+                                })
+
+                # Deduplicate targeted finds
+                _seen_targeted = set()
+                _unique_targeted = []
+                for _tf in _targeted_finds:
+                    if _tf["path"] not in _seen_targeted:
+                        _seen_targeted.add(_tf["path"])
+                        _unique_targeted.append(_tf)
+
+                if _unique_targeted:
+                    for _tf in _unique_targeted[:6]:  # Cap at 6 targeted finds
+                        current_discovered.append(_tf)
+                        existing_paths.add(_tf["path"])
+                        promoted += 1
+                    logger.info(
+                        f"  🎯→✅ Step 2: targeted search found {promoted} relevant files"
+                    )
+                    for _tf in _unique_targeted[:promoted]:
+                        logger.info(
+                            f"    + {_tf['path']}  (keyword='{_tf['search_keyword']}', "
+                            f"req='{_tf['requirement'][:50]}')"
+                        )
+                else:
+                    logger.info("  🔍 Step 2: targeted search found no new files")
+
+            except Exception as _search_exc:
+                logger.warning(f"  Step 2 targeted search failed (non-fatal): {_search_exc}")
+
+    # ── Step 3: Second Sufficiency Check ──────────────────────────────────
+    # After Steps 1+2, evaluate whether the combined evidence (previous + newly collected)
+    # is actually sufficient to cover the unsatisfied requirements.
+    _coverage_assessment = "UNKNOWN"
+    if unsatisfied:
+        _new_file_count = len(current_discovered) - _original_discovered_count
+        
+        _unsatisfied_text = " ".join(str(r) for r in unsatisfied).lower()
+        _skip_words = {"the", "and", "for", "with", "that", "this", "from", "should", "must"}
+        _keywords = [w for w in _unsatisfied_text.split() if len(w) > 4 and w not in _skip_words]
+        
+        _combined_evidence = ""
+        for f in current_discovered:
+            _combined_evidence += str(f.get("path", "")) + " "
+            _combined_evidence += str(f.get("search_keyword", "")) + " "
+            _combined_evidence += str(f.get("requirement", "")) + " "
+        
+        _combined_evidence = _combined_evidence.lower()
+        _matches = sum(1 for kw in _keywords if kw in _combined_evidence)
+        
+        # Evaluate whether the combined evidence (previous + newly collected)
+        # is actually sufficient to cover the unsatisfied requirements.
+        if len(current_discovered) == 0:
+            _coverage_assessment = "INSUFFICIENT"
+        elif not _keywords:
+            _coverage_assessment = "LIKELY_SUFFICIENT"
+        elif _matches >= len(_keywords) * 0.5:
+            _coverage_assessment = "LIKELY_SUFFICIENT"
+        elif _matches >= len(_keywords) * 0.2:
+            _coverage_assessment = "PARTIALLY_COVERED"
+        else:
+            _coverage_assessment = "INSUFFICIENT"
+
+        logger.info(
+            f"  📊 Step 3 (Second Sufficiency): {_coverage_assessment} — "
+            f"promoted {_new_file_count} files for {len(unsatisfied)} unsatisfied requirement(s). "
+            f"Keywords matched: {_matches}/{len(_keywords)}. "
+            f"New discovered total: {len(current_discovered)}"
+        )
+
+    # ── Step 4: Tier 2 Fallback (last resort) ─────────────────────────────
+    # ONLY run Tier 2 if the combined evidence is still INSUFFICIENT.
+    if _coverage_assessment == "INSUFFICIENT" and tier2:
+        _tier2_promoted = 0
+        for candidate in tier2[:10]:
+            if candidate.get("path") not in existing_paths:
+                candidate["_tier"] = "promoted_from_tier2"
+                current_discovered.append(candidate)
+                existing_paths.add(candidate.get("path"))
+                _tier2_promoted += 1
+
+        logger.info(
+            f"  📦→✅ Step 4 (Tier 2 Fallback): promoted {_tier2_promoted} Tier 2 files "
+            f"(total now: {len(current_discovered)})"
+        )
+        for c in tier2[:_tier2_promoted]:
+            logger.info(
+                f"    + {c.get('path')}  "
+                f"(rerank_score={c.get('rerank_score', '?')}, "
+                f"reason={c.get('rerank_reason', '')[:50]})"
+            )
+    elif _coverage_assessment == "INSUFFICIENT":
+        logger.info(
+            "  context_expand: evidence insufficient, but no Tier 2 candidates available — skipping"
+        )
+    else:
+        logger.info(
+            f"  context_expand: Step 3 assessed as {_coverage_assessment} — skipping Tier 2 fallback"
         )
 
     return {
         "discovered_files": current_discovered,
-        "tier2_candidates": [],  # Clear tier2 after promotion
+        "tier2_candidates": [] if (promoted > 0 and not tier2) else tier2,
         "context_expansion_count": expansion_count + 1,
+        "unsatisfied_requirements": unsatisfied if unsatisfied else None,
         # Reset outcome state so the next cycle starts fresh
         "outcome_check_result": None,
         "outcome_remediation": None,
     }
 
 
+def pre_fix_build_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
+    """Compute and persist build-error fingerprint BEFORE the router reads it.
+
+    This node exists because check_build_status is a conditional-edge
+    router (returns a string, not a dict) and CANNOT update state.
+
+    Fingerprint lifecycle:
+      Build 1 → error A → fingerprint="X", prev="", consecutive=0
+      Fix attempt
+      Build 2 → error A → fingerprint="X", prev="X", consecutive=1
+      Fix attempt
+      Build 3 → error A → fingerprint="X", prev="X", consecutive=2 → STUCK
+
+    "Consecutive" means: how many times we've seen the SAME fingerprint
+    AFTER the first observation. So consecutive=2 means we've built 3 times
+    with identical errors — two fix attempts made zero progress.
+
+    Important edge case (Build 1→A, Build 2→B, Build 3→A):
+    This is NOT two consecutive identical errors. The fingerprint changed
+    at Build 2 (B≠A), so consecutive resets to 0. At Build 3, A≠B, so
+    consecutive stays 0. The system correctly sees this as progress.
+    """
+    build_result = state.get("build_result")
+    if not build_result or build_result.status.value == "success":
+        return {}  # No fingerprint update needed on success
+
+    raw_errors = getattr(build_result, "errors", []) or []
+    current_fp = _build_err_fingerprint(raw_errors)
+    prev_fp = state.get("prev_build_error_fingerprint") or ""
+    consec = int(state.get("consecutive_identical_build_errors", 0) or 0)
+
+    if current_fp == prev_fp and current_fp != "":
+        consec += 1
+    else:
+        consec = 0  # Errors changed — reset
+
+    logger.info(
+        f"  [pre_fix_build] fingerprint={'same' if current_fp == prev_fp else 'CHANGED'}, "
+        f"consecutive={consec}"
+    )
+
+    # ── Change A/B: differential + infrastructure classification ──────────────
+    # Attribute each diagnostic so the router can (a) skip source repair for
+    # environment/dependency failures and (b) accept a build whose only errors
+    # are pre-existing (baseline) ones the ticket did not introduce.
+    infra_only = False
+    differential_accept = False
+    diag_summary = "none"
+    pre_existing_decision = "leave"   # safe default — never silently authorize edits
+    infrastructure_blocked = False
+    authorized_pre_existing_files: list[str] = []
+    try:
+        from ticket_to_code.agents.build_diagnostic_classifier import (
+            classify_build_diagnostics,
+        )
+        _our_files: set[str] = set()
+        for _g in (state.get("generated_code") or []):
+            _fp = (getattr(_g, "file_path", "") or "").replace("\\", "/").lower()
+            if _fp:
+                _our_files.add(_fp)
+        for _ofp in (state.get("original_file_contents") or {}).keys():
+            _our_files.add(str(_ofp).replace("\\", "/").lower())
+
+        _report = classify_build_diagnostics(raw_errors, _our_files)
+        infra_only = _report.is_infrastructure_only
+        differential_accept = _report.is_differential_accept
+        diag_summary = _report.summary()
+        logger.info(
+            f"  [pre_fix_build] diagnostics: {diag_summary} | "
+            f"infra_only={infra_only} differential_accept={differential_accept} | "
+            f"blocking={len(_report.blocking)} pre_existing={len(_report.pre_existing)}"
+        )
+        try:
+            _trace = {
+                "summary": diag_summary,
+                "infrastructure_only": infra_only,
+                "differential_accept": differential_accept,
+                "blocking": [d.raw[:300] for d in _report.blocking][:20],
+                "infrastructure": [d.raw[:300] for d in _report.infrastructure][:20],
+                "pre_existing": [d.raw[:300] for d in _report.pre_existing][:20],
+            }
+            write_trace_artifact(
+                state["workspace_path"], state["ticket"].ticket_id,
+                "build_diagnostics.json", json.dumps(_trace, indent=2),
+            )
+        except Exception:
+            pass
+
+        _ui_cb = _get_transient(state, "_ui_callback")
+        _decision_provider = _get_transient(state, "_decision_provider")
+
+        # ── External dependency / infrastructure failure — surface to user ──
+        if infra_only:
+            infrastructure_blocked = True
+            _infra_msg = (
+                "Build failed due to an external dependency/repository problem "
+                "(not a source-code defect). Source repair is skipped. Resolve the "
+                "environment issue, then re-run validation."
+            )
+            logger.error(f"  🌐 INFRASTRUCTURE: {_infra_msg}")
+            if _ui_cb:
+                try:
+                    from datetime import datetime as _dt
+                    _ui_cb({
+                        "phase": "build", "status": "blocked", "message": _infra_msg,
+                        "data": {"node": "pre_fix_build", "event_type": "infrastructure_failure",
+                                 "diagnostics": [d.raw[:300] for d in _report.infrastructure][:10]},
+                        "timestamp": _dt.now().isoformat(),
+                    })
+                except Exception:
+                    pass
+
+        # ── Pre-existing errors — bounded user decision (default LEAVE) ──
+        elif _report.pre_existing:
+            from ticket_to_code.agents.user_decision_gate import (
+                request_user_decision, build_pre_existing_payload,
+            )
+            _payload = build_pre_existing_payload(_report)
+            if _ui_cb:
+                try:
+                    from datetime import datetime as _dt
+                    _ui_cb({
+                        "phase": "build", "status": "awaiting_decision",
+                        "message": _payload["message"],
+                        "data": {"node": "pre_fix_build", "event_type": "pre_existing_errors",
+                                 **_payload},
+                        "timestamp": _dt.now().isoformat(),
+                    })
+                except Exception:
+                    pass
+            pre_existing_decision = request_user_decision(
+                provider=_decision_provider,
+                payload=_payload,
+                options=["fix", "leave", "stop"],
+                default="leave",
+                timeout=60.0,
+            )
+            if pre_existing_decision == "fix":
+                # Explicitly authorize (only) these pre-existing files for repair.
+                _seen: set[str] = set()
+                for _d in _report.pre_existing:
+                    if _d.file_path and _d.file_path.lower() not in _seen:
+                        _seen.add(_d.file_path.lower())
+                        authorized_pre_existing_files.append(_d.file_path.lower())
+                logger.info(
+                    f"  [pre_fix_build] user authorized fixing {len(authorized_pre_existing_files)} "
+                    f"pre-existing file(s)."
+                )
+    except Exception as _cls_exc:
+        logger.debug(f"  [pre_fix_build] classification skipped (non-fatal): {_cls_exc}")
+
+    return {
+        "prev_build_error_fingerprint": current_fp,
+        "consecutive_identical_build_errors": consec,
+        "build_infrastructure_only": infra_only,
+        "build_differential_accept": differential_accept,
+        "build_diagnostic_summary": diag_summary,
+        "build_infrastructure_blocked": infrastructure_blocked,
+        "pre_existing_decision": pre_existing_decision,
+        "authorized_pre_existing_files": authorized_pre_existing_files,
+    }
+
+
 def check_build_status(state: TicketToCodeState):
     """
     Route after build — EVIDENCE-BASED, not counter-based.
+
+    This is a PURE ROUTER: it only reads state that was persisted by
+    pre_fix_build_node. It does NOT compute fingerprints or update state.
 
     Three kinds of evidence from the build result:
     1. SUCCESS → done, run outcome check
@@ -8817,22 +12221,40 @@ def check_build_status(state: TicketToCodeState):
         logger.info("  → Build successful, running outcome check")
         return "outcome_check"
 
-    # Extract a stable error fingerprint (strip line numbers so we compare error
-    # TYPES not positions — line numbers change as code is edited).
-    _raw_errors = getattr(build_result, "errors", []) or []
-    _fingerprint = _build_err_fingerprint(_raw_errors)
+    _decision = str(state.get("pre_existing_decision", "leave") or "leave")
 
-    _prev_fp = state.get("prev_build_error_fingerprint") or ""
+    # ── User decision gate: STOP safely when the user chose to halt ──
+    if _decision == "stop":
+        logger.warning(
+            "  → User chose STOP after pre-existing errors were surfaced. "
+            "Terminating safely and preserving the workspace."
+        )
+        return "memory_update"
+
+    # ── Change B: infrastructure-only failure → do NOT attempt source repair ──
+    if state.get("build_infrastructure_only"):
+        logger.error(
+            "  → Build failure is INFRASTRUCTURE-only (dependency/network/registry). "
+            "Source correctness cannot be established; skipping LLM source repair. "
+            f"({state.get('build_diagnostic_summary', '')})"
+        )
+        return "memory_update"
+
+    # ── Change A: all failures are PRE_EXISTING (ticket introduced none) → accept ──
+    # UNLESS the user explicitly chose FIX, in which case we fall through to
+    # fix_build so the authorized pre-existing files get repaired.
+    if state.get("build_differential_accept") and _decision != "fix":
+        logger.info(
+            "  → Build errors are all PRE_EXISTING baseline errors; the ticket "
+            "introduced no new build errors. Accepting and routing to outcome check. "
+            f"({state.get('build_diagnostic_summary', '')})"
+        )
+        return "outcome_check"
+
+    # Read persisted state from pre_fix_build_node
     _consec = int(state.get("consecutive_identical_build_errors", 0) or 0)
     _retries = int(state.get("retry_attempt", 0) or 0)
     _max_retries = int(state.get("max_retry_attempts", 3) or 3)
-
-    _errors_same = (_fingerprint == _prev_fp and _fingerprint != "")
-
-    if _errors_same:
-        _consec += 1
-    else:
-        _consec = 0  # errors changed — reset stuck counter
 
     if _retries >= _max_retries:
         logger.error(
@@ -8840,7 +12262,7 @@ def check_build_status(state: TicketToCodeState):
         )
         return "memory_update"
 
-    if _errors_same and _consec >= 2:
+    if _consec >= 2:
         logger.warning(
             f"  → STUCK: same build errors for {_consec} consecutive cycles "
             f"(retry {_retries}/{_max_retries}). Current fix strategy cannot make "
@@ -8848,10 +12270,10 @@ def check_build_status(state: TicketToCodeState):
         )
         return "memory_update"
 
-    if not _errors_same and _retries > 0:
+    if _retries > 0:
         logger.info(
-            f"  → Build errors CHANGED (new evidence) — progress detected, "
-            f"routing to fix_build with updated context (retry {_retries + 1}/{_max_retries})"
+            f"  → Build errors changed or first failure — progress detected, "
+            f"routing to fix_build (retry {_retries + 1}/{_max_retries})"
         )
     else:
         logger.info(
@@ -9012,212 +12434,50 @@ def memory_update_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict
 
 
 
+
+
 # ============================================================================
-# PIPELINE B: BEHAVIOR-FIRST NODES (SPRINT 4A SHADOW MODE)
+# PHASE-TRACKED NODE WRAPPER (Token Instrumentation)
 # ============================================================================
 
-def behavior_investigation_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
-    logger.info(" [PIPELINE B] Behavior Investigation Node")
-    result, trace = agents.behavior_investigation.execute(
-        ticket=state["ticket"],
-        workspace_path=state["workspace_path"]
-    )
-    result_dict = result.model_dump()
-    write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "investigation.json", result_dict)
-    write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "investigation_trace.json", trace)
-    return {"behavior_graph": result_dict}
+def _phase_tracked_node(node_name: str, node_fn):
+    """Wrap a node function to automatically track its phase in RunBudget.
 
-def capability_extraction_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
-    logger.info(" [PIPELINE B] File Fact Extraction Node")
-    if not state.get("behavior_graph"):
-        return {"capability_report": None}
-    
-    result, trace = agents.ownership_verification.execute(
-        ticket=state["ticket"],
-        behavior_graph=state["behavior_graph"]
-    )
-    result_dict = result.model_dump()
-    write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "capability_facts.json", result_dict)
-    write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "capability_facts_trace.json", trace)
-    return {"capability_report": result_dict}
+    Purely observational — never alters state, prompts, or control flow.
+    The wrapper is the single owner of the phase lifecycle (end_phase) for
+    all graph nodes.  Individual node functions MUST NOT call end_phase().
 
-def capability_consolidation_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
-    logger.info(" [PIPELINE B] Capability Understanding Node")
-    if not state.get("capability_report"):
-        return {"consolidated_capability_map": None}
-    
-    # Needs a FileFactReport object
-    from ticket_to_code.models import FileFactReport
-    fact_report = FileFactReport.model_validate(state["capability_report"])
-    
-    result, trace = agents.capability_consolidator.execute(
-        ticket=state["ticket"],
-        fact_report=fact_report
-    )
-    result_dict = result.model_dump()
-    write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "capability_understanding.json", result_dict)
-    write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "capability_understanding_trace.json", trace)
-    return {"consolidated_capability_map": result_dict}
+    Special case: investigate_node creates RunContext mid-execution, so it
+    retains its own start_phase() call.  The wrapper handles end_phase()
+    by re-fetching run_ctx in the finally block.
 
-def capability_graph_builder_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
-    logger.info(" [PIPELINE B] Capability Graph Builder Node")
-    if not state.get("consolidated_capability_map"):
-        return {"capability_graph_report": None}
-        
-    from ticket_to_code.models import ConsolidatedCapabilityReport
-    understanding_report = ConsolidatedCapabilityReport.model_validate(state["consolidated_capability_map"])
-    
-    result, trace = agents.capability_graph_builder.build_graph(
-        understanding_report=understanding_report
-    )
-    result_dict = result.model_dump()
-    write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "runtime_capability_graph.json", result_dict)
-    write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "runtime_capability_graph_trace.json", trace)
-    return {"capability_graph_report": result_dict}
-
-def capability_retrieval_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
-    logger.info(" [PIPELINE B] Hybrid Capability Retrieval Node")
-    if not state.get("capability_graph_report"):
-        return {"retrieved_capabilities": None}
-        
-    from ticket_to_code.models import CapabilityGraphReport
-    graph_report = CapabilityGraphReport.model_validate(state["capability_graph_report"])
-    
-    result, trace = agents.capability_retrieval.execute(
-        ticket=state["ticket"],
-        graph_report=graph_report
-    )
-    result_dict = result.model_dump()
-    write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "capability_matching.json", result_dict)
-    write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "capability_matching_trace.json", trace)
-    return {"retrieved_capabilities": result_dict}
-
-def behavior_planning_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
-    logger.info(" [PIPELINE B] Behavior Planning Node")
-    if not state.get("retrieved_capabilities"):
-        return {"behavior_plan": None}
-    
-    from ticket_to_code.models import RetrievedCapabilities
-    retrieved_capabilities = RetrievedCapabilities.model_validate(state["retrieved_capabilities"])
-    
-    # We use a separate planner instance to avoid state pollution
-    plan, trace = agents.behavior_planner.create_plan(
-        ticket=state["ticket"],
-        requirements=state["requirements"],
-        retrieved_capabilities=retrieved_capabilities,
-        workspace_path=state["workspace_path"]
-    )
-    
-    # Safely convert to dict
-    try:
-        plan_dict = plan.model_dump()
-    except AttributeError:
-        plan_dict = plan.__dict__ if hasattr(plan, "__dict__") else plan
-        
-    write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "planner.json", plan_dict)
-    write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "planner_trace.json", trace)
-
-    return {"behavior_plan": plan_dict}
-
-def plan_validation_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
-    logger.info(" [PIPELINE B] Plan Consistency Validation Node")
-    plan = state.get("behavior_plan")
-    retrieved_capabilities = state.get("retrieved_capabilities")
-    
-    if not plan or not retrieved_capabilities:
-        return {"plan_validation_result": None}
-    
-    from ticket_to_code.models import ArchitecturalPlan, RetrievedCapabilities
-    
-    # Re-instantiate models if they are dictionaries
-    if isinstance(plan, dict):
+    For all other nodes, run_ctx is already in the transient store before
+    the node runs, so the wrapper handles both start_phase and end_phase.
+    """
+    def _wrapper(state):
+        run_ctx = _get_transient(state, "run_ctx")
+        phase_started = False
+        if run_ctx:
+            try:
+                run_ctx.start_phase(node_name)
+                phase_started = True
+            except Exception:
+                pass  # Instrumentation must never crash the workflow
         try:
-            plan = ArchitecturalPlan.model_validate(plan)
-        except Exception:
-            pass # Validation will just fail or type error will bubble
-            
-    if isinstance(retrieved_capabilities, dict):
-        try:
-            retrieved_capabilities = RetrievedCapabilities.model_validate(retrieved_capabilities)
-        except Exception:
-            pass
-            
-    result = agents.plan_consistency_validator.execute(
-        ticket=state["ticket"],
-        plan=plan,
-        retrieved_capabilities=retrieved_capabilities,
-        discovered_files=state.get("discovered_files", [])
-    )
-    
-    # Write validation result to trace
-    write_trace_artifact(state["workspace_path"], state["ticket"].ticket_id, "plan_validation.json", result.model_dump())
-    
-    if result.status == "REPLAN_REQUIRED":
-        logger.error(f"   plan_validation_node: Plan rejected! Failed rules: {result.failed_rules}")
-        return {"plan_validation_result": result.model_dump()}
-        
-    return {"plan_validation_result": result.model_dump()}
+            return node_fn(state)
+        finally:
+            # Re-fetch: investigate_node creates and stores RunContext
+            # mid-execution, so run_ctx may now exist even if it was
+            # None before the node ran.
+            if not phase_started:
+                run_ctx = _get_transient(state, "run_ctx")
+            if run_ctx:
+                try:
+                    run_ctx.end_phase(node_name)
+                except Exception:
+                    pass  # Instrumentation must never crash the workflow
+    return _wrapper
 
-def shadow_metrics_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
-    logger.info(" [PIPELINE B] Shadow Metrics Synchronization")
-    # Collect metrics comparing A and B
-    import json
-    import os
-    
-    # Extract pipeline A plan files
-    pipeline_a_files = []
-    if state.get("architectural_plan"):
-        pipeline_a_files = [t.file_path for t in _get_plan(state).tasks]
-        
-    # Extract pipeline B plan files
-    pipeline_b_files = []
-    if state.get("behavior_plan"):
-        bp = state["behavior_plan"]
-        if isinstance(bp, dict):
-            tasks = bp.get("tasks", [])
-            pipeline_b_files = [t.get("file_path") if isinstance(t, dict) else t.file_path for t in tasks]
-        else:
-            pipeline_b_files = [t.file_path for t in bp.tasks]
-        
-    # Extract verified owners
-    verified_owners = []
-    if state.get("capability_report"):
-        verified_owners = [
-            f for f, data in state["capability_report"].get("ownership_classification", {}).items()
-            if data.get("classification") == "VERIFIED_OWNER"
-        ]
-        
-    # Extract validation result
-    validation_status = "UNKNOWN"
-    if state.get("plan_validation_result"):
-        validation_status = state["plan_validation_result"].get("status", "UNKNOWN")
-        
-    metrics = {
-        "ticket": state["ticket"].ticket_id,
-        "pipeline_a_files": pipeline_a_files,
-        "pipeline_b_files": pipeline_b_files,
-        "verified_owners": verified_owners,
-        "planner_files": pipeline_b_files,
-        "actual_changed_files": [], # Wait until test_node finishes or evaluate later
-        "validation_result": validation_status,
-        "winner": "UNKNOWN_PENDING_REVIEW"
-    }
-    
-    # Save to shadow_metrics.json
-    workspace = state["workspace_path"]
-    metrics_path = os.path.join(workspace, "shadow_metrics.json")
-    try:
-        existing = []
-        if os.path.exists(metrics_path):
-            with open(metrics_path, "r") as f:
-                existing = json.load(f)
-        existing.append(metrics)
-        with open(metrics_path, "w") as f:
-            json.dump(existing, f, indent=2)
-    except Exception as e:
-        logger.error(f"Failed to write shadow metrics: {e}")
-        
-    return {"shadow_metrics": metrics}
 
 # ============================================================================
 # BUILD LANGGRAPH WORKFLOW
@@ -9243,39 +12503,35 @@ def create_ticket_to_code_graph(workspace_path: str, technology: Optional[str] =
     # Create graph
     workflow = StateGraph(TicketToCodeState)
     
-    # Add nodes (simplified - ONE analysis node instead of two!)
-    workflow.add_node("investigate", lambda s: investigate_node(s, agents))
-    workflow.add_node("unified_analysis", lambda s: unified_analysis_node(s, agents))
-    workflow.add_node("discover", lambda s: discovery_node(s, agents))  # Repository Discovery
-    workflow.add_node("plan", lambda s: plan_node(s, agents))
-    workflow.add_node("validate_candidates", lambda s: validate_candidates_node(s, agents))  # Candidate validation
-    workflow.add_node("localize", lambda s: localize_node(s, agents))  # Repository intelligence
-    workflow.add_node("hypothesis_investigation", lambda s: hypothesis_investigation_node(s, agents))  # Phase 2G-1
-    workflow.add_node("evidence_collection_loop", lambda s: evidence_collection_loop_node(s, agents))  # Phase 2G-2
-    workflow.add_node("evidence_ranking", lambda s: evidence_ranking_node(s, agents))                  # Phase 3B
-    workflow.add_node("semantic_verification", lambda s: semantic_verification_node(s, agents))        # Phase 3C
-    workflow.add_node("grounded_understanding", lambda s: grounded_understanding_node(s, agents))  # Phase 2G-3
-    workflow.add_node("ownership_completeness", lambda s: ownership_completeness_node(s, agents))  # Phase 2F
-    workflow.add_node("dataflow_verification", lambda s: dataflow_verification_node(s, agents))  # DataFlow trace
-    workflow.add_node("rag_code", lambda s: rag_for_code_node(s, agents))
-    workflow.add_node("generate_code", lambda s: generate_code_node(s, agents))
-    workflow.add_node("edit_loop", lambda s: edit_loop_node(s, agents))  # free-form adaptive loop
-    workflow.add_node("patch_gate", lambda s: patch_gate_node(s, agents))  # B9: delivery safety
-    workflow.add_node("import_validation", lambda s: import_validation_node(s, agents))  # Layer 3
-    workflow.add_node("angular_module_registration", lambda s: angular_module_registration_node(s, agents))  # Gap 2
-    workflow.add_node("build", lambda s: build_node(s, agents))
-    workflow.add_node("fix_build", lambda s: fix_build_errors_node(s, agents))
-    workflow.add_node("memory_update", lambda s: memory_update_node(s, agents))
-    workflow.add_node("outcome_check", lambda s: outcome_check_node(s, agents))  # post-build semantic validation
-    workflow.add_node("context_expand", lambda s: context_expand_node(s, agents))  # Tier 2 fallback expansion
-    workflow.add_node("behavior_investigation", lambda s: behavior_investigation_node(s, agents))
-    workflow.add_node("capability_extraction", lambda s: capability_extraction_node(s, agents))
-    workflow.add_node("capability_consolidation", lambda s: capability_consolidation_node(s, agents))
-    workflow.add_node("capability_graph_builder", lambda s: capability_graph_builder_node(s, agents))
-    workflow.add_node("capability_retrieval", lambda s: capability_retrieval_node(s, agents))
-    workflow.add_node("behavior_planning", lambda s: behavior_planning_node(s, agents))
-    workflow.add_node("plan_validation", lambda s: plan_validation_node(s, agents))
-    workflow.add_node("shadow_metrics", lambda s: shadow_metrics_node(s, agents))
+    # Add nodes — each wrapped with _phase_tracked_node for automatic
+    # RunBudget phase attribution (token instrumentation).
+    workflow.add_node("investigate", _phase_tracked_node("investigate", lambda s: investigate_node(s, agents)))
+    workflow.add_node("unified_analysis", _phase_tracked_node("unified_analysis", lambda s: unified_analysis_node(s, agents)))
+    workflow.add_node("discover", _phase_tracked_node("discover", lambda s: discovery_node(s, agents)))
+    workflow.add_node("plan", _phase_tracked_node("plan", lambda s: plan_node(s, agents)))
+    workflow.add_node("validate_candidates", _phase_tracked_node("validate_candidates", lambda s: validate_candidates_node(s, agents)))
+    workflow.add_node("localize", _phase_tracked_node("localize", lambda s: localize_node(s, agents)))
+    workflow.add_node("hypothesis_investigation", _phase_tracked_node("hypothesis_investigation", lambda s: hypothesis_investigation_node(s, agents)))
+    workflow.add_node("evidence_collection_loop", _phase_tracked_node("evidence_collection_loop", lambda s: evidence_collection_loop_node(s, agents)))
+    workflow.add_node("evidence_ranking", _phase_tracked_node("evidence_ranking", lambda s: evidence_ranking_node(s, agents)))
+    workflow.add_node("semantic_verification", _phase_tracked_node("semantic_verification", lambda s: semantic_verification_node(s, agents)))
+    workflow.add_node("preflight_check", _phase_tracked_node("preflight_check", lambda s: preflight_check_node(s, agents)))
+    workflow.add_node("planning_scope_verification", _phase_tracked_node("planning_scope_verification", lambda s: planning_scope_verification_node(s, agents)))
+    workflow.add_node("grounded_understanding", _phase_tracked_node("grounded_understanding", lambda s: grounded_understanding_node(s, agents)))
+    workflow.add_node("ownership_completeness", _phase_tracked_node("ownership_completeness", lambda s: ownership_completeness_node(s, agents)))
+    workflow.add_node("dataflow_verification", _phase_tracked_node("dataflow_verification", lambda s: dataflow_verification_node(s, agents)))
+    workflow.add_node("rag_code", _phase_tracked_node("rag_code", lambda s: rag_for_code_node(s, agents)))
+    workflow.add_node("generate_code", _phase_tracked_node("generate_code", lambda s: generate_code_node(s, agents)))
+    workflow.add_node("edit_loop", _phase_tracked_node("edit_loop", lambda s: edit_loop_node(s, agents)))
+    workflow.add_node("patch_gate", _phase_tracked_node("patch_gate", lambda s: patch_gate_node(s, agents)))
+    workflow.add_node("import_validation", _phase_tracked_node("import_validation", lambda s: import_validation_node(s, agents)))
+    workflow.add_node("angular_module_registration", _phase_tracked_node("angular_module_registration", lambda s: angular_module_registration_node(s, agents)))
+    workflow.add_node("build", _phase_tracked_node("build", lambda s: build_node(s, agents)))
+    workflow.add_node("pre_fix_build", _phase_tracked_node("pre_fix_build", lambda s: pre_fix_build_node(s, agents)))
+    workflow.add_node("fix_build", _phase_tracked_node("fix_build", lambda s: fix_build_errors_node(s, agents)))
+    workflow.add_node("memory_update", _phase_tracked_node("memory_update", lambda s: memory_update_node(s, agents)))
+    workflow.add_node("outcome_check", _phase_tracked_node("outcome_check", lambda s: outcome_check_node(s, agents)))
+    workflow.add_node("context_expand", _phase_tracked_node("context_expand", lambda s: context_expand_node(s, agents)))
     
     # Set entry point
     workflow.set_entry_point("investigate")
@@ -9288,20 +12544,21 @@ def create_ticket_to_code_graph(workspace_path: str, technology: Optional[str] =
     workflow.add_edge("runtime_diagnosis", "unified_analysis")
     workflow.add_conditional_edges("unified_analysis", route_after_unified_analysis)  # Routes to "discover" or END
 
-    # Split into Parallel Pipelines
-    # Pipeline A
     workflow.add_edge("discover", "hypothesis_investigation")
-    workflow.add_edge("shadow_metrics", END) # End Pipeline B cleanly without touching generated files
 
     # Phase 2G: Evidence Pipeline (runs BEFORE planning)
     workflow.add_edge("hypothesis_investigation", "evidence_collection_loop")
     workflow.add_edge("evidence_collection_loop", "evidence_ranking")
     workflow.add_edge("evidence_ranking", "semantic_verification")
-    workflow.add_edge("semantic_verification", "plan")
+    workflow.add_edge("semantic_verification", "preflight_check")
+    workflow.add_conditional_edges("preflight_check", route_after_preflight)  # → planning_scope_verification or END
+    workflow.add_edge("planning_scope_verification", "plan")
 
-    # Plan → Validate Candidates → Localize
+    # Plan → Validate Candidates → Localize (or Planning Recovery)
+    workflow.add_node("planning_recovery", lambda s: planning_recovery_node(s, agents))  # Planning failure diagnosis
     workflow.add_edge("plan", "validate_candidates")
     workflow.add_conditional_edges("validate_candidates", route_after_validate_candidates)
+    workflow.add_conditional_edges("planning_recovery", route_after_planning_recovery)
     
     # Localize → Grounded Understanding
     workflow.add_edge("localize", "grounded_understanding")
@@ -9319,8 +12576,9 @@ def create_ticket_to_code_graph(workspace_path: str, technology: Optional[str] =
     workflow.add_edge("import_validation", "angular_module_registration")  # Gap 2: register in @NgModule
     workflow.add_edge("angular_module_registration", "build")
 
-    # Build validation: success → outcome check → memory update; failure → fix_build
-    workflow.add_conditional_edges("build", check_build_status)
+    # Build validation: build → pre_fix_build (fingerprint persistence) → router
+    workflow.add_edge("build", "pre_fix_build")
+    workflow.add_conditional_edges("pre_fix_build", check_build_status)
     # Requirement-satisfaction loop: if the ticket isn't actually satisfied, route
     # back through the adaptive edit loop to implement what's missing, then re-verify.
     workflow.add_conditional_edges(
@@ -9531,16 +12789,6 @@ def run_autonomous_workflow_langgraph(
             plan_tasks = plan.tasks if plan and hasattr(plan, "tasks") else []
             generated = final_state.get("generated_code", [])
             build_res = final_state.get("build_result")
-            behavior_plan = final_state.get("behavior_plan")
-            
-            cap_map = {}
-            if behavior_plan:
-                b_tasks = behavior_plan.tasks if hasattr(behavior_plan, "tasks") else behavior_plan.get("tasks", [])
-                for bt in b_tasks:
-                    path = bt.file_path if hasattr(bt, "file_path") else bt.get("file_path")
-                    caps = bt.capabilities if hasattr(bt, "capabilities") else bt.get("capabilities", [])
-                    if path:
-                        cap_map[path] = caps
 
             for d in discovered:
                 path = d["path"]

@@ -57,6 +57,12 @@ def _get_anchor_methods(task) -> list[str]:
     if target and target not in methods:
         methods.append(target)
 
+    # Source 4: change_targets — explicit ChangeTarget symbols
+    for ct in (getattr(task, "change_targets", []) or []):
+        sym = getattr(ct, "symbol", None)
+        if sym and sym not in methods:
+            methods.append(sym)
+
     return methods
 
 
@@ -905,6 +911,8 @@ class CodeGeneratorAgent:
         logger.info(f"Generating code for task: {task.id} - {task.title}")
         
         self._current_existing_content = existing_content
+        self._current_allowed_files = set(allowed_files or [])
+        self._current_readonly_files = set(readonly_files or [])
         
         # ── LSP context injection for HTML/Angular templates ──────────────────
         # Before generating, query the TypeScript LSP for the sibling controller's
@@ -1015,6 +1023,21 @@ class CodeGeneratorAgent:
                         # Parse response
                         generated = self._parse_response(full_content, task)
                         logger.info(f"Code generated: {len(generated.content)} chars")
+
+                        # ── Post-generation: record in ImplementationState ──
+                        _impl = getattr(self, "_impl_state", None)
+                        if _impl is not None:
+                            try:
+                                _impl.record_generated(
+                                    task_id=task.id,
+                                    file_path=task.file_path,
+                                    content=generated.content,
+                                )
+                            except Exception as _rec_exc:
+                                logger.debug(
+                                    f"  [ImplementationState] record_generated failed: {_rec_exc}"
+                                )
+
                         return generated
                     except ValueError as e:
                         if "AVIATOR_CODE_END missing" in str(e) and cont_attempt < max_continuations - 1:
@@ -1549,20 +1572,24 @@ Do NOT scan the entire file for other locations to change.
             #   - edit format (SEARCH/REPLACE) = operates on verbatim file content
 
             display_content = existing_content
-            if len(existing_content) > 50000:
+            # Target-First Generation: When modifying, drive prompt content by ChangeTarget / anchor_methods
+            # rather than arbitrary file size thresholds.
+            anchor_methods = _get_anchor_methods(task)
+            should_target_extract = (
+                task.task_type.value == "modify"
+                and (bool(anchor_methods) or len(existing_content) > 1000)
+            )
+            if should_target_extract:
                 try:
                     from ticket_to_code.agents.smart_extract import (
                         smart_extract, extract_exact_methods
                     )
 
-                    # Collect anchor methods: handles both MODIFY and INSERT shapes
-                    anchor_methods = _get_anchor_methods(task)
-
                     # Section 1: SKELETON — structural outline (awareness only)
                     skeleton_content = smart_extract(
                         content=existing_content,
                         file_path=task.file_path,
-                        allowed_methods=task.allowed_methods,
+                        allowed_methods=anchor_methods or task.allowed_methods,
                         target_method=task.target_method,
                         edit_description=task.description,
                     )
@@ -1583,24 +1610,25 @@ Do NOT scan the entire file for other locations to change.
                             f"{verbatim_content}"
                         )
                         logger.info(
-                            f"Skeleton+Verbatim: {task.file_path} "
+                            f"Target-First Skeleton+Verbatim: {task.file_path} "
                             f"({len(existing_content):,} → skeleton={len(skeleton_content):,} + "
                             f"verbatim={len(verbatim_content):,} chars, "
                             f"{len(matched_boundaries)} methods matched)"
                         )
-                    else:
-                        # Anchor methods not found — this is a distinguishable failure.
-                        # Fall back to skeleton-only (smart_extract), which may still
-                        # work for simple edits. The str_replace cascade will catch
-                        # any matching failures downstream.
-                        display_content = skeleton_content
-                        logger.warning(
-                            f"Verbatim extraction failed for {task.file_path}: "
-                            f"anchor methods {anchor_methods} not found. "
-                            f"Falling back to skeleton-only (smart_extract)."
+                    elif skeleton_content and len(skeleton_content) < len(existing_content):
+                        # Anchor methods not matched directly — use structural skeleton outline
+                        display_content = (
+                            f"=== FILE STRUCTURE (context only — DO NOT copy text from this section) ===\n"
+                            f"{skeleton_content}\n\n"
+                            f"=== FILE CONTENT ===\n"
+                            f"{existing_content[:2500]}"
+                        )
+                        logger.info(
+                            f"Target-First Skeleton outline for {task.file_path}: "
+                            f"{len(existing_content):,} → {len(skeleton_content):,} chars"
                         )
                 except Exception as e:
-                    logger.warning(f"Skeleton+Verbatim extraction failed for {task.file_path}, using full content: {e}")
+                    logger.warning(f"Target-First extraction failed for {task.file_path}, using full content: {e}")
 
             # ── Unified MODIFY path: show existing file for str_replace edits ──
             existing_section = f"""
@@ -1625,6 +1653,91 @@ Do NOT output the full file. Only output SEARCH/REPLACE blocks."""
         # Incremental cross-file awareness: inject fresh content of files this
         # task imports that were regenerated earlier in the same run.
         session_context_block = self._build_session_context(existing_content, task)
+
+        # ── Cross-file contract (planner produces/consumes) ──────────────────
+        # The planner declares what each task produces and consumes.
+        # This was previously IGNORED — now we surface it so the LLM knows
+        # the exact method names/signatures it must create or call.
+        contract_context_block = self._build_contract_context(task)
+        if contract_context_block:
+            logger.info(
+                f"  [Contract] Injected cross-file contract for {task.id} "
+                f"({len(contract_context_block)} chars)"
+            )
+
+        # ── Cross-File Intelligence (ContextAssembler pipeline) ─────────────────
+        # The ContextAssembler is the SINGLE entry point for cross-file context.
+        # It runs an 8-stage pipeline: task metadata → blueprints → handoffs →
+        # rolling context → dependencies → repo evidence → validation → assembly.
+        # Each context block is labeled with its authority level.
+        # Falls back to DependencyContextBuilder if ContextAssembler fails.
+        #
+        # Additionally, ImplementationState.to_prompt_context() provides
+        # authoritative handoff data (verified exports from earlier tasks).
+        # This was previously built but never called — now we wire it in.
+        blueprint_context_block = ""
+        _handoff_context_block = ""
+        _impl_state_pre = getattr(self, "_impl_state", None)
+        if _impl_state_pre is not None:
+            try:
+                _handoff_ctx = _impl_state_pre.to_prompt_context(task)
+                if _handoff_ctx:
+                    _handoff_context_block = _handoff_ctx
+                    logger.info(
+                        f"  [ImplementationState] Injected {len(_handoff_ctx)} chars "
+                        f"cross-file context for {task.id} "
+                        f"(handoffs={len(_impl_state_pre.get_handoffs_for_dependencies(task.dependencies or []))})"
+                    )
+            except Exception as _hc_exc:
+                logger.debug(f"  [ImplementationState] to_prompt_context failed: {_hc_exc}")
+        _impl_state = getattr(self, "_impl_state", None)
+        if _impl_state is not None:
+            try:
+                from ticket_to_code.agents.context_assembler import ContextAssembler
+                from ticket_to_code.agents.dependency_context_builder import DependencyContextBuilder
+                _resolver = getattr(self, "_symbol_resolver", None)
+                _ws = getattr(self, "_workspace_path", None)
+                dep_builder = DependencyContextBuilder(
+                    symbol_resolver=_resolver,
+                    workspace_path=Path(_ws) if _ws else None,
+                )
+                assembler = ContextAssembler(
+                    impl_state=_impl_state,
+                    dep_builder=dep_builder,
+                    symbol_resolver=_resolver,
+                    workspace_path=Path(_ws) if _ws else None,
+                )
+                blueprint_context_block = assembler.assemble(task)
+                if blueprint_context_block:
+                    logger.info(
+                        f"  [ContextAssembler] Injected {len(blueprint_context_block)} chars "
+                        f"for {task.id}"
+                    )
+                    # Log conflicts for debugging
+                    if assembler.conflicts:
+                        logger.info(
+                            f"  [ContextAssembler] Resolved {len(assembler.conflicts)} "
+                            f"evidence conflict(s)"
+                        )
+            except Exception as _asm_exc:
+                logger.debug(f"  [ContextAssembler] Failed, falling back: {_asm_exc}")
+                # Fallback: use DependencyContextBuilder directly
+                try:
+                    from ticket_to_code.agents.dependency_context_builder import DependencyContextBuilder
+                    _resolver = getattr(self, "_symbol_resolver", None)
+                    _ws = getattr(self, "_workspace_path", None)
+                    dep_builder = DependencyContextBuilder(
+                        symbol_resolver=_resolver,
+                        workspace_path=Path(_ws) if _ws else None,
+                    )
+                    blueprint_context_block = dep_builder.build_context(task, _impl_state)
+                    if blueprint_context_block:
+                        logger.info(
+                            f"  [Blueprint] Fallback dependency context for {task.id} "
+                            f"({len(blueprint_context_block)} chars)"
+                        )
+                except Exception as _bp_exc:
+                    logger.debug(f"  [Blueprint] Fallback also failed: {_bp_exc}")
 
         # ── Fix 1: Constructor preservation guard ─────────────────────────────
         # When modifying a TypeScript/Java file, extract ALL existing constructor
@@ -1664,7 +1777,7 @@ Do NOT output the full file. Only output SEARCH/REPLACE blocks."""
 ║  If the task says MODIFY a method, you MODIFY that method.        ║
 ╚══════════════════════════════════════════════════════════════════╝"""
 
-        return f"""\
+        _prompt = f"""\
 {scope_block}{scope_lock_block}{_edit_anchor_block}
 {planner_directive}
 
@@ -1684,7 +1797,7 @@ TECHNICAL REQUIREMENTS:
 
 EDGE CASES TO HANDLE:
 {self._format_list(requirements.edge_cases)}
-{change_surface_block}{import_context_block}{session_context_block}{_constructor_guard}
+{change_surface_block}{import_context_block}{session_context_block}{contract_context_block}{_handoff_context_block}{blueprint_context_block}{_constructor_guard}
 AVAILABLE CODE CONTEXT (reference patterns only — do NOT copy wholesale):
 {context_str}{existing_section}
 
@@ -1692,6 +1805,17 @@ DEPENDENCIES (from other tasks):
 {self._format_list(task.dependencies) if task.dependencies else "None"}
 
 {modify_instruction}""".strip()
+
+        # ── Token accounting telemetry ────────────────────────────────────────
+        # Store last prompt component sizes for per-file token breakdown.
+        # These are observational only — never affect generation logic.
+        self._last_session_context = session_context_block or ""
+        self._last_contract_context = contract_context_block or ""
+        self._last_impl_context = (
+            (_handoff_context_block or "") + (blueprint_context_block or "")
+        )
+
+        return _prompt
 
 
 
@@ -1805,6 +1929,9 @@ DEPENDENCIES (from other tasks):
     _sqlite_store = None
     # Attach the session-generated file map (path→content) for incremental context.
     _session_files = None
+    # Attach the ImplementationState for blueprint-driven context + post-gen recording.
+    # Set by workflow.py before generate_code(); None when running without the new system.
+    _impl_state = None
 
     def _build_import_context(
         self,
@@ -1947,6 +2074,87 @@ DEPENDENCIES (from other tasks):
             return ""
         return ctor_block
 
+    def _build_contract_context(
+        self,
+        task: "DevelopmentTask",
+    ) -> str:
+        """Build a prompt block from cross-file contracts.
+
+        Priority:
+        1. VERIFIED facts from RelationshipRegistry (actual code evidence)
+        2. Planner's semantic contract (intent-level, may not match reality)
+
+        VERIFIED facts override planner predictions. PLANNED relationships
+        are clearly labeled as suggestions, never as facts.
+        """
+        # ── 1. Try RelationshipRegistry for verified facts ──
+        registry_context = ""
+        _impl_state = getattr(self, "_impl_state", None)
+        if _impl_state and _impl_state.relationship_registry:
+            try:
+                registry = _impl_state.relationship_registry
+                registry_context = registry.get_context_for_task(task)
+            except Exception as _reg_exc:
+                logger.debug(f"  Registry context failed (non-fatal): {_reg_exc}")
+
+        # ── 2. Planner's semantic contract (existing logic, preserved) ──
+        contract = getattr(task, "cross_file_contract", None)
+        planner_context = ""
+        if contract:
+            blocks: list[str] = []
+
+            # ── PRODUCES: what this task MUST create ──
+            if contract.produces:
+                produce_lines = []
+                for bp in contract.produces:
+                    line = f"    • {bp.capability}"
+                    if bp.data_shape:
+                        line += f"\n      data shape: {bp.data_shape}"
+                    if bp.relationship_type and bp.relationship_type != "data":
+                        line += f"  ({bp.relationship_type})"
+                    produce_lines.append(line)
+                blocks.append(
+                    "  🔧 THIS TASK MUST PRODUCE (create these capabilities):\n"
+                    + "\n".join(produce_lines)
+                )
+
+            # ── CONSUMES: what this task can USE from earlier tasks ──
+            if contract.consumes:
+                consume_lines = []
+                for bp in contract.consumes:
+                    from_tag = f"[from {bp.from_task}] " if bp.from_task else ""
+                    line = f"    • {from_tag}{bp.capability}"
+                    if bp.data_shape:
+                        line += f"\n      data shape: {bp.data_shape}"
+                    if bp.relationship_type and bp.relationship_type != "data":
+                        line += f"  ({bp.relationship_type})"
+                    consume_lines.append(line)
+                blocks.append(
+                    "  📥 THIS TASK CONSUMES (use these — already created by earlier tasks):\n"
+                    + "\n".join(consume_lines)
+                )
+
+            if blocks:
+                planner_context = (
+                    "\n\n╔══════════════════════════════════════════════════════════════╗\n"
+                    "║  CROSS-FILE CONTRACT (from planner — semantic obligations)   ║\n"
+                    "╠══════════════════════════════════════════════════════════════╣\n"
+                    + "\n".join(blocks)
+                    + "\n╠══════════════════════════════════════════════════════════════╣\n"
+                    "║  PRODUCES = you MUST create these capabilities                ║\n"
+                    "║  CONSUMES = you MUST integrate with these, NOT reinvent them  ║\n"
+                    "╚══════════════════════════════════════════════════════════════╝\n"
+                )
+
+        # ── 3. Combine: verified facts first, planner intent second ──
+        if registry_context and planner_context:
+            return registry_context + "\n" + planner_context
+        elif registry_context:
+            return registry_context
+        elif planner_context:
+            return planner_context
+        return ""
+
     def _build_session_context(
         self,
         existing_content: str,
@@ -2049,6 +2257,54 @@ DEPENDENCIES (from other tasks):
                 if cand in session_files and cand not in seen:
                     seen.add(cand)
                     blocks.append(f"FILE (just modified this run): {cand}\n{session_files[cand]}")
+
+        # ── Dependency-based resolution (not just existing imports) ────────
+        # When this task needs to ADD a new import (e.g., component needs
+        # isProjectMember() from ProjectsService), existing_content doesn't
+        # have that import yet. So we also scan cross_file_contract.consumes
+        # and task.dependencies to find relevant session files.
+        _contract = getattr(task, "cross_file_contract", None)
+        _dep_file_hints: set[str] = set()
+        # From cross_file_contract.consumes: extract from_task references
+        if _contract and getattr(_contract, "consumes", None):
+            for _bp in _contract.consumes:
+                _from = getattr(_bp, "from_task", "") or ""
+                if _from:
+                    _dep_file_hints.add(_from.replace("\\", "/").lower())
+        # From task.dependencies: these are task IDs or file paths
+        for _dep in (task.dependencies or []):
+            _dep_file_hints.add(_dep.replace("\\", "/").lower())
+        # Match dependency hints against session files
+        for _hint in _dep_file_hints:
+            for _skey in session_files:
+                if _skey in seen:
+                    continue
+                # Match by file path (exact or basename match)
+                _hint_basename = Path(_hint).name.lower() if "/" in _hint or "\\" in _hint else _hint
+                _skey_basename = Path(_skey).name.lower()
+                if _hint == _skey or _hint_basename == _skey_basename:
+                    seen.add(_skey)
+                    _scontent = session_files[_skey]
+                    _import_line = ""
+                    if ext in (".ts", ".tsx") and _skey.endswith((".ts", ".tsx")):
+                        _import_fwd = _compute_import_path(task.file_path, _skey)
+                        if _import_fwd:
+                            _exports = re.findall(
+                                r'export\s+(?:class|interface|enum|type|const|function)\s+(\w+)',
+                                _scontent
+                            )
+                            _export_str = ", ".join(_exports[:5]) if _exports else "..."
+                            _import_line = (
+                                f"\n\U0001f4e6 IMPORT PATH: import {{ {_export_str} }} from '{_import_fwd}';\n"
+                            )
+                    blocks.append(
+                        f"DEPENDENCY (from cross-file contract — generated this run):\n"
+                        f"{_skey}\n{_import_line}{_scontent[:2000]}"
+                    )
+                    logger.info(
+                        f"  [SessionContext] Injected dependency from contract: {_skey}"
+                    )
+                    break
 
         # Component 3a: Inject ALL session files in the same module directory.
         # Not just .service. files — also models, interfaces, and any file
@@ -2346,6 +2602,45 @@ Namespace: {getattr(chunk, 'namespace', 'N/A') or 'N/A'}
                             f"  str_replace: {len(_edits)} edit(s) applied "
                             f"successfully to {task.file_path}"
                         )
+
+                        # ── Post-Generation Patch Gate Validation ─────────────
+                        try:
+                            from ticket_to_code.agents.patch_gate import PatchGate
+                            _auth_files = getattr(self, "_current_allowed_files", None) or set()
+                            
+                            # Gather sibling controller content for cross-artifact validation if HTML
+                            _sibling_c = None
+                            _sibling_p = None
+                            if Path(task.file_path).suffix.lower() in (".html", ".htm"):
+                                _session = getattr(self, "_session_files", None) or {}
+                                _stem = task.file_path.rsplit(".", 1)[0]
+                                for _ctrl_ext in (".ts", ".tsx"):
+                                    _cand_p = _stem + _ctrl_ext
+                                    _ck = _cand_p.replace("\\", "/").lower()
+                                    if _ck in _session:
+                                        _sibling_c = _session[_ck]
+                                        _sibling_p = _cand_p
+                                        break
+                                if not _sibling_c and getattr(self, "_workspace_path", None):
+                                    _f_abs = Path(self._workspace_path) / (_stem + ".ts")
+                                    if _f_abs.exists():
+                                        _sibling_c = _f_abs.read_text(encoding="utf-8", errors="ignore")
+                                        _sibling_p = str(_f_abs)
+
+                            _gate_ok, _gate_reason = PatchGate.validate_patch(
+                                file_path=task.file_path,
+                                patch_content=code_match.group(1).strip() if code_match else "",
+                                authorized_writable_files=_auth_files if _auth_files else {task.file_path},
+                                change_targets=getattr(task, "change_targets", []),
+                                has_migration_evidence=False,
+                                sibling_content=_sibling_c,
+                                sibling_path=_sibling_p,
+                            )
+                            if not _gate_ok:
+                                logger.warning(f"  [PatchGate] Validation failed for {task.file_path}: {_gate_reason}")
+                                raise ValueError(f"[PatchGate] {_gate_reason}")
+                        except ImportError:
+                            pass
                     except ValueError as edit_err:
                         logger.warning(
                             f"str_replace edit failed for {task.file_path}: "
