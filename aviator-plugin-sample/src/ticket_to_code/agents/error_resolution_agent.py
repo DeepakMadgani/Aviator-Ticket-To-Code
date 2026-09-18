@@ -1498,10 +1498,19 @@ CRITICAL: For simple type errors (TS2322, TS2554), fix them IMMEDIATELY with REP
         compile_root = self.compile_root or self.workspace_path
         tsc_path = compile_root / "node_modules" / ".bin" / ("tsc.cmd" if sys.platform == "win32" else "tsc")
 
+        project_flag = ""
+        project_args: list[str] = []
+        if (compile_root / "tsconfig.app.json").exists():
+            project_flag = " -p tsconfig.app.json"
+            project_args = ["-p", "tsconfig.app.json"]
+        elif (compile_root / "tsconfig.json").exists():
+            project_flag = " -p tsconfig.json"
+            project_args = ["-p", "tsconfig.json"]
+
         if tsc_path.exists():
-            cmd = f"\"{tsc_path}\" --noEmit" if use_shell else [str(tsc_path), "--noEmit"]
+            cmd = f"\"{tsc_path}\"{project_flag} --noEmit" if use_shell else ([str(tsc_path)] + project_args + ["--noEmit"])
         else:
-            cmd = "npx tsc --noEmit" if use_shell else ["npx", "tsc", "--noEmit"]
+            cmd = f"npx tsc{project_flag} --noEmit" if use_shell else (["npx", "tsc"] + project_args + ["--noEmit"])
 
         logger.info(f"  QUICK_CHECK: Running tsc --noEmit (fast type-check)...")
         try:

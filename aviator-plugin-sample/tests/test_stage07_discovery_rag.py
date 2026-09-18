@@ -7,12 +7,24 @@ Verifies:
     4. Stage 0.7 is bounded (max 6 queries, max 10 candidates)
 
 Pure logic; no LLM/workspace. Uses mocking to isolate RAG behavior.
+
+SKIPPED (owner decision, 2026-09-16): Stage 0.7 was deliberately removed from
+evidence_collection_loop.py — mandatory pre-loop RAG proved not useful, and
+semantic_rag remains available as an on-demand agentic tool instead. These
+tests document the removed feature and are kept (skipped) for reference only.
 """
 
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch, call
 from datetime import datetime
+
+import pytest
+
+pytestmark = pytest.mark.skip(
+    reason="Stage 0.7 Discovery RAG was removed intentionally (owner decision, "
+    "2026-09-16): semantic_rag is an on-demand agentic tool, not a mandatory stage."
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 

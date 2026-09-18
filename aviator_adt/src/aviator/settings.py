@@ -415,7 +415,9 @@ class Settings(BaseSettings):
     )
     top_k: int | None = Field(default=40)
     top_p: float | None = Field(default=0.8)
-    max_tokens: int = Field(default=65536, description="Maximum tokens for LLM responses.")
+    # 65535, not 65536: Gemini's maxOutputTokens upper bound is exclusive, so
+    # 65536 is rejected with 400 INVALID_ARGUMENT whenever MAX_TOKENS is unset.
+    max_tokens: int = Field(default=65535, description="Maximum tokens for LLM responses.")
     total_token_size: int = Field(default=20000, description="Total LLM context window size in tokens")
     rag_default_limit: int = Field(default=20, description="Default limit for RAG searches when not specified.")
 

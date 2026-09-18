@@ -343,7 +343,7 @@ export const WORKFLOW_STAGES = [
   { id: 'completed', name: 'Completion', icon: '✅', phases: ['committing', 'completed'] },
 ];
 
-const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath, attachments = [], onWorkflowStarted, onWorkflowStopped, existingWorkflowId }) => {
+const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath, attachments = [], writableFiles = [], forbiddenFiles = [], onWorkflowStarted, onWorkflowStopped, existingWorkflowId }) => {
   const [workflowId, setWorkflowId] = useState(existingWorkflowId || null);
   const [workflowState, setWorkflowState] = useState(null);
   const [steps, setSteps] = useState([]);
@@ -370,6 +370,11 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
       const res = await fetch(`${API}/api/workflow/transparent/${wfId}`);
       const data = await res.json();
       setWorkflowState(data);
+
+      // Hydrate token usage from persisted backend state
+      if (data.token_usage) {
+        setTokenUsage(data.token_usage);
+      }
 
       // seed steps from persisted list (for late-joining / reconnect)
       if (data.steps && data.steps.length > 0) {
@@ -431,14 +436,20 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
           setTokenUsage(step.data);
           return; // don't add to timeline steps
         }
+        if (step.data?.token_usage) {
+          setTokenUsage(step.data.token_usage);
+        }
 
+        // Add the step to the timeline, de-duplicating by timestamp+message.
+        // NOTE: Do NOT call fetchState(wfId) here — that is handled by the
+        // polling timer (startPolling) and would cause duplicate additions
+        // / batch rendering of all steps at once.
         setSteps(prev => {
           // de-duplicate by step.id or timestamp+message
           const stepKey = step.id || `${step.timestamp}-${step.message}`;
           const seen = new Set(prev.map(s => s.id || `${s.timestamp}-${s.message}`));
           return seen.has(stepKey) ? prev : [...prev, step];
         });
-        fetchState(wfId);
       } catch { /* ignore parse errors */ }
     };
 
@@ -472,6 +483,8 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
               ticket_description: ticketDescription,
               repo_path: repoPath,
               attachments: attachments || [],
+              writable_files: writableFiles || [],
+              forbidden_files: forbiddenFiles || [],
             }),
           });
           const data = await res.json();
@@ -579,6 +592,7 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
   const isCompleted = workflowState?.status === 'completed';
   const isFailed = workflowState?.status === 'failed';
   const isStopped = workflowState?.status === 'stopped';
+  const activeTokenUsage = tokenUsage || workflowState?.token_usage || null;
 
   // ── Auto-scroll timeline to latest step ──────────────────────────────────
   useEffect(() => {
@@ -677,35 +691,35 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
       </div>
 
       {/* ── Token Usage Banner (observational telemetry) ── */}
-      {tokenUsage && (
+      {activeTokenUsage && (
         <div className="token-banner">
           <div className="token-banner-header" onClick={() => setTokenExpanded(prev => !prev)}>
             <span className="token-banner-title">🪙 Token Usage</span>
             <div className="token-banner-totals">
               <span className="token-stat">
                 <span className="token-label">In</span>
-                <span className="token-value">{(tokenUsage.tokens_in || 0).toLocaleString()}</span>
+                <span className="token-value">{(activeTokenUsage.tokens_in || 0).toLocaleString()}</span>
               </span>
               <span className="token-divider">│</span>
               <span className="token-stat">
                 <span className="token-label">Out</span>
-                <span className="token-value">{(tokenUsage.tokens_out || 0).toLocaleString()}</span>
+                <span className="token-value">{(activeTokenUsage.tokens_out || 0).toLocaleString()}</span>
               </span>
               <span className="token-divider">│</span>
               <span className="token-stat token-total">
                 <span className="token-label">Total</span>
-                <span className="token-value">{(tokenUsage.total_tokens || 0).toLocaleString()}</span>
+                <span className="token-value">{(activeTokenUsage.total_tokens || 0).toLocaleString()}</span>
               </span>
               <span className="token-divider">│</span>
               <span className="token-stat">
                 <span className="token-label">Calls</span>
-                <span className="token-value">{tokenUsage.llm_calls || 0}</span>
+                <span className="token-value">{activeTokenUsage.llm_calls || 0}</span>
               </span>
             </div>
             <span className={`token-expand-icon ${tokenExpanded ? 'expanded' : ''}`}>▶</span>
           </div>
 
-          {tokenExpanded && tokenUsage.phase_breakdown && (
+          {tokenExpanded && activeTokenUsage.phase_breakdown && (
             <div className="token-phase-table">
               <div className="token-phase-row token-phase-header-row">
                 <span className="token-phase-name">Phase</span>
@@ -714,7 +728,7 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
                 <span className="token-phase-val">Total</span>
                 <span className="token-phase-val">Calls</span>
               </div>
-              {Object.entries(tokenUsage.phase_breakdown).map(([phase, usage]) => (
+              {Object.entries(activeTokenUsage.phase_breakdown).map(([phase, usage]) => (
                 <div className="token-phase-row" key={phase}>
                   <span className="token-phase-name">{phase.replace(/_/g, ' ')}</span>
                   <span className="token-phase-val">{(usage.tokens_in || 0).toLocaleString()}</span>

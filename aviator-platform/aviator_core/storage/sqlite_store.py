@@ -15,9 +15,20 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable, Iterator, Optional
+from typing import Any, Iterable, Iterator, Optional, Protocol, Tuple, Union, runtime_checkable
 
 from aviator_core.models import Edge, FileRecord, Symbol
+
+
+@runtime_checkable
+class ResolutionScopeProtocol(Protocol):
+    """Protocol decoupling storage layer from specific intelligence scope implementations."""
+
+    def build_sql_filter(self, path_column: str = "path") -> Tuple[str, list]:
+        ...
+
+    def matches_path(self, path: Union[str, Path]) -> bool:
+        ...
 
 
 _SCHEMA = """
@@ -243,14 +254,35 @@ class SqliteStore:
     def symbol_count(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0]
 
-    def edge_count(self) -> int:
-        return self._conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
+    def find_symbol_paths(
+        self,
+        name: str,
+        *,
+        resolution_scope: Optional[ResolutionScopeProtocol] = None,
+        limit: int = 5,
+    ) -> list[str]:
+        """Find distinct file paths defining a symbol by name with optional query-time scope filtering."""
+        scope_sql = ""
+        scope_params: list[object] = []
+        if resolution_scope is not None and hasattr(resolution_scope, "build_sql_filter"):
+            scope_sql, scope_params = resolution_scope.build_sql_filter("path")
+
+        cur = self._conn.cursor()
+        query = f"SELECT DISTINCT path FROM symbols WHERE name LIKE ?{scope_sql} LIMIT ?"
+        rows = cur.execute(query, [f"%{name}%"] + scope_params + [limit]).fetchall()
+        paths: list[str] = []
+        for r in rows:
+            p = r[0] if isinstance(r, (tuple, list)) else r["path"]
+            if resolution_scope is None or resolution_scope.matches_path(p):
+                paths.append(str(p))
+        return paths
 
     def search_symbols(
         self,
         text: str,
         *,
         kinds: Optional[list[str]] = None,
+        resolution_scope: Optional[ResolutionScopeProtocol] = None,
         limit: int = 25,
     ) -> list[sqlite3.Row]:
         """Hybrid keyword + FTS search over symbols.
@@ -268,14 +300,19 @@ class SqliteStore:
             kind_filter = f" AND s.kind IN ({placeholders})"
             params.extend(kinds)
 
+        scope_sql = ""
+        scope_params: list[object] = []
+        if resolution_scope is not None and hasattr(resolution_scope, "build_sql_filter"):
+            scope_sql, scope_params = resolution_scope.build_sql_filter("s.path")
+
         # FTS attempt.
         try:
-            fts_params = [text] + params + [limit]
+            fts_params = [text] + params + scope_params + [limit]
             rows = cur.execute(
                 f"""
                 SELECT s.* FROM symbols_fts f
                 JOIN symbols s ON s.rowid = f.rowid
-                WHERE symbols_fts MATCH ?{kind_filter}
+                WHERE symbols_fts MATCH ?{kind_filter}{scope_sql}
                 LIMIT ?
                 """,
                 fts_params,
@@ -286,11 +323,11 @@ class SqliteStore:
             # Malformed MATCH expression: fall through to LIKE.
             pass
 
-        like_params = [f"%{text}%", f"%{text}%"] + params + [limit]
+        like_params = [f"%{text}%", f"%{text}%"] + params + scope_params + [limit]
         return cur.execute(
             f"""
             SELECT s.* FROM symbols s
-            WHERE (s.name LIKE ? OR s.qualified_name LIKE ?){kind_filter}
+            WHERE (s.name LIKE ? OR s.qualified_name LIKE ?){kind_filter}{scope_sql}
             LIMIT ?
             """,
             like_params,

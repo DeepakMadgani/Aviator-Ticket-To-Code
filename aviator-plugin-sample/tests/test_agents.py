@@ -5,13 +5,14 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_utility_agent_basic():
-    """Test basic utility agent availability."""
+    """Test basic utility agent availability (created lazily on first use)."""
     try:
-        from aviator_plugin_sample.utility import utility_agent
+        from aviator_plugin_sample.utility import get_utility_agent
 
-        assert utility_agent is not None
+        agent = get_utility_agent()
+        assert agent is not None
         # Verify it's an agent (has required attributes)
-        assert hasattr(utility_agent, "invoke") or hasattr(utility_agent, "ainvoke")
+        assert hasattr(agent, "invoke") or hasattr(agent, "ainvoke")
     except (ImportError, AttributeError) as e:
         pytest.skip(f"Utility agent not fully implemented: {e}")
 

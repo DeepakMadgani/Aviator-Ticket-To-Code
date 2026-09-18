@@ -35,6 +35,7 @@ class _AviatorStubLoader:
         stub.LLMRegistry = type("LLMRegistry", (), {
             "get_model": classmethod(lambda cls, *a, **kw: None),
             "get_chat_model": classmethod(lambda cls, *a, **kw: None),
+            "get_llm": classmethod(lambda cls, *a, **kw: None),
         })
         return stub
 

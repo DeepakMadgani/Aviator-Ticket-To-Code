@@ -119,9 +119,10 @@ function App() {
             workflowId: data.workflow_id,
             generatedFiles: data.generated_files || [],
             workflowStatus: data.status,
+            tokenUsage: data.token_usage || null,
           }]);
-          // Auto-switch to Chat tab so user sees the summary
-          setActiveTab('chat');
+          // If the user was watching the live execution on the flow tab, keep them on flow so they can see completion & token usage
+          setActiveTab(prev => (prev === 'flow' ? 'flow' : 'chat'));
           // Pre-load changes for the Changes tab
           if (data.workflow_id) {
             // Inline fetch (can't reference fetchWorkflowChanges in this closure)
@@ -221,12 +222,12 @@ function App() {
     return () => clearInterval(t);
   }, [showWorkflow, selectedProject]);
 
-  // Auto-resume the latest active task on initial page load if no chat is active
+  // Auto-resume the latest active task on initial page load only if it is actually running
   useEffect(() => {
     if (!initialLoadResumed.current && messages.length === 0 && !showWorkflow && tasks.length > 0 && selectedProject) {
       initialLoadResumed.current = true;
       const latestTask = [...tasks].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
-      if (latestTask && (latestTask.status === 'running' || latestTask.status === 'failed' || latestTask.status === 'completed')) {
+      if (latestTask && latestTask.status === 'running') {
         setActiveChatWorkflowId(latestTask.workflow_id);
         setWorkflowData({
           projectId: selectedProject.id,
@@ -326,6 +327,7 @@ function App() {
     setActiveChatId(null);
     setActiveChatWorkflowId(null);
     setShowWorkflow(false);
+    setActiveTab('chat');
     setIndexingState(null);
     setWorkflowCompleted(false);
     setWorkflowChanges(null);
@@ -679,6 +681,8 @@ function App() {
           ticketDescription: userMessage,
           repoPath: selectedProject.path,
           attachments: attachedPaths,
+          writableFiles: [],
+          forbiddenFiles: [],
           existingWorkflowId: null, // new run; onWorkflowStarted will fill this in
         });
         setShowWorkflow(true);
@@ -927,11 +931,14 @@ function App() {
         {/* ═══ FLOW TAB ═══ */}
         {activeTab === 'flow' && workflowData ? (
           <TransparentWorkflow
+            key={workflowData.existingWorkflowId || workflowData.ticketId || 'current-flow'}
             projectId={workflowData.projectId}
             ticketId={workflowData.ticketId}
             ticketDescription={workflowData.ticketDescription}
             repoPath={workflowData.repoPath}
             attachments={workflowData.attachments || []}
+            writableFiles={workflowData.writableFiles || []}
+            forbiddenFiles={workflowData.forbiddenFiles || []}
             existingWorkflowId={workflowData.existingWorkflowId || null}
             onWorkflowStarted={(wfId) => {
               setWorkflowData(prev => prev ? { ...prev, existingWorkflowId: wfId } : prev);
@@ -1124,9 +1131,16 @@ function App() {
                         {msg.timestamp instanceof Date ? msg.timestamp.toLocaleTimeString() : new Date(msg.timestamp).toLocaleTimeString()}
                       </span>
                       {msg.isWorkflowSummary && (
-                        <span className="message-badge summary-badge">
-                          {msg.workflowStatus === 'completed' ? '✅ Completed' : '❌ Failed'}
-                        </span>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          <span className="message-badge summary-badge">
+                            {msg.workflowStatus === 'completed' ? '✅ Completed' : '❌ Failed'}
+                          </span>
+                          {msg.tokenUsage && (
+                            <span className="message-badge" style={{ background: 'rgba(139, 92, 246, 0.2)', color: '#c4b5fd', border: '1px solid rgba(139, 92, 246, 0.4)' }}>
+                              🪙 {((msg.tokenUsage.total_tokens || 0)).toLocaleString()} tokens ({msg.tokenUsage.llm_calls || 0} calls)
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                     <div className="message-content">

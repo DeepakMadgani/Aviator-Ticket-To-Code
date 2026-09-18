@@ -2906,7 +2906,7 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
                 str(agents.workspace_path), frontend_root=_fe_root, keywords=_kw
             )
             if _caps:
-                _reuse_directive = build_reuse_directive(_caps)
+                _reuse_directive = build_reuse_directive(_caps, workspace_path=str(agents.workspace_path))
                 _domain_ownership_context += _reuse_directive
                 logger.info(
                     f"  ♻️  REUSE-FIRST: {len(_caps)} frontend capabilities injected "
@@ -8538,41 +8538,71 @@ Angular/TypeScript for .ts/.html/.scss files.
                     # When errors mention unknown methods/properties on a type,
                     # look up the type definition and include it so the LLM doesn't guess.
                     try:
-                        _sqlite_store = getattr(getattr(agents, 'localizer', None), 'sqlite_store', None)
-                        if _sqlite_store and _live_errors:
+                        if _live_errors:
                             import re as _re_type
-                            # Match patterns like "cannot find method X on type Y" or
-                            # "Property 'X' does not exist on type 'Y'"
                             _type_patterns = [
                                 _re_type.compile(r"type\s+'([A-Z][A-Za-z0-9_]+)'", _re_type.IGNORECASE),
                                 _re_type.compile(r"interface\s+'?([A-Z][A-Za-z0-9_]+)'?", _re_type.IGNORECASE),
                                 _re_type.compile(r"on\s+(?:the\s+)?'?([A-Z][A-Za-z0-9_]+)'?\s+(?:interface|class)", _re_type.IGNORECASE),
+                                _re_type.compile(r"exist\s+in\s+type\s+'([A-Z][A-Za-z0-9_]+)(?:\[\])?'", _re_type.IGNORECASE),
+                                _re_type.compile(r"exist\s+on\s+type\s+'([A-Z][A-Za-z0-9_]+)(?:\[\])?'", _re_type.IGNORECASE),
+                                _re_type.compile(r"assignable\s+to\s+type\s+'([A-Z][A-Za-z0-9_]+)(?:\[\])?'", _re_type.IGNORECASE),
                             ]
                             _resolved_types = set()
                             for _err_line in _live_errors[:10]:
                                 for _tp in _type_patterns:
                                     for _tm in _tp.finditer(_err_line):
-                                        _type_name = _tm.group(1)
-                                        if _type_name not in _resolved_types and len(_resolved_types) < 3:
-                                            _resolved_types.add(_type_name)
-                                            # Look up the type definition in SQLite
+                                        _tname = _tm.group(1)
+                                        if _tname not in _resolved_types and len(_resolved_types) < 4:
+                                            _resolved_types.add(_tname)
+                                            # 1. Primary: Direct AST hydration for TypeScript files
+                                            if _live_ext in (".ts", ".tsx"):
+                                                try:
+                                                    from ticket_to_code.intelligence.typescript import TypeScriptTypeResolver
+                                                    _hydrated = TypeScriptTypeResolver.hydrate_type_definition(
+                                                        _tname, output_path, workspace_root=_ws_root
+                                                    )
+                                                    if _hydrated:
+                                                        _tdef, _tfile = _hydrated
+                                                        _other_files_section += (
+                                                            f"\nAUTHORITATIVE TYPE DEFINITION (auto-resolved from error): {_tdef.name} (from {_tdef.source_file})\n"
+                                                            f"```typescript\n{_tdef.raw_declaration}\n```\n"
+                                                        )
+                                                        logger.info(f"  [{_live_label}] Auto-resolved type '{_tname}' via AST → {_tdef.source_file}")
+                                                        continue
+                                                except Exception:
+                                                    pass
+
+                                            # 2. Fallback: query symbol store if available
                                             try:
-                                                _type_rows = _sqlite_store._conn.execute(
-                                                    "SELECT DISTINCT path FROM symbols WHERE name LIKE ? LIMIT 3",
-                                                    (f"%{_type_name}%",)
-                                                ).fetchall()
-                                                for (_type_path,) in _type_rows:
-                                                    if _type_path and _type_path not in _all_error_files:
-                                                        _type_abs = _ws_root / _type_path
-                                                        if _type_abs.exists():
-                                                            _type_content = _type_abs.read_text(encoding="utf-8", errors="ignore")
-                                                            _type_snippet = "\n".join(_type_content.splitlines()[:100])
-                                                            _other_files_section += (
-                                                                f"\nTYPE DEFINITION (auto-resolved from error): {_type_path}\n"
-                                                                f"```\n{_type_snippet}\n```\n"
-                                                            )
-                                                            logger.info(f"  [{_live_label}] Auto-resolved type '{_type_name}' → {_type_path}")
-                                                            break
+                                                _sqlite_store = getattr(getattr(state.get("agents"), 'localizer', None), 'sqlite_store', None)
+                                                if _sqlite_store:
+                                                    from ticket_to_code.intelligence.scope import infer_resolution_scope
+                                                    _res_scope = infer_resolution_scope(code.file_path, _ws_root)
+                                                    if hasattr(_sqlite_store, "find_symbol_paths"):
+                                                        _matched_paths = _sqlite_store.find_symbol_paths(
+                                                            _tname, resolution_scope=_res_scope, limit=5
+                                                        )
+                                                    else:
+                                                        _scope_sql, _scope_params = _res_scope.build_sql_filter("path")
+                                                        _type_rows = _sqlite_store._conn.execute(
+                                                            f"SELECT DISTINCT path FROM symbols WHERE name LIKE ?{_scope_sql} LIMIT 5",
+                                                            [f"%{_tname}%"] + _scope_params
+                                                        ).fetchall()
+                                                        _matched_paths = [r[0] for r in _type_rows]
+
+                                                    for _type_path in _matched_paths:
+                                                        if _type_path and _type_path not in _all_error_files and _res_scope.matches_path(_type_path):
+                                                            _type_abs = _ws_root / _type_path
+                                                            if _type_abs.exists():
+                                                                _type_content = _type_abs.read_text(encoding="utf-8", errors="ignore")
+                                                                _type_snippet = "\n".join(_type_content.splitlines()[:100])
+                                                                _other_files_section += (
+                                                                    f"\nTYPE DEFINITION (auto-resolved from error): {_type_path}\n"
+                                                                    f"```\n{_type_snippet}\n```\n"
+                                                                )
+                                                                logger.info(f"  [{_live_label}] Auto-resolved type '{_tname}' [{_res_scope.language}/{_res_scope.project_root}] → {_type_path}")
+                                                                break
                                             except Exception:
                                                 pass
                     except Exception as _type_exc:

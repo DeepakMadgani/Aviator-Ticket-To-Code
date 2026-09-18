@@ -246,11 +246,32 @@ def resolve_contexts(
             if not detected and probe_file:
                 # Try probing from the source file's directory
                 try:
-                    detected = _detect_frontend_build_tool(
-                        (workspace_path / probe_file).parent
-                    )
+                    probe_path = (workspace_path / probe_file).resolve()
+                    if probe_path.exists():
+                        detected = _detect_frontend_build_tool(probe_path.parent)
+                    else:
+                        # probe_file might be relative to a child directory (e.g. xchange-ui)
+                        for child in workspace_path.iterdir():
+                            if child.is_dir() and (child / probe_file).exists():
+                                detected = _detect_frontend_build_tool((child / probe_file).parent)
+                                break
                 except (ValueError, OSError):
                     pass
+
+            # If still not detected, search top-level child directories of workspace_path
+            if not detected:
+                try:
+                    for child in workspace_path.iterdir():
+                        if child.is_dir() and not child.name.startswith("."):
+                            if (child / "angular.json").exists():
+                                detected = ("angular-cli", child)
+                                break
+                            if (child / "tsconfig.json").exists():
+                                detected = ("tsc", child)
+                                break
+                except (ValueError, OSError):
+                    pass
+
             if detected:
                 build_tool, compile_root = detected
 

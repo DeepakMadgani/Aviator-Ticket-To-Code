@@ -141,6 +141,7 @@ class ImplementationState:
 
     # ── Pillar 2: Rolling Context ──
     generated_files: dict[str, str] = field(default_factory=dict)      # path → content
+    component_contracts: dict[str, object] = field(default_factory=dict) # path → ComponentContract
     verified_symbols: dict[str, VerifiedSymbol] = field(default_factory=dict)
     api_surfaces: dict[str, str] = field(default_factory=dict)         # path → extracted surface
     context_escalations: list[ContextEscalation] = field(default_factory=list)
@@ -313,9 +314,28 @@ class ImplementationState:
                     f"exports: {', '.join(_exports[:10])}"
                 )
 
+        # Extract ComponentContract if TypeScript component
+        if file_path.endswith((".component.ts", ".ts")):
+            try:
+                from ticket_to_code.intelligence.contracts import ComponentContract
+                ccontract = ComponentContract.extract_from_ts(content, file_path=file_path)
+                self.component_contracts[file_path] = ccontract
+            except Exception as _c_err:
+                logger.debug(f"ComponentContract extraction failed for {file_path}: {_c_err}")
+
     def get_generated_content(self, path: str) -> Optional[str]:
         """Get content of a file generated in this run. None if not generated."""
         return self.generated_files.get(path)
+
+    def get_component_contract_for_template(self, template_path: str) -> Optional[object]:
+        """Find the matching ComponentContract for an HTML template file."""
+        norm_template = template_path.replace("\\", "/").lower()
+        for ts_ext in (".component.ts", ".ts"):
+            candidate = norm_template.replace(".component.html", ts_ext).replace(".html", ts_ext)
+            for path, contract in self.component_contracts.items():
+                if path.replace("\\", "/").lower() == candidate:
+                    return contract
+        return None
 
     def register_verified_symbol(self, symbol: VerifiedSymbol) -> None:
         """Register a symbol that has been confirmed to exist."""
@@ -496,6 +516,12 @@ class ImplementationState:
                 if h.how_to_consume:
                     h_lines.append(f"    import: '{h.how_to_consume}'")
             blocks.append("\n".join(h_lines))
+
+        # 4. Component Controller Contract for Template Generation
+        if task_file.endswith((".component.html", ".html")):
+            contract = self.get_component_contract_for_template(task_file)
+            if contract and hasattr(contract, "render_prompt_block"):
+                blocks.append(contract.render_prompt_block())
 
         if not blocks:
             return ""

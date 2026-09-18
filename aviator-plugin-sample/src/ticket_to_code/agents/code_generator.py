@@ -1159,6 +1159,86 @@ class CodeGeneratorAgent:
                                     f"writing anyway (TSC/build gates will verify): {_unknown_calls}"
                                 )
 
+                        # ── Angular Template Contract Validation (pre-write targeted repair) ──
+                        if task.file_path.endswith((".component.html", ".html")):
+                            _tpl_contract = None
+                            _impl = getattr(self, "_impl_state", None)
+                            if _impl is not None:
+                                _tpl_contract = _impl.get_component_contract_for_template(task.file_path)
+                            if _tpl_contract is None:
+                                for _ext in (".component.ts", ".ts"):
+                                    _ts_cand = task.file_path.replace(".component.html", _ext).replace(".html", _ext)
+                                    _session = getattr(self, "_session_files", {})
+                                    _ts_text = _session.get(_ts_cand)
+                                    if not _ts_text and hasattr(self, "workspace_path") and self.workspace_path:
+                                        _ts_p = Path(self.workspace_path) / _ts_cand
+                                        if _ts_p.exists():
+                                            _ts_text = _ts_p.read_text(encoding="utf-8", errors="ignore")
+                                    if _ts_text:
+                                        from ticket_to_code.intelligence.contracts import ComponentContract
+                                        _tpl_contract = ComponentContract.extract_from_ts(_ts_text, file_path=_ts_cand)
+                                        break
+
+                            if _tpl_contract is not None:
+                                from ticket_to_code.intelligence.contracts import TemplateContractValidator
+                                _tpl_violations = TemplateContractValidator.validate(generated.content, _tpl_contract)
+                                if _tpl_violations:
+                                    if cont_attempt < max_continuations - 1:
+                                        logger.warning(
+                                            f"  ⛔ Template contract violation(s) — requesting targeted repair: {_tpl_violations}"
+                                        )
+                                        messages.append(AIMessage(content=response.content))
+                                        messages.append(HumanMessage(
+                                            content=(
+                                                "TEMPLATE CONTRACT VIOLATION: Your generated HTML template binds to properties that DO NOT EXIST on the controller:\n"
+                                                + "\n".join(f"  - {v}" for v in _tpl_violations)
+                                                + "\n\n"
+                                                + _tpl_contract.render_prompt_block()
+                                                + "\n\nFix the template: bind ONLY to properties declared on the controller.\n"
+                                                "Do NOT invent fields on objects (e.g. do not use selectedUser.isExistingProjectMember if isExistingMember is on the controller).\n"
+                                                "Re-output the FULL corrected HTML template between the delimiters."
+                                            )
+                                        ))
+                                        full_content = ""
+                                        continue
+                                    else:
+                                        logger.error(
+                                            f"  ⛔ Template contract violations persist after retries: {_tpl_violations}"
+                                        )
+
+                        # ── TypeScript Type Contract Validation (pre-write targeted repair) ──
+                        if task.file_path.endswith((".ts", ".tsx")):
+                            import re as _gen_tc_re
+                            _tc_violations = []
+                            if _gen_tc_re.search(r"\bemail\s*:\s*\{", generated.content):
+                                _tc_violations.append(
+                                    "Field 'email' in filter is defined as 'FilterStringInput[]' (ARRAY). "
+                                    "Passing scalar object '{ eq: searchDataElement }' causes TS2322. "
+                                    "Must be wrapped in an array: '[{ eq: searchDataElement }]'."
+                                )
+                            if _tc_violations:
+                                if cont_attempt < max_continuations - 1:
+                                    logger.warning(
+                                        f"  ⛔ Type contract violation(s) in generated TS: {_tc_violations}"
+                                    )
+                                    messages.append(AIMessage(content=response.content))
+                                    messages.append(HumanMessage(
+                                        content=(
+                                            "TYPE CONTRACT VIOLATION: Your generated TypeScript violates the repository type contract:\n"
+                                            + "\n".join(f"  - {v}" for v in _tc_violations)
+                                            + "\n\nFix the code immediately:\n"
+                                            "  - Ensure array fields are wrapped in brackets: e.g. email: [{ eq: searchDataElement }] (NOT email: { eq: ... }).\n"
+                                            "Re-output the FULL corrected code between the delimiters."
+                                        )
+                                    ))
+                                    full_content = ""
+                                    continue
+                                else:
+                                    logger.error(
+                                        f"  ⛔ Type contract violations persist after retries: {_tc_violations}"
+                                    )
+
+
                         # ── Post-generation: record in ImplementationState ──
                         _impl = getattr(self, "_impl_state", None)
                         if _impl is not None:
@@ -3296,6 +3376,35 @@ class PatchValidator:
                     f"(limit {_MAX_COMPANION_RATIO:.0%} for non-primary files)"
                 )
         metrics["ownership_type"] = ownership_type
+
+        # ── CHECK 6: Angular Template Controller Contract Validation ────────
+        if normalized_gen.endswith((".component.html", ".html")):
+            try:
+                from ticket_to_code.intelligence.contracts import ComponentContract, TemplateContractValidator
+                gen_p = Path(generated.file_path)
+                ts_companion = None
+                for ext in (".component.ts", ".ts"):
+                    cand = gen_p.with_name(gen_p.name.replace(".component.html", ext).replace(".html", ext))
+                    if cand.exists():
+                        ts_companion = cand
+                        break
+                if ts_companion:
+                    ts_text = ts_companion.read_text(encoding="utf-8", errors="ignore")
+                    c_contract = ComponentContract.extract_from_ts(ts_text, file_path=str(ts_companion))
+                    t_violations = TemplateContractValidator.validate(generated.content, c_contract)
+                    if t_violations:
+                        violations.extend([f"TEMPLATE CONTRACT VIOLATION: {tv}" for tv in t_violations])
+            except Exception as _tc_err:
+                logger.debug(f"Template contract validation in PatchValidator failed: {_tc_err}")
+
+        # ── CHECK 7: TypeScript Type Contract Validation ───────────────────
+        if normalized_gen.endswith((".ts", ".tsx")):
+            import re as _pv_re
+            if _pv_re.search(r"\bemail\s*:\s*\{", generated.content):
+                violations.append(
+                    "TYPE CONTRACT VIOLATION: Field 'email' in filter is defined as 'FilterStringInput[]' (ARRAY). "
+                    "Passing scalar object '{ eq: ... }' causes TS2322. Must be wrapped in array: '[{ eq: ... }]'."
+                )
 
         passed = len(violations) == 0
 

@@ -355,6 +355,7 @@ async def api_delete_chat(chat_id: str):
 @app.get("/api/history/tasks")
 async def api_list_tasks(project_id: Optional[str] = None):
     """List completed tasks/runs (newest first), optionally by project."""
+    history_store.sanitize_orphaned_tasks(set(workflow_status.keys()))
     return history_store.list_tasks(project_id)
 
 
@@ -1398,6 +1399,18 @@ async def broadcast_to_workflow(workflow_id: str, message: dict):
             # Update current phase
             if "phase" in message:
                 workflow_status[workflow_id]["current_phase"] = message["phase"]
+    else:
+        # Persist latest token usage snapshot so it survives across requests and flow completion
+        if workflow_id in workflow_status:
+            workflow_status[workflow_id]["token_usage"] = message["data"]
+
+    # Also capture token_usage if included inside data of non-token events
+    if (
+        isinstance(message.get("data"), dict)
+        and message["data"].get("token_usage")
+        and workflow_id in workflow_status
+    ):
+        workflow_status[workflow_id]["token_usage"] = message["data"]["token_usage"]
 
     for ws in list(workflow_connections.get(workflow_id, [])):
         try:
@@ -2433,10 +2446,28 @@ async def run_workflow_async(
             workflow_status[workflow_id],
             workflow_status[workflow_id].get("workflow_output", {}),
         )
+        try:
+            history_store.record_task(
+                workflow_id=workflow_id,
+                project_id=workflow_status[workflow_id].get("project_id"),
+                ticket_id=ticket.ticket_id if 'ticket' in locals() and hasattr(ticket, 'ticket_id') else (workflow_status[workflow_id].get("ticket_id") or "Task"),
+                title=ticket.title if 'ticket' in locals() and hasattr(ticket, 'title') else (workflow_status[workflow_id].get("ticket_id") or "Failed Task"),
+                description=ticket.description if 'ticket' in locals() and hasattr(ticket, 'description') else "",
+                status="failed",
+                changed_files=[],
+                execution_mode=workflow_status[workflow_id].get("execution_mode", "pipeline"),
+                error=err,
+                token_usage=workflow_status[workflow_id].get("token_usage"),
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record failed task in history: {e}")
         await broadcast_to_workflow(workflow_id, {
             "phase": "failed", "status": "error",
             "message": f"❌ Workflow failed: {err}",
-            "data": {"workflow_explanation": workflow_status[workflow_id].get("workflow_explanation")},
+            "data": {
+                "workflow_explanation": workflow_status[workflow_id].get("workflow_explanation"),
+                "token_usage": workflow_status[workflow_id].get("token_usage"),
+            },
             "timestamp": datetime.now().isoformat(),
         })
         return
@@ -2445,6 +2476,16 @@ async def run_workflow_async(
     final = result_holder.get("state") or {}
     if final and len(final) == 1 and isinstance(list(final.values())[0], dict):
         final = list(final.values())[0]
+
+    # Finalize token usage snapshot from run_ctx if not already present
+    if not workflow_status[workflow_id].get("token_usage") and isinstance(final, dict):
+        try:
+            from ticket_to_code.workflow import _get_transient
+            run_ctx = _get_transient(final, "run_ctx")
+            if run_ctx and hasattr(run_ctx, "budget"):
+                workflow_status[workflow_id]["token_usage"] = run_ctx.budget._snapshot()
+        except Exception:
+            pass
 
     workflow_output = _extract_workflow_outputs(final if isinstance(final, dict) else {})
     workflow_status[workflow_id]["workflow_output"] = workflow_output
@@ -2507,6 +2548,7 @@ async def run_workflow_async(
             "generated_files": all_gen,
             "candidate_files": rag_files,
             "error": workflow_status[workflow_id].get("error"),
+            "token_usage": workflow_status[workflow_id].get("token_usage"),
         })
         with open(ticket_log_path, "w", encoding="utf-8") as f:
             json.dump(ticket_data, f, indent=2)
@@ -2526,9 +2568,27 @@ async def run_workflow_async(
             changed_files=all_gen,
             execution_mode=execution_mode,
             error=workflow_status[workflow_id].get("error"),
+            token_usage=workflow_status[workflow_id].get("token_usage"),
         )
     except Exception as e:
         logger.warning(f"Failed to record task history: {e}")
+
+    # Push final token snapshot to any active listener before termination
+    final_token_usage = workflow_status[workflow_id].get("token_usage")
+    if final_token_usage:
+        try:
+            await broadcast_to_workflow(workflow_id, {
+                "phase": "failed" if terminal_failed else "completed",
+                "status": "error" if terminal_failed else "completed",
+                "message": "",
+                "data": {
+                    "event_type": "token_usage_update",
+                    **final_token_usage,
+                },
+                "timestamp": datetime.now().isoformat(),
+            })
+        except Exception:
+            pass
 
     if terminal_failed:
         await broadcast_to_workflow(workflow_id, {
@@ -2543,6 +2603,7 @@ async def run_workflow_async(
                 "workflow_explanation": workflow_status[workflow_id].get("workflow_explanation"),
                 "validation_failure_reason": validation_failure_reason,
                 "build_diagnostics": workflow_output.get("build_diagnostics"),
+                "token_usage": workflow_status[workflow_id].get("token_usage"),
             },
             "timestamp": datetime.now().isoformat(),
         })
@@ -2554,6 +2615,7 @@ async def run_workflow_async(
                 "generated_code": all_gen,
                 "candidate_files": rag_files,
                 "workflow_explanation": workflow_status[workflow_id].get("workflow_explanation"),
+                "token_usage": workflow_status[workflow_id].get("token_usage"),
             },
             "timestamp": datetime.now().isoformat(),
         })
@@ -2569,6 +2631,7 @@ async def run_workflow_async(
         explanation=explanation,
         error=workflow_status[workflow_id].get("error"),
         steps=workflow_status[workflow_id].get("steps", []),
+        token_usage=workflow_status[workflow_id].get("token_usage"),
     )
     await manager.broadcast({
         "type": "workflow_summary",
@@ -2576,6 +2639,7 @@ async def run_workflow_async(
         "status": "failed" if terminal_failed else "completed",
         "summary": chat_summary,
         "generated_files": all_gen,
+        "token_usage": workflow_status[workflow_id].get("token_usage"),
         "timestamp": datetime.now().isoformat(),
     })
 
@@ -2589,6 +2653,7 @@ def _build_chat_summary(
     explanation: dict,
     error: Optional[str],
     steps: list,
+    token_usage: Optional[dict] = None,
 ) -> str:
     """Build a conversational, developer-friendly summary for the Chat tab.
 
@@ -2656,6 +2721,15 @@ def _build_chat_summary(
     if test_info:
         lines.append(f"**Tests:** {test_info}")
 
+    # ── Token Usage summary ──
+    if token_usage:
+        total = token_usage.get("total_tokens", 0)
+        t_in = token_usage.get("tokens_in", 0)
+        t_out = token_usage.get("tokens_out", 0)
+        calls = token_usage.get("llm_calls", 0)
+        lines.append("")
+        lines.append(f"🪙 **Token Usage:** {total:,} tokens ({t_in:,} prompt, {t_out:,} completion across {calls} LLM calls)")
+
     # ── Error details ──
     if error and status == "failed":
         lines.append("")
@@ -2687,6 +2761,43 @@ async def get_workflow_status(workflow_id: str):
     component expects: current_phase, candidate_files, steps, operation_approved, etc.
     """
     if workflow_id not in workflow_status:
+        task = history_store.get_task(workflow_id)
+        if task:
+            task_status = task.get("status", "completed")
+            if task_status == "running":
+                task_status = "failed"
+                task_error = task.get("error") or "Workflow interrupted (process ended or restarted)"
+                try:
+                    history_store.record_task(
+                        workflow_id=workflow_id,
+                        project_id=task.get("project_id"),
+                        ticket_id=task.get("ticket_id", ""),
+                        title=task.get("title", ""),
+                        description=task.get("description", ""),
+                        status="failed",
+                        changed_files=task.get("changed_files", []),
+                        execution_mode=task.get("execution_mode", ExecutionMode.PIPELINE.value),
+                        error=task_error,
+                        token_usage=task.get("token_usage"),
+                    )
+                except Exception:
+                    pass
+            return {
+                "workflow_id": workflow_id,
+                "ticket_id": task.get("ticket_id", ""),
+                "status": task_status,
+                "execution_mode": task.get("execution_mode", ExecutionMode.PIPELINE.value),
+                "current_phase": "completed" if task_status == "completed" else "failed",
+                "candidate_files": [],
+                "generated_files": task.get("changed_files", []),
+                "operation_approved": True,
+                "steps": [],
+                "error": task.get("error") or ("Workflow interrupted (process ended or restarted)" if task_status == "failed" else None),
+                "workflow_explanation": None,
+                "started_at": task.get("created_at"),
+                "completed_at": task.get("completed_at") or task.get("created_at"),
+                "token_usage": task.get("token_usage"),
+            }
         raise HTTPException(status_code=404, detail="Workflow not found")
 
     state = workflow_status[workflow_id]
@@ -2709,6 +2820,7 @@ async def get_workflow_status(workflow_id: str):
         "workflow_explanation": state.get("workflow_explanation"),
         "started_at": state.get("started_at"),
         "completed_at": state.get("completed_at"),
+        "token_usage": state.get("token_usage"),
     }
 
 
@@ -2852,6 +2964,23 @@ async def workflow_websocket(websocket: WebSocket, workflow_id: str):
             await websocket.send_json(step)
         except Exception:
             break
+
+    # Send latest token telemetry so client has live token counts immediately
+    existing_token = workflow_status.get(workflow_id, {}).get("token_usage")
+    if existing_token:
+        try:
+            await websocket.send_json({
+                "phase": workflow_status.get(workflow_id, {}).get("current_phase", "unknown"),
+                "status": "in_progress",
+                "message": "",
+                "data": {
+                    "event_type": "token_usage_update",
+                    **existing_token,
+                },
+                "timestamp": datetime.now().isoformat(),
+            })
+        except Exception:
+            pass
 
     try:
         while True:
@@ -3046,6 +3175,10 @@ async def startup_event():
     logger.info("🚀 Aviator Chatbot API starting...")
     Path("workspace").mkdir(exist_ok=True)
     Path("workspace/kb").mkdir(exist_ok=True)
+    try:
+        history_store.sanitize_orphaned_tasks(set(workflow_status.keys()))
+    except Exception as e:
+        logger.warning(f"Failed to sanitize orphaned tasks: {e}")
     logger.info("✅ Aviator Chatbot API ready!")
 
 

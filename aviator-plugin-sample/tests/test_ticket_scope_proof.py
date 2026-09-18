@@ -32,9 +32,115 @@ from ticket_to_code.agents.ticket_scope_proof import (
     resolve_structural_companions,
     verify_post_generation_scope,
     revert_unauthorized_changes,
+    build_workspace_manifest,
 )
 from ticket_to_code.agents.behavioral_understanding import derive_primary_targets
 from ticket_to_code.agents.pre_generation_gate import filter_generation_tasks
+
+
+# ── Regression: manifest mode must never mass-flag pre-existing files ────────
+
+def test_manifest_mode_only_flags_real_changes(tmp_path: Path):
+    """The production wipe failure mode: a big pre-existing tree where
+    original_contents only covers the generator's assigned files. With a
+    pre_run_manifest, everything pre-existing and untouched must NOT be
+    flagged as 'unauthorized new file'."""
+    # 30 pre-existing files across the tree (like a real repo)
+    manifest = {}
+    for i in range(30):
+        f = tmp_path / "src" / "app" / f"file{i}.ts"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(f"// pre-existing {i}", encoding="utf-8")
+        manifest[str(f.relative_to(tmp_path)).replace("\\", "/")] = f.stat().st_size
+
+    # Generator modifies ONE unapproved pre-existing file and creates ONE new file
+    victim = tmp_path / "src" / "app" / "file7.ts"
+    victim.write_text("// pre-existing 7 + corruption", encoding="utf-8")
+    rogue = tmp_path / "src" / "app" / "rogue-helper.ts"
+    rogue.write_text("// unauthorized new file", encoding="utf-8")
+
+    approved = {"add-members.component.ts"}  # none of these files are approved
+    is_clean, violations, unapproved = verify_post_generation_scope(
+        workspace_path=tmp_path,
+        approved_writable_files=approved,
+        original_contents={},  # only the assigned files (empty here)
+        pre_run_manifest=manifest,
+    )
+    assert is_clean is False
+    assert "src/app/file7.ts" in unapproved          # modified → flagged
+    assert "src/app/rogue-helper.ts" in unapproved   # new → flagged
+    # THE critical assertion: untouched pre-existing files are NOT flagged
+    untouched = [u for u in unapproved if u.startswith("src/app/file") and u != "src/app/file7.ts"]
+    assert untouched == [], f"mass false positives: {untouched[:5]}"
+
+
+def test_manifest_mode_revert_never_deletes_pre_existing_files(tmp_path: Path):
+    """Revert with a manifest must delete only NEW files; pre-existing files
+    without captured original content must survive untouched."""
+    existing = tmp_path / "src" / "member.service.ts"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_text("export class MemberService {}", encoding="utf-8")
+    manifest = {"src/member.service.ts": existing.stat().st_size}
+
+    rogue = tmp_path / "rogue-helper.ts"
+    rogue.write_text("// unauthorized", encoding="utf-8")
+
+    reverted = revert_unauthorized_changes(
+        workspace_path=tmp_path,
+        unauthorized_files={"src/member.service.ts", "rogue-helper.ts"},
+        original_contents={},
+        pre_run_manifest=manifest,
+    )
+    assert existing.exists(), "revert deleted a pre-existing file!"
+    assert "export class MemberService {}" == existing.read_text(encoding="utf-8")
+    assert not rogue.exists(), "revert failed to delete the new file"
+    assert any("SKIPPED" in r for r in reverted)
+
+
+def test_build_workspace_manifest_skips_vendored_dirs(tmp_path: Path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.ts").write_text("x", encoding="utf-8")
+    nm = tmp_path / "node_modules" / "pkg"
+    nm.mkdir(parents=True)
+    (nm / "index.js").write_text("x", encoding="utf-8")
+    av = tmp_path / ".aviator"
+    av.mkdir()
+    (av / "index.db").write_text("x", encoding="utf-8")
+    m = build_workspace_manifest(tmp_path)
+    assert "src/a.ts" in m
+    assert all(not k.startswith(("node_modules/", ".aviator/")) for k in m)
+
+
+def test_git_failure_is_fail_closed(tmp_path: Path, monkeypatch):
+    """If git status cannot be executed, the gate must NOT report a clean
+    workspace — it must fail closed with SCOPE_PROOF_ERROR."""
+    fake_repo = tmp_path / "some-repo"
+    (fake_repo / ".git").mkdir(parents=True)
+    (fake_repo / "a.txt").write_text("x", encoding="utf-8")
+
+    import ticket_to_code.agents.ticket_scope_proof as tsp
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("git unavailable")
+
+    monkeypatch.setattr(tsp.subprocess, "run", _boom)
+    is_clean, violations, unauthorized = tsp.verify_post_generation_scope(
+        workspace_path=tmp_path,
+        approved_writable_files={"a.txt"},
+        original_contents=None,
+    )
+    assert is_clean is False
+    assert any("SCOPE_PROOF_ERROR" in v for v in violations)
+
+
+def test_missing_workspace_fails_closed(tmp_path: Path):
+    is_clean, violations, _ = verify_post_generation_scope(
+        workspace_path=tmp_path / "does-not-exist",
+        approved_writable_files={"x.ts"},
+        original_contents={},
+    )
+    assert is_clean is False
+    assert any("does not exist" in v for v in violations)
 
 
 # ── Test A: PascalCase decomposition resolves add-members.component.ts ───────

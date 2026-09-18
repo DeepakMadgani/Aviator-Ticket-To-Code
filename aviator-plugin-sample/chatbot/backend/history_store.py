@@ -153,10 +153,12 @@ def record_task(
     changed_files: List[str],
     execution_mode: str = "pipeline",
     error: Optional[str] = None,
+    token_usage: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Persist a completed task/run so it shows up in history."""
     with _lock:
         data = _load()
+        existing = data["tasks"].get(workflow_id, {})
         record = {
             "workflow_id": workflow_id,
             "project_id": project_id,
@@ -167,11 +169,19 @@ def record_task(
             "changed_files": changed_files or [],
             "execution_mode": execution_mode,
             "error": error,
-            "created_at": _now(),
+            "token_usage": token_usage if token_usage is not None else existing.get("token_usage"),
+            "created_at": existing.get("created_at") or _now(),
+            "completed_at": _now() if status in ("completed", "failed", "stopped") else existing.get("completed_at"),
         }
         data["tasks"][workflow_id] = record
         _save(data)
         return record
+
+
+def get_task(workflow_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve a single task record by workflow_id."""
+    with _lock:
+        return _load()["tasks"].get(workflow_id)
 
 
 def list_tasks(project_id: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -193,3 +203,24 @@ def delete_task(workflow_id: str) -> bool:
             _save(data)
             return True
         return False
+
+
+def sanitize_orphaned_tasks(active_workflow_ids: Optional[set] = None) -> None:
+    """
+    Reconcile tasks stuck in 'running' state after a server restart or crash.
+    Any task in history.json with status == 'running' that is not actively in
+    active_workflow_ids is automatically marked as 'failed'.
+    """
+    with _lock:
+        data = _load()
+        changed = False
+        active_ids = active_workflow_ids or set()
+        for task in data.get("tasks", {}).values():
+            if task.get("status") == "running" and task.get("workflow_id") not in active_ids:
+                task["status"] = "failed"
+                task["error"] = task.get("error") or "Workflow interrupted (process ended or restarted)"
+                task["completed_at"] = task.get("completed_at") or _now()
+                changed = True
+        if changed:
+            _save(data)
+

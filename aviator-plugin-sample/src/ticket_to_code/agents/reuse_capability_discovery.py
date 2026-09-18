@@ -41,8 +41,15 @@ _BACKEND_INTENT_KEYWORDS = (
     "server should",
 )
 
+_RESERVED_WORDS = {
+    "constructor", "ngOnInit", "ngOnDestroy", "if", "switch", "for", "while",
+    "catch", "try", "return", "throw", "throwError", "of", "map", "filter",
+    "switchMap", "pipe", "catchError", "tap", "finalize", "subscribe",
+    "get", "set", "import", "export", "from", "as", "class", "interface",
+}
+
 _METHOD_RE = re.compile(
-    r"(?:^|[^.\w$])([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?:\{|:)",
+    r"""(?:^|[{;}])\s*(?:(?:public|private|protected|async|static)\s+)*([A-Za-z0-9_$]+)\s*\(([^)]*)\)\s*(?::\s*([^{;]+))?\s*\{""",
     re.MULTILINE,
 )
 _CLASS_RE = re.compile(r"export\s+(?:default\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)")
@@ -94,7 +101,7 @@ def _parse_service_file(fp: Path) -> Dict:
     methods = []
     for m in _METHOD_RE.finditer(text):
         name = m.group(1)
-        if name in ("constructor", "ngOnInit", "ngOnDestroy"):
+        if name in _RESERVED_WORDS:
             continue
         methods.append({"name": name, "args": m.group(2).strip()})
     if not methods:
@@ -150,8 +157,10 @@ def discover_frontend_capabilities(
     return scored[:max_results]
 
 
-def build_reuse_directive(capabilities: List[Dict]) -> str:
-    """Render the REUSE-FIRST prompt block for planner/generator prompts."""
+def build_reuse_directive(capabilities: List[Dict], workspace_path: Optional[str] = None) -> str:
+    """Render the REUSE-FIRST prompt block for planner/generator prompts,
+    hydrating parameter type contracts for discovered service methods.
+    """
     if not capabilities:
         return ""
     lines = [
@@ -166,7 +175,30 @@ def build_reuse_directive(capabilities: List[Dict]) -> str:
     ]
     for c in capabilities:
         sigs = ", ".join(f"{m['name']}({m['args']})" for m in c["methods"][:8])
-        lines.append(f"  ✅ {c['rel_path']}  class {c['class']}: {sigs}")
+        lines.append(f"  [AVAILABLE] {c['rel_path']}  class {c['class']}: {sigs}")
+
+    # Transitive Type Hydration: Hydrate exact type contracts for discovered methods
+    type_contracts = []
+    try:
+        from ticket_to_code.intelligence.typescript import TypeScriptTypeResolver
+        for c in capabilities:
+            svc_file = c.get("file")
+            if not svc_file:
+                continue
+            for m in c.get("methods", [])[:6]:
+                contract = TypeScriptTypeResolver.build_method_type_contract(
+                    svc_file, m["name"], workspace_root=workspace_path
+                )
+                if not contract.is_empty():
+                    block = contract.render_prompt_block()
+                    if block and block not in type_contracts:
+                        type_contracts.append(block)
+    except Exception:
+        pass
+
+    if type_contracts:
+        lines.append("\n" + "\n".join(type_contracts))
+
     lines.append("=== END REUSE-FIRST ===\n")
     return "\n".join(lines)
 

@@ -84,13 +84,22 @@ def calculator(calculation: CalculationInput) -> CalculationResult:
 
 # Define tools the agent can use
 
-# Create a utility ReAct agent
-utility_agent = create_agent(
-    model=LLMRegistry.get_model(with_provider=True),
-    tools=[calculator],
-    state_schema=StateModel,
-    middleware=[after_agent],
-)
+# The agent is created lazily on first use: building it at import time made
+# `import aviator_plugin_sample.utility` fail whenever the LLM backend was not
+# configured yet (no credentials) or was stubbed by tests.
+utility_agent = None
+
+
+def get_utility_agent():
+    global utility_agent
+    if utility_agent is None:
+        utility_agent = create_agent(
+            model=LLMRegistry.get_model(with_provider=True),
+            tools=[calculator],
+            state_schema=StateModel,
+            middleware=[after_agent],
+        )
+    return utility_agent
 
 
 # ============================================================================
@@ -133,7 +142,7 @@ async def call_utility_agent(
         # Call the utility agent and return using call_agent helper
         return await call_agent(
             query=query,
-            agent=utility_agent,
+            agent=get_utility_agent(),
             state=state,
             tool_call_id=tool_call_id,
             input_messages=input_messages,

@@ -5,8 +5,18 @@ import re
 import hashlib
 import logging
 import argparse
+import concurrent.futures
+import time
 from pathlib import Path
 from collections import defaultdict
+
+# ── Enrichment budget: brain "why" descriptions are optional gloss. A slow or
+# hung LLM endpoint must never stall workflow startup (seen 2026-09-18: one
+# folder-description call blocked graph creation for 10+ minutes), so every
+# call is time-boxed and the whole enrichment phase has a hard budget.
+ENRICH_CALL_TIMEOUT_SECONDS = 45
+ENRICH_MAX_CALLS = 25
+ENRICH_DEADLINE_SECONDS = 180
 
 # Add src to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -284,7 +294,14 @@ Return JSON only, with EXACTLY these three keys and no others:
 Do not include markdown, code fences, or any extra keys."""
 
     try:
-        response = llm.invoke(prompt)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _pool:
+            _future = _pool.submit(llm.invoke, prompt)
+            try:
+                response = _future.result(timeout=ENRICH_CALL_TIMEOUT_SECONDS)
+            except concurrent.futures.TimeoutError:
+                raise TimeoutError(
+                    f"brain enrichment LLM call exceeded {ENRICH_CALL_TIMEOUT_SECONDS}s"
+                )
         content = getattr(response, "content", response)
         payload = json.loads(_strip_json_fences(str(content)))
     except Exception as exc:
@@ -352,6 +369,8 @@ def refresh_repository_brain(
     reused = 0
     enriched = 0
     unenriched = 0
+    enrich_calls = 0
+    enrich_deadline = time.monotonic() + ENRICH_DEADLINE_SECONDS
 
     for entry in source_entries:
         dir_path = entry["directory_path"]
@@ -372,8 +391,19 @@ def refresh_repository_brain(
             _apply_why(entry, cached_why)
             reused += 1
         else:
-            # Case 2 — new or changed structure: try to (re)learn "why" from the LLM.
-            why = _describe_folder_with_llm(entry, llm) if enrich else None
+            # Case 2 — new or changed structure: try to (re)learn "why" from the
+            # LLM, bounded by a per-call timeout and a global enrichment budget
+            # (calls + wall clock). Past the budget, folders keep mechanical
+            # defaults and a later refresh can enrich them.
+            why = None
+            if (
+                enrich
+                and llm is not None
+                and enrich_calls < ENRICH_MAX_CALLS
+                and time.monotonic() < enrich_deadline
+            ):
+                enrich_calls += 1
+                why = _describe_folder_with_llm(entry, llm)
             if why:
                 _apply_why(entry, why)
                 descriptions[signature] = why
@@ -411,6 +441,10 @@ def refresh_repository_brain(
         "reused": reused,
         "enriched": enriched,
         "unenriched": unenriched,
+        "enrich_calls": enrich_calls,
+        "enrich_budget_exhausted": bool(
+            enrich_calls >= ENRICH_MAX_CALLS or time.monotonic() >= enrich_deadline
+        ),
         "pruned": pruned,
         "brain_path": str(brain_path),
         "cache_path": str(cache_path),

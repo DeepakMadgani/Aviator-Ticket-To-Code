@@ -7,6 +7,10 @@ This module defines the plugin hooks that Aviator calls during initialization:
 - prompts(): Modify system prompts (optional)
 """
 
+# Postponed annotation evaluation: hook signatures like `state: StateModel | None`
+# must not be evaluated at import time (StateModel may be a stub in tests).
+from __future__ import annotations
+
 import asyncio
 import logging
 import sys
