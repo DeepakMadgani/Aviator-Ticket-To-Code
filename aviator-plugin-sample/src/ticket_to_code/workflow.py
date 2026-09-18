@@ -113,6 +113,16 @@ def _get_plan(state: dict):
     return plan
 
 
+def _get_ticket_attr(ticket: Any, attr: str, default: Any = None) -> Any:
+    """Safely get an attribute or key from a ticket, supporting both dicts and Pydantic/class objects."""
+    if ticket is None:
+        return default
+    if isinstance(ticket, dict):
+        val = ticket.get(attr)
+        return val if val is not None else default
+    val = getattr(ticket, attr, default)
+    return val if val is not None else default
+
 
 # ============================================================================
 # STRUCTURED EXECUTION LOGGER
@@ -1042,6 +1052,13 @@ def investigate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     print("   Purpose: Analyze ticket to determine if code changes are needed")
     print("="*80)
     logger.info(" PHASE 0: Investigation & Triage")
+
+    # ── Reset cross-run module state to prevent leak between Celery tasks ─────
+    try:
+        from ticket_to_code.agents.code_generator import clear_reuse_directive
+        clear_reuse_directive()
+    except Exception:
+        pass
 
     # ── Snapshot the workspace BEFORE any node can write a single file ────────
     # Used by the post-generation scope gate when git verification is
@@ -2814,6 +2831,114 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     except Exception as _ownership_err:
         logger.warning(f"  🏗️ Ownership classification failed (non-fatal): {_ownership_err}")
 
+    # ── Tier Boundary + Reuse-First (deterministic) ─────────────────────────
+    # A frontend-anchored ticket (proven anchor is a component/template) is a
+    # PRESENTATION-layer change: it consumes existing data through existing
+    # frontend services. Domain ownership ("project-service owns membership
+    # data") does NOT authorize modifying the backend for a UI ticket.
+    # Observed failure (2026-09-18): ContractService.java got a modify task
+    # for an Add-Members-modal ticket because the domain resolver authorized
+    # the data owner; the generator then hallucinated a service call to a
+    # backend method with no REST endpoint.
+    _reuse_directive = ""
+    _fe_root = None
+    try:
+        from ticket_to_code.agents.code_generator import clear_reuse_directive, set_reuse_directive
+        clear_reuse_directive()
+    except Exception:
+        pass
+    try:
+        from ticket_to_code.agents.reuse_capability_discovery import (
+            frontend_anchor_root,
+            ticket_has_backend_intent,
+            discover_frontend_capabilities,
+            build_reuse_directive,
+            is_frontend_file,
+        )
+        _ticket_raw = state.get("ticket")
+        _ticket_text = " ".join(
+            x for x in [
+                _get_ticket_attr(_ticket_raw, "title", ""),
+                _get_ticket_attr(_ticket_raw, "description", ""),
+            ] if x
+        )
+        _cand_paths = [c.get("path", "") for c in active_discovered if c.get("path")]
+        _fe_root = frontend_anchor_root(_cand_paths, str(agents.workspace_path))
+        if _fe_root and not ticket_has_backend_intent(_ticket_text):
+            _fe_root_str = str(_fe_root).replace("\\", "/").lower()
+            _tier_demoted = []
+            for cand in active_discovered:
+                _cp = cand.get("path", "")
+                if not _cp:
+                    continue
+                _cp_norm = _cp.replace("\\", "/").lower()
+                _in_frontend_root = _fe_root_str in _cp_norm or _cp_norm.startswith(
+                    _fe_root_str.split("/")[-1] + "/"
+                )
+                if not _in_frontend_root and not is_frontend_file(_cp):
+                    if cand.get("candidate_role") != CandidateRole.REFERENCE.value:
+                        cand["candidate_role"] = CandidateRole.REFERENCE.value
+                        cand["_tier_boundary_demoted"] = True
+                        _tier_demoted.append(_cp)
+            if _tier_demoted:
+                logger.info(
+                    f"  🧱 TIER BOUNDARY: frontend-anchored ticket → "
+                    f"{len(_tier_demoted)} backend candidate(s) demoted to REFERENCE_ONLY"
+                )
+                _domain_ownership_context += (
+                    "\n=== TIER BOUNDARY (READ CAREFULLY) ===\n"
+                    "This ticket is anchored in the FRONTEND (a component/modal/page change).\n"
+                    "It is a presentation-layer change and MUST be implemented entirely in the\n"
+                    "frontend service. Backend/Java files are READ-ONLY context for this ticket.\n"
+                    "You MUST NOT create modify/create tasks for any backend file. If the data\n"
+                    "you need is not exposed by an existing frontend service, reuse the closest\n"
+                    "existing capability — do NOT add backend methods or endpoints.\n"
+                    "Demoted to READ-ONLY:\n"
+                    + "".join(f"  ❌ {p}\n" for p in _tier_demoted[:15])
+                    + "=== END TIER BOUNDARY ===\n"
+                )
+
+            # Reuse-first: surface existing frontend service capabilities whose
+            # names/methods overlap the ticket's key nouns, and inject a strict
+            # reuse directive into the planner (and, later, the generator).
+            _kw = re.findall(r"[A-Za-z]{4,}", _ticket_text)
+            _caps = discover_frontend_capabilities(
+                str(agents.workspace_path), frontend_root=_fe_root, keywords=_kw
+            )
+            if _caps:
+                _reuse_directive = build_reuse_directive(_caps)
+                _domain_ownership_context += _reuse_directive
+                logger.info(
+                    f"  ♻️  REUSE-FIRST: {len(_caps)} frontend capabilities injected "
+                    f"(top: {', '.join(Path(c['file']).name for c in _caps[:3])})"
+                )
+                # Hard protection: discovered reuse-capability files must be
+                # CALLED, not modified. The product's philosophy — reuse what
+                # exists — must not depend on the LLM obeying a prompt. Store
+                # for the post-plan filter; the ticket's own expected_changed_files
+                # (declared scope) always overrides.
+                _ticket_declared = {
+                    str(f).replace("\\", "/").lower()
+                    for f in (_get_ticket_attr(state.get("ticket"), "expected_changed_files", None) or [])
+                }
+                _reuse_protected = set()
+                for _c in _caps:
+                    _rel = str(_c.get("rel_path", "")).replace("\\", "/").lower()
+                    if not _rel or any(_rel.endswith(d) or d.endswith(_rel) for d in _ticket_declared):
+                        continue
+                    _reuse_protected.add(_rel)
+                state["_reuse_protected_files"] = _reuse_protected
+                # Give the generator the same directive so component code calls
+                # the existing methods instead of inventing new ones.
+                try:
+                    set_reuse_directive(_reuse_directive)
+                    if hasattr(agents, "code_generator") and agents.code_generator:
+                        agents.code_generator._reuse_directive = _reuse_directive
+                except Exception:
+                    pass
+    except Exception as _tier_err:
+        logger.warning(f"  🧱 Tier-boundary/reuse discovery failed (non-fatal): {_tier_err}")
+
     # ── Preflight Guidance Scoping & Capability Reuse ──
     # If preflight guidance targets specific files within distinct project/service boundaries,
     # candidates from external services/projects are treated as context-only REFERENCE
@@ -2995,6 +3120,86 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
                 f"   post-plan blacklist filter: dropped {dropped} task(s) that referenced "
                 f"blacklisted file(s).  Remaining tasks: {len(plan.tasks)}"
             )
+
+    # Post-plan TIER BOUNDARY filter (hard guarantee, prompt-independent):
+    # a frontend-anchored ticket must not carry modify/create tasks on backend
+    # files, even if the planner LLM ignored the injected directive.
+    try:
+        if _fe_root is not None:
+            from ticket_to_code.agents.reuse_capability_discovery import (
+                is_frontend_file,
+                ticket_has_backend_intent,
+            )
+            _fe_root_str = str(_fe_root).replace("\\", "/").lower()
+            # Cross-tier coherence (how top AI IDEs operate): a backend change is
+            # legitimate for a frontend-anchored ticket ONLY as part of a complete
+            # vertical slice — i.e. the plan also modifies/creates the frontend
+            # service wrapper that binds the new backend capability. A backend
+            # task with no frontend binding (observed: ContractService.java got a
+            # new method but no endpoint, no frontend wrapper) is an incomplete
+            # feature and is demoted.
+            _t_obj2 = state.get("ticket")
+            _ticket_text2 = " ".join(x for x in [
+                _get_ticket_attr(_t_obj2, "title", ""),
+                _get_ticket_attr(_t_obj2, "description", ""),
+            ] if x)
+            _has_fe_service_task = any(
+                ".service.ts" in str(t.file_path or "").lower()
+                and getattr(t.task_type, "value", str(t.task_type)) not in ("read_only", "reference")
+                for t in plan.tasks
+            )
+            _coherent_slice = _has_fe_service_task or ticket_has_backend_intent(_ticket_text2)
+            _tier_kept = []
+            _tier_dropped = []
+            for t in plan.tasks:
+                _tp = str(t.file_path or "").replace("\\", "/").lower()
+                _in_fe = _fe_root_str in _tp or _tp.startswith(_fe_root_str.split("/")[-1] + "/")
+                _is_fe_file = is_frontend_file(str(t.file_path or ""))
+                _writable_kind = getattr(t.task_type, "value", str(t.task_type)) not in ("read_only", "reference")
+                if _writable_kind and not _in_fe and not _is_fe_file and not _coherent_slice:
+                    _tier_dropped.append(str(t.file_path))
+                    continue
+                _tier_kept.append(t)
+            if _tier_dropped:
+                plan.tasks = _tier_kept
+                logger.warning(
+                    f"   post-plan tier-boundary filter: dropped {len(_tier_dropped)} "
+                    f"incoherent backend task(s) (no frontend service wrapper in plan): {_tier_dropped}"
+                )
+    except Exception as _tier_filter_err:
+        logger.warning(f"   post-plan tier filter failed (non-fatal): {_tier_filter_err}")
+
+    # Post-plan REUSE-PROTECTION filter (hard guarantee): discovered reuse
+    # capability files (e.g. member.service.ts) must be CALLED, not modified.
+    # The planner LLM otherwise tends to "extend" the service it should reuse
+    # (observed 2026-09-18: modify task on member.service.ts to add a method
+    # that duplicated an existing capability). Declared expected_changed_files
+    # overrides this protection.
+    try:
+        _protected = {
+            p.replace("\\", "/").lower()
+            for p in (state.get("_reuse_protected_files") or [])
+        }
+        if _protected:
+            def _norm_fp(fp: str) -> str:
+                return str(fp or "").replace("\\", "/").lower()
+            _kept, _dropped = [], []
+            for t in plan.tasks:
+                _tp = _norm_fp(t.file_path)
+                _writable_kind = getattr(t.task_type, "value", str(t.task_type)) not in ("read_only", "reference")
+                if _writable_kind and any(_tp.endswith(p) or p.endswith(_tp) for p in _protected):
+                    _dropped.append(str(t.file_path))
+                    continue
+                _kept.append(t)
+            if _dropped:
+                plan.tasks = _kept
+                logger.warning(
+                    f"   post-plan reuse-protection filter: dropped {len(_dropped)} "
+                    f"modify task(s) on reuse-target service(s) — call their existing "
+                    f"methods instead: {_dropped}"
+                )
+    except Exception as _reuse_filter_err:
+        logger.warning(f"   post-plan reuse filter failed (non-fatal): {_reuse_filter_err}")
 
     # ── Post-plan: enforce that task paths are grounded in reality ────────
     # The LLM may hallucinate file paths (e.g. "app/app.py" instead of "src/app.py")
@@ -4287,7 +4492,7 @@ def evidence_collection_loop_node(
         _ticket_bu = state.get("ticket")
         _authorized_bu: set[str] = set()
         for _attr in ("expected_changed_files", "expected_owner_files"):
-            for _f in (getattr(_ticket_bu, _attr, None) or []):
+            for _f in (_get_ticket_attr(_ticket_bu, _attr, None) or []):
                 if _f:
                     _authorized_bu.add(str(_f))
         # Evidence-proven primary feature targets from localization ownership.
@@ -7197,7 +7402,7 @@ Angular/TypeScript for .ts/.html/.scss files.
         _ticket_obj = state.get("ticket")
         _req_files: set[str] = set()
         for _attr in ("expected_changed_files", "expected_owner_files"):
-            for _rf in (getattr(_ticket_obj, _attr, None) or []):
+            for _rf in (_get_ticket_attr(_ticket_obj, _attr, None) or []):
                 if _rf:
                     _req_files.add(str(_rf))
         if not _req_files:
@@ -7206,7 +7411,7 @@ Angular/TypeScript for .ts/.html/.scss files.
         # ── Change authorization scope (evidence is NOT authorization) ──
         _authorized: set[str] = set()
         for _attr in ("expected_changed_files", "expected_owner_files"):
-            for _af in (getattr(_ticket_obj, _attr, None) or []):
+            for _af in (_get_ticket_attr(_ticket_obj, _attr, None) or []):
                 if _af:
                     _authorized.add(str(_af))
 
@@ -12301,6 +12506,13 @@ def memory_update_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict
     logger.info("\n" + "=" * 80)
     logger.info(" PHASE 4: Updating Project Brain Memory")
     logger.info("=" * 80)
+
+    # ── Clear reuse directive so state never leaks to subsequent runs ────────
+    try:
+        from ticket_to_code.agents.code_generator import clear_reuse_directive
+        clear_reuse_directive()
+    except Exception:
+        pass
     
     # Gate memory update behind Build and Test success
     build_result = state.get("build_result")

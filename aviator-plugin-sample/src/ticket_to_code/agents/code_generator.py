@@ -228,6 +228,21 @@ logger = logging.getLogger(__name__)
 # Each entry: {"file": str, "edit_index": int, "tier": str, "old_chars": int, "new_chars": int}
 _patch_tier_traces: list[dict] = []
 
+# Module-level reuse directive across agents (cleared per run)
+_reuse_directive: str = ""
+
+
+def set_reuse_directive(directive: str) -> None:
+    """Set the module-level reuse directive for code generation."""
+    global _reuse_directive
+    _reuse_directive = str(directive or "")
+
+
+def clear_reuse_directive() -> None:
+    """Clear the reuse directive to prevent leakage across runs or Celery tasks."""
+    global _reuse_directive
+    _reuse_directive = ""
+
 
 def _apply_str_replace_edits(edits: list[dict], existing: str, file_path: str) -> str:
     """
@@ -882,6 +897,97 @@ class CodeGeneratorAgent:
         except Exception as dump_err:
             logger.debug(f"LLM debug dump skipped: {dump_err}")
     
+    # ── Cross-tier call validation (no hallucinated service methods) ────────
+    # Top AI IDEs never invent a call chain: every `this.<svc>.<method>()` in
+    # generated code must resolve to a REAL method — in the repo, or generated
+    # earlier in this same run (session files). Observed failure (2026-09-18):
+    # the generator called `this.contractService.getProjectMembership()` — a
+    # method that existed nowhere — burning 2 TSC retries and deferring to
+    # fix_build. This check catches it BEFORE the code is written to disk.
+    _SVC_CALL_RE = re.compile(r"this\.([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+    _CTOR_INJECT_RE = re.compile(
+        r"(?:private|public|protected)\s+(?:readonly\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)"
+    )
+    _METHOD_NAME_RE = re.compile(
+        r"(?:^|[^.\w$])([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?:\{|:)",
+        re.MULTILINE,
+    )
+
+    def _find_class_source(self, class_name: str) -> Optional[str]:
+        """Locate the source text of a TypeScript class by name.
+
+        Order: session files (generated/modified this run — freshest), then a
+        bounded workspace scan (services first, capped so it can never hang).
+        Returns None when unresolvable (caller must not false-flag).
+        """
+        session = getattr(self, "_session_files", None) or {}
+        for _key, text in session.items():
+            try:
+                if class_name in text:
+                    return text
+            except Exception:
+                continue
+        ws = getattr(self, "workspace_path", None) or getattr(self, "_workspace_path", None)
+        if not ws:
+            return None
+        ws_root = Path(ws)
+        scanned = 0
+        MAX_SCAN = 3000
+        try:
+            for fp in ws_root.rglob("*.ts"):
+                scanned += 1
+                if scanned > MAX_SCAN:
+                    break
+                parts = fp.parts
+                if any(p in ("node_modules", ".git", "dist", ".aviator") for p in parts):
+                    continue
+                if fp.name.endswith(".spec.ts"):
+                    continue
+                try:
+                    head = fp.read_text(encoding="utf-8", errors="ignore")
+                except Exception:
+                    continue
+                if f"class {class_name}" in head:
+                    return head
+        except Exception:
+            return None
+        return None
+
+    def _validate_service_calls(self, content: str, existing_content: Optional[str]) -> list:
+        """Return human-readable descriptions of `this.<prop>.<method>()` calls
+        whose method does not exist on the injected service's class. Only calls
+        whose service class CAN be resolved are validated (unresolvable ones
+        are left to the TSC gate — no false positives).
+        """
+        try:
+            src = (existing_content or "") + "\n" + (content or "")
+            calls = set(self._SVC_CALL_RE.findall(src))
+            if not calls:
+                return []
+            prop_to_class = dict(self._CTOR_INJECT_RE.findall(src))
+            if not prop_to_class:
+                return []
+            own_methods = {m.group(1) for m in self._METHOD_NAME_RE.finditer(src)}
+            unknown = []
+            for prop, method in sorted(calls):
+                cls = prop_to_class.get(prop)
+                if cls is None:
+                    continue
+                if method in own_methods:
+                    continue
+                class_src = self._find_class_source(cls)
+                if class_src is None:
+                    continue
+                cls_methods = {m.group(1) for m in self._METHOD_NAME_RE.finditer(class_src)}
+                if method not in cls_methods:
+                    unknown.append(
+                        f"this.{prop}.{method}() — class {cls} has no method '{method}' "
+                        f"(existing: {', '.join(sorted(cls_methods)[:10])})"
+                    )
+            return unknown
+        except Exception:
+            return []
+
     def generate_code(
         self,
         task: DevelopmentTask,
@@ -1023,6 +1129,35 @@ class CodeGeneratorAgent:
                         # Parse response
                         generated = self._parse_response(full_content, task)
                         logger.info(f"Code generated: {len(generated.content)} chars")
+
+                        # ── Cross-tier call validation (pre-write) ──
+                        _unknown_calls = self._validate_service_calls(generated.content, existing_content)
+                        if _unknown_calls:
+                            if cont_attempt < max_continuations - 1:
+                                logger.warning(
+                                    f"  ⛔ Hallucinated service call(s) in generated code — "
+                                    f"requesting correction before writing: {_unknown_calls}"
+                                )
+                                messages.append(AIMessage(content=response.content))
+                                messages.append(HumanMessage(
+                                    content=(
+                                        "Your generated code calls methods that DO NOT EXIST:\n"
+                                        + "\n".join(f"  - {c}" for c in _unknown_calls)
+                                        + "\n\nFix the code: use ONLY methods that exist on the "
+                                        "injected services (their real methods were listed in the "
+                                        "context above). Prefer REUSING an existing service "
+                                        "capability over inventing a new method. Do not invent "
+                                        "methods or endpoints. Re-output the FULL corrected code "
+                                        "between the delimiters."
+                                    )
+                                ))
+                                full_content = ""
+                                continue  # re-invoke LLM with the corrective context
+                            else:
+                                logger.error(
+                                    f"  ⛔ Hallucinated service call(s) persist after retries — "
+                                    f"writing anyway (TSC/build gates will verify): {_unknown_calls}"
+                                )
 
                         # ── Post-generation: record in ImplementationState ──
                         _impl = getattr(self, "_impl_state", None)
@@ -1441,6 +1576,19 @@ PROPERTIES / ENV GUIDELINES:
         
         context_str = self._format_context(context)
         
+        # ── REUSE-FIRST directive (set by plan_node's capability discovery) ──
+        # Tells the generator which existing service methods to CALL instead of
+        # inventing new ones or extending the service under the ticket.
+        # The directive is set on the code_generator MODULE (not per-instance)
+        # to avoid race conditions during concurrent ticket runs.
+        # We import sys here to ensure we get the module-level attribute correctly.
+        import sys as _sys
+        _reuse_directive_module = getattr(_sys.modules[__name__], "_reuse_directive", "")
+        if not _reuse_directive_module:
+            # fallback for legacy/debug scenarios (module attribute missing)
+            _reuse_directive_module = getattr(self, "_reuse_directive", "")
+        _reuse_block = f"{_reuse_directive_module}\n" if _reuse_directive_module else ""
+
         change_type = task.task_type.value  # "modify" or "create"
 
         # ── FROZEN SCOPE BLOCK ───────────────────────────────────────────────
@@ -1780,6 +1928,7 @@ Do NOT output the full file. Only output SEARCH/REPLACE blocks."""
         _prompt = f"""\
 {scope_block}{scope_lock_block}{_edit_anchor_block}
 {planner_directive}
+{_reuse_block}
 
 TASK ID: {task.id}
 TASK: {task.title}
