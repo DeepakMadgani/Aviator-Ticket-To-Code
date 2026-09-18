@@ -12846,6 +12846,12 @@ def run_autonomous_workflow_langgraph(
         run_autonomous_workflow_langgraph(ticket, "./my-project")
     """
     tech_mode = technology if technology else "auto-detect"
+    # Ensure any residual state from prior worker tasks is cleared immediately
+    try:
+        from ticket_to_code.agents.code_generator import clear_reuse_directive
+        clear_reuse_directive()
+    except Exception:
+        pass
     logger.info(f" Starting LangGraph workflow for: {ticket.ticket_id} (Mode: {tech_mode})")
     
     # Create graph with specified technology
@@ -13025,6 +13031,14 @@ def run_autonomous_workflow_langgraph(
     except Exception as e:
         logger.error(f"❌ Workflow failed: {e}", exc_info=True)
         raise
+    finally:
+        # Guarantee reuse directive is purged under ANY termination condition
+        # (normal return, exception, timeout, abort) so Celery workers never leak.
+        try:
+            from ticket_to_code.agents.code_generator import clear_reuse_directive
+            clear_reuse_directive()
+        except Exception:
+            pass
 
 
 # ============================================================================

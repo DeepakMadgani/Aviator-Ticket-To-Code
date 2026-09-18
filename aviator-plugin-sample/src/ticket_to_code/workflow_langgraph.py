@@ -862,6 +862,12 @@ def run_autonomous_workflow_langgraph(
     Returns:
         Final workflow state with results
     """
+    # Ensure any residual state from prior worker tasks is cleared immediately
+    try:
+        from ticket_to_code.agents.code_generator import clear_reuse_directive
+        clear_reuse_directive()
+    except Exception:
+        pass
     logger.info(f"🚀 Starting LangGraph workflow for: {ticket.ticket_id}")
     
     # Create graph
@@ -920,6 +926,12 @@ def run_autonomous_workflow_langgraph(
     except Exception as e:
         logger.error(f"❌ Workflow failed: {e}", exc_info=True)
         raise
+    finally:
+        try:
+            from ticket_to_code.agents.code_generator import clear_reuse_directive
+            clear_reuse_directive()
+        except Exception:
+            pass
 
 
 # ============================================================================
