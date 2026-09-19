@@ -13,7 +13,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Union
 import time
 from datetime import datetime
 from ticket_to_code.llm_utils import llm_invoke, extract_token_usage
@@ -58,10 +58,11 @@ class PlanningAgent:
     - Dependency analysis
     """
     
-    def __init__(self):
+    def __init__(self, workspace_path: Optional[Union[str, Path]] = None):
         # Always use the smarter assistant model (gemini-1.5-pro / gemini-2.5-flash) for planning
         # Use a lower max_output_tokens for planning — plans are structured JSON, not full files
         self.llm = LLMRegistry.get_llm(assistant=True)
+        self._workspace_path: Optional[str] = str(workspace_path) if workspace_path else None
         # Cap planner output to 16K tokens — enough for a detailed plan JSON
         # but prevents the LLM from spending 10 minutes on massive outputs
         try:
@@ -72,6 +73,15 @@ class PlanningAgent:
         except Exception:
             pass
         logger.info("Planning Agent initialized")
+
+    @property
+    def workspace_path(self) -> Optional[Path]:
+        ws = getattr(self, "_workspace_path", None)
+        return Path(ws) if ws else None
+
+    @workspace_path.setter
+    def workspace_path(self, val: Optional[Union[str, Path]]) -> None:
+        self._workspace_path = str(val) if val else None
     
     def create_plan(
         self,
@@ -456,14 +466,21 @@ The `.ts` task must come BEFORE the `.html` task in the tasks array.
 NEVER use a property from a sub-object (e.g. `dmember.organizationName`) when the property lives
 on the component class itself (e.g. `this.existingOrganizationName`). Use the component-level flag.
 
-UI DATA-FLOW TRACE RULE (critical for any UI feature that displays new data):
-If the ticket requires displaying new data in the UI (a new field, a new conditional section, a new label),
-trace the FULL data path from backend to template:
-  1. Backend: Is there an API endpoint or service method that RETURNS this data? If not, add a task to create/modify it.
-  2. Frontend service: Does the Angular service call that backend endpoint and expose the data? If not, add a task.
-  3. Component: Does the `.ts` class fetch the data and bind it to a displayed property? If not, add a task.
-  4. Template: Does the `.html` render it? Add a task.
-You CANNOT add a template task showing `{{ member.orgName }}` without also having tasks that supply `orgName`.
+CHANGE INTENT & DEPENDENCY RULES (CRITICAL):
+Files in CANDIDATE FILES may have explicit ChangeIntent markings:
+1. IMPLEMENTATION TARGETS (ChangeIntent: MODIFY or CREATE):
+   - Direct feature implementation files (e.g. component controllers, templates, specific domain classes).
+2. REFERENCE DEPENDENCIES (ChangeIntent: READ_ONLY):
+   - Existing services, APIs, models, and shared utilities (e.g. organization.service.ts, member.service.ts).
+   - Relevant dependency ≠ writable file!
+   - You MUST NOT create modify tasks for files marked READ_ONLY. Only inspect their public APIs to CALL them.
+
+UI DATA-FLOW & SERVICE REUSE RULE:
+If the ticket requires displaying data in the UI:
+  1. FIRST, check if existing services or models ALREADY provide the data (e.g. memberService.members() with projectId already returns companyName).
+     If an existing service method provides the data, CALL IT in the component (.ts) and bind to template (.html). Do NOT modify the service!
+  2. Existing services are READ_ONLY unless the ticket title or description EXPLICITLY asks to alter a backend API or service interface.
+  3. Never create modify tasks for a service just because the UI component calls it. Use the service as a read-only dependency.
 
 DOMAIN OWNERSHIP GUIDANCE:
 The context may include DOMAIN OWNERSHIP information describing the likely architectural owner of a business capability.
@@ -735,12 +752,20 @@ NO markdown, NO explanations, ONLY valid JSON."""
                     if any("workspace" in s.lower() for s in _sigs):
                         reasons.append("Workspace knowledge match")
                         
-                    if not reasons:
-                        reasons.append("Path/filename relevance")
+                    _intent = d.get("change_intent")
+                    if not _intent:
+                        _norm_p = str(d.get("path", "")).lower().replace("\\", "/")
+                        if any(_norm_p.endswith(suf) for suf in ("service.ts", "service.java", "service.py", "repository.java", "models.ts", "types.ts")):
+                            _intent = "READ_ONLY"
+                        else:
+                            _intent = "MODIFY"
+                    if _intent == "READ_ONLY":
+                        reasons.append("Reference Dependency (ChangeIntent: READ_ONLY — do NOT modify)")
 
                     c = {
                         "rank": idx,
                         "path": d.get("path"),
+                        "change_intent": _intent,
                         "confidence": round(float(d.get("confidence", 0.0)), 3),
                         "reasons": reasons
                     }

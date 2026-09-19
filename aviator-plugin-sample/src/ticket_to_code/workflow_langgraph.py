@@ -93,12 +93,12 @@ class WorkflowAgents:
         self.workspace_path = Path(workspace_path)
         
         # Initialize agents
-        self.investigation = InvestigationAgent()
+        self.investigation = InvestigationAgent(str(workspace_path))
         self.analyzer = TicketAnalyzerAgent()
-        self.planner = PlanningAgent()
+        self.planner = PlanningAgent(workspace_path=str(workspace_path))
         self.rag_engine = CodebaseRAGEngine()
-        self.code_generator = CodeGeneratorAgent()
-        self.test_generator = CodeGeneratorAgent()  # Separate instance for tests
+        self.code_generator = CodeGeneratorAgent(self.workspace_path)
+        self.test_generator = CodeGeneratorAgent(self.workspace_path)  # Separate instance for tests
         self.llm = self.code_generator.llm
         
         # Initialize execution engine

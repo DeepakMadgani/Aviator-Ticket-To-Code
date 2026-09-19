@@ -572,6 +572,8 @@ class ImplementationState:
         for path, content in self.generated_files.items():
             key = path.replace("\\", "/").lower()
             bridge[key] = content
+            bridge[path] = content
+            bridge[Path(path).name.lower()] = content
 
     # ── Pillar 5: Generation Handoffs ──────────────────────────────────
 

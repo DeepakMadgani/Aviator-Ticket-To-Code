@@ -125,7 +125,7 @@ def test_second_sufficiency_routing_insufficient():
             MagicMock(file_path="unrelated.ts", facts="just some unrelated stuff")
         ],
         "tier2_candidates": [
-            {"path": "project.service.ts"}
+            {"path": "isprojectmember_service.ts"}
         ]
     }
     
@@ -134,10 +134,10 @@ def test_second_sufficiency_routing_insufficient():
     # 'unrelated.ts' is NOT promoted in Step 1 because it doesn't match the unsatisfied keywords!
     # So promoted=0. Thus, Step 2 runs (but we don't mock it so it finds nothing).
     # Step 3 evaluates INSUFFICIENT because promoted=0 and new_files=0.
-    # Therefore, Tier 2 fallback runs and promotes project.service.ts
+    # Therefore, Tier 2 fallback runs and promotes isprojectmember_service.ts (semantically verified)
     assert len(result["discovered_files"]) == 1
-    assert result["discovered_files"][0]["path"] == "project.service.ts"
-    assert result["discovered_files"][0]["_tier"] == "promoted_from_tier2"
+    assert result["discovered_files"][0]["path"] == "isprojectmember_service.ts"
+    assert result["discovered_files"][0]["_tier"] == "verified_candidate_promoted"
 
 def test_second_sufficiency_routing_sufficient():
     """Test that if the combined evidence HAS keywords, it assesses LIKELY_SUFFICIENT and skips Tier 2."""

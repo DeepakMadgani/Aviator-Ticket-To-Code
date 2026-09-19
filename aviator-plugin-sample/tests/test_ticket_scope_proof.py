@@ -924,3 +924,46 @@ def test_adversarial_ad_multiple_workflow_iterations_do_not_accumulate_stale_wri
     assert len(res_2.rejected) == 1
     assert res_2.rejected[0].file_path == "file_a.ts"
 
+
+# ── Test AE: revert_unauthorized_changes protects intentional files on failure ──
+
+def test_revert_unauthorized_changes_protects_intentional_files_on_failure(tmp_path: Path):
+    """Ensure that intentional ticket files (e.g. generated component TS/HTML)
+    are strictly NEVER deleted or reverted on failure, budget limit, or re-plan.
+    """
+    ts_file = tmp_path / "add-members.component.ts"
+    html_file = tmp_path / "add-members.component.html"
+    extra_file = tmp_path / "rogue_service.ts"
+
+    ts_file.write_text("// generated ts code", encoding="utf-8")
+    html_file.write_text("<!-- generated html code -->", encoding="utf-8")
+    extra_file.write_text("// unauthorized mutation", encoding="utf-8")
+
+    # Even if someone accidentally passes intentional files in unauthorized_files
+    unauthorized_attempt = {
+        "add-members.component.ts",
+        "add-members.component.html",
+        "rogue_service.ts",
+    }
+    protected = {
+        "add-members.component.ts",
+        "add-members.component.html",
+    }
+
+    revert_log = revert_unauthorized_changes(
+        workspace_path=tmp_path,
+        unauthorized_files=unauthorized_attempt,
+        original_contents={},
+        protected_files=protected,
+    )
+
+    # Protected intentional files must REMAIN ON DISK
+    assert ts_file.exists(), "Intentional TS file was deleted!"
+    assert html_file.exists(), "Intentional HTML file was deleted!"
+    assert ts_file.read_text(encoding="utf-8") == "// generated ts code"
+    assert html_file.read_text(encoding="utf-8") == "<!-- generated html code -->"
+
+    # Only truly rogue unauthorized file is removed
+    assert not extra_file.exists(), "Rogue file should have been reverted!"
+
+

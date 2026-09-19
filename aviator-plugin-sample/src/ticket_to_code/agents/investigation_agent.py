@@ -835,22 +835,66 @@ RESPOND with a JSON array only (no markdown):
             paths = [t.file_path for t in localized_tasks if t.task_type.value != "read_only"]
             task_context = f"\nALREADY LOCALIZED FILES:\n" + "\n".join(f"  - {p}" for p in paths)
 
-        # Inject the Macro Architecture Brain
+        # Inject the Macro Architecture Brain (top relevant folders only, capped to ~1.5K tokens)
         macro_brain_context = ""
         try:
             import os
             import glob
             import json
+            import re
             all_macro_brains = []
             if self.brain_dir:
                 for brain_file in glob.glob(os.path.join(self.brain_dir, "*_directory_brain.json")):
                     with open(brain_file, "r", encoding="utf-8") as f:
-                        all_macro_brains.extend(json.load(f))
+                        data = json.load(f)
+                        if isinstance(data, list):
+                            all_macro_brains.extend(data)
             
             if all_macro_brains:
-                macro_brain_context = f"\nMACRO ARCHITECTURE BRAIN (Available Folders):\n{json.dumps(all_macro_brains, indent=2)}\n"
+                search_terms = set(re.findall(r'[A-Za-z0-9_]{3,}', f"{ticket.title} {ticket.description}".lower()))
+                for s in (investigation.affected_systems or []) + (investigation.investigation_areas or []):
+                    search_terms.update(re.findall(r'[A-Za-z0-9_]{3,}', str(s).lower()))
+                
+                scored_dirs = []
+                for entry in all_macro_brains:
+                    d_path = str(entry.get("directory_path", "")).lower()
+                    d_domain = str(entry.get("business_domain", "")).lower()
+                    d_role = str(entry.get("technical_role", "")).lower()
+                    d_resp = str(entry.get("core_responsibilities", "")).lower()
+                    d_terms = [str(t).lower() for t in entry.get("intent_terms", [])]
+                    
+                    score = 0
+                    for term in search_terms:
+                        if term in d_path:
+                            score += 5
+                        if term in d_domain:
+                            score += 4
+                        if any(term in dt for dt in d_terms):
+                            score += 3
+                        if term in d_role:
+                            score += 2
+                        if term in d_resp:
+                            score += 1
+                    
+                    scored_dirs.append((score, entry))
+                
+                scored_dirs.sort(key=lambda x: x[0], reverse=True)
+                top_entries = [e for s, e in scored_dirs if s > 0][:15]
+                if not top_entries:
+                    top_entries = [e for _, e in scored_dirs[:10]]
+                
+                compact_brains = [
+                    {
+                        "dir": e.get("directory_path"),
+                        "domain": e.get("business_domain"),
+                        "role": e.get("technical_role"),
+                        "terms": e.get("intent_terms", [])[:5],
+                    }
+                    for e in top_entries
+                ]
+                macro_brain_context = f"\nMACRO ARCHITECTURE BRAIN (Top Relevant Folders):\n{json.dumps(compact_brains, indent=1)}\n"
         except Exception as e:
-            pass
+            logger.debug(f"Macro brain context formatting skipped: {e}")
 
         # Inject current_state_literals from the triage result into the prompt
         current_state_hint = ""

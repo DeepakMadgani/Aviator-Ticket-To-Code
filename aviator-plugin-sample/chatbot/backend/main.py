@@ -1643,9 +1643,14 @@ def _serialize_agent_output(node_name: str, state_delta: dict) -> Optional[str]:
             return "\n".join(lines)
 
         elif node_name == "context_expand":
-            tier2 = state_delta.get("discovered_files") or []
-            count = len(tier2) if isinstance(tier2, list) else 0
-            return f"🔄 Context expanded: {count} file(s) promoted from Tier 2 backup"
+            promoted = state_delta.get("promoted_count")
+            if promoted is None:
+                discovered = state_delta.get("discovered_files") or []
+                promoted = len(discovered)
+            tier2_used = state_delta.get("tier2_used", False)
+            if tier2_used:
+                return f"🔄 Context expanded: {promoted} file(s) promoted from Tier 2 backup"
+            return f"🔄 Context expanded: {promoted} file(s) added via targeted re-investigation"
 
         elif node_name == "outcome_check":
             result = state_delta.get("outcome_check_result") or {}
@@ -1700,7 +1705,7 @@ def _serialize_agent_output(node_name: str, state_delta: dict) -> Optional[str]:
             ao = state_delta.get("agent_output")
             if ao:
                 return str(ao)
-            verdict = state_delta.get("preflight_verdict", "?")
+            verdict = state_delta.get("preflight_verdict") or "NOT_EVALUATED"
             summary = state_delta.get("preflight_summary", "")
             return f"🚦 Preflight: {verdict}\n{summary[:300]}" if summary else f"🚦 Preflight: {verdict}"
 
@@ -1970,6 +1975,9 @@ async def run_workflow_async(
 
     def put(step: dict):
         """Thread-safe broadcast helper — schedules coroutine on the event loop."""
+        if isinstance(step.get("data"), dict) and step["data"].get("event_type") == "token_usage_update":
+            if workflow_id in workflow_status:
+                workflow_status[workflow_id]["token_usage"] = step["data"]
         asyncio.run_coroutine_threadsafe(broadcast_to_workflow(workflow_id, step), loop)
 
     done_event = threading.Event()
@@ -2016,7 +2024,7 @@ async def run_workflow_async(
         # ── Fix Loops ──
         "fix_build":         ("edit_loop",        "🔧 Fixing build errors"),
         "fix_test":          ("edit_loop",        "🔧 Fixing test failures"),
-        "context_expand":    ("edit_loop",        "🔄 Expanding context for re-plan"),
+        "context_expand":    ("planning",         "🔄 Expanding context for re-plan"),
         # ── Completion ──
         "memory_update":     ("committing",       "💾 Updating execution memory"),
         # ── Behavior Pipeline (Pipeline B) ──
@@ -2202,6 +2210,9 @@ async def run_workflow_async(
                             return getattr(g, "file_path", "?") if hasattr(g, "file_path") else "?"
                         names = [_get_fp(g).split('/')[-1].split('\\')[-1] for g in gen[:3]]
                         msg   = f"✍️ Generated {len(gen)} file(s): " + ", ".join(names)
+                    elif node_name == "preflight_check":
+                        pv = state_delta.get("preflight_verdict") or "NOT_EVALUATED"
+                        msg = f"🚦 Preflight: {pv}"
                     else:
                         msg = agent_out.split("\n")[0] if agent_out else label
 
@@ -2219,10 +2230,10 @@ async def run_workflow_async(
                             ),
                             "preflight_data": (
                                 {
-                                    "verdict": state_delta.get("preflight_verdict"),
-                                    "summary": state_delta.get("preflight_summary"),
-                                    "missing_requirements": state_delta.get("preflight_missing_requirements"),
-                                    "implementation_guidance": state_delta.get("preflight_implementation_guidance"),
+                                    "verdict": state_delta.get("preflight_verdict") or "NOT_EVALUATED",
+                                    "summary": state_delta.get("preflight_summary") or "",
+                                    "missing_requirements": state_delta.get("preflight_missing_requirements") or [],
+                                    "implementation_guidance": state_delta.get("preflight_implementation_guidance") or [],
                                 }
                                 if node_name == "preflight_check" else None
                             ),
@@ -2441,6 +2452,16 @@ async def run_workflow_async(
 
     if "error" in result_holder:
         err = result_holder["error"]
+        # Hydrate latest token usage from transient store / run_ctx on error
+        if not workflow_status[workflow_id].get("token_usage"):
+            try:
+                _tid = ticket.ticket_id if 'ticket' in locals() and hasattr(ticket, 'ticket_id') else (workflow_status[workflow_id].get("ticket_id") or "")
+                from ticket_to_code.workflow import _transient_store
+                _ctx = _transient_store.get(_tid, {}).get("run_ctx")
+                if _ctx and hasattr(_ctx, "budget"):
+                    workflow_status[workflow_id]["token_usage"] = _ctx.budget._snapshot()
+            except Exception:
+                pass
         workflow_status[workflow_id].update({"status": "failed", "current_phase": "failed", "error": err})
         workflow_status[workflow_id]["workflow_explanation"] = _build_workflow_explanation(
             workflow_status[workflow_id],
@@ -2458,6 +2479,7 @@ async def run_workflow_async(
                 execution_mode=workflow_status[workflow_id].get("execution_mode", "pipeline"),
                 error=err,
                 token_usage=workflow_status[workflow_id].get("token_usage"),
+                steps=workflow_status[workflow_id].get("steps", []),
             )
         except Exception as e:
             logger.warning(f"Failed to record failed task in history: {e}")
@@ -2569,6 +2591,7 @@ async def run_workflow_async(
             execution_mode=execution_mode,
             error=workflow_status[workflow_id].get("error"),
             token_usage=workflow_status[workflow_id].get("token_usage"),
+            steps=workflow_status[workflow_id].get("steps", []),
         )
     except Exception as e:
         logger.warning(f"Failed to record task history: {e}")
@@ -2754,6 +2777,30 @@ def _build_chat_summary(
     return "\n".join(lines)
 
 
+def _resolve_workflow_token_usage(state: dict, workflow_id: str) -> dict | None:
+    """Helper to safely retrieve token usage snapshot from transient store or task history."""
+    if not isinstance(state, dict):
+        return None
+    tu = state.get("token_usage")
+    if tu:
+        return tu
+    try:
+        from ticket_to_code.workflow import _transient_store
+        tid = state.get("ticket_id", "")
+        ctx = _transient_store.get(tid, {}).get("run_ctx")
+        if ctx and hasattr(ctx, "budget"):
+            return ctx.budget._snapshot()
+    except Exception:
+        pass
+    try:
+        task = history_store.get_task(workflow_id)
+        if task and task.get("token_usage"):
+            return task.get("token_usage")
+    except Exception:
+        pass
+    return None
+
+
 @app.get("/api/workflow/transparent/{workflow_id}")
 async def get_workflow_status(workflow_id: str):
     """
@@ -2791,12 +2838,12 @@ async def get_workflow_status(workflow_id: str):
                 "candidate_files": [],
                 "generated_files": task.get("changed_files", []),
                 "operation_approved": True,
-                "steps": [],
+                "steps": task.get("steps", []),
                 "error": task.get("error") or ("Workflow interrupted (process ended or restarted)" if task_status == "failed" else None),
                 "workflow_explanation": None,
                 "started_at": task.get("created_at"),
                 "completed_at": task.get("completed_at") or task.get("created_at"),
-                "token_usage": task.get("token_usage"),
+                "token_usage": task.get("token_usage") or _resolve_workflow_token_usage(task, workflow_id),
             }
         raise HTTPException(status_code=404, detail="Workflow not found")
 
@@ -2820,7 +2867,7 @@ async def get_workflow_status(workflow_id: str):
         "workflow_explanation": state.get("workflow_explanation"),
         "started_at": state.get("started_at"),
         "completed_at": state.get("completed_at"),
-        "token_usage": state.get("token_usage"),
+        "token_usage": state.get("token_usage") or _resolve_workflow_token_usage(state, workflow_id),
     }
 
 

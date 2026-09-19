@@ -24,6 +24,13 @@ class GenerationRouter:
         """
         Select the appropriate generator for the given task.
         """
+        # Templates (.html, .htm) must always route to CodeGeneratorAgent
+        # for ComponentContract and companion controller binding validation
+        if hasattr(task, "file_path") and task.file_path:
+            fp_lower = str(task.file_path).lower()
+            if fp_lower.endswith((".html", ".htm", ".component.html")):
+                return self.code_generator
+
         artifact_type = task.artifact_type
         
         if artifact_type == ArtifactType.SOURCE_CODE:
@@ -40,3 +47,4 @@ class GenerationRouter:
             return self.artifact_generator
         else:
             return self.code_generator
+

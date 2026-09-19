@@ -17,6 +17,7 @@ Date: July 2026
 from __future__ import annotations
 
 import logging
+import os
 import time
 import uuid
 from contextlib import contextmanager
@@ -127,8 +128,8 @@ class RunBudget:
     """
     max_wall_s:   float = float('inf')   # Wall-clock enforcement disabled — sufficiency controls stopping
     max_llm_calls: int  = 150
-    max_tokens:   int   = 500_000
-    max_cost_usd: float = 5.0
+    max_tokens:   int   = int(os.getenv("AVIATOR_MAX_TOKENS", "1500000"))
+    max_cost_usd: float = 15.0
 
     # Live counters (mutated by charge())
     elapsed_s:   float = field(default=0.0, init=False)

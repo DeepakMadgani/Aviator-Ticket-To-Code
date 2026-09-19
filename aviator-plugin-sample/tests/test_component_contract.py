@@ -113,6 +113,33 @@ def test_template_validator_approves_correct_bindings(synthetic_add_members_cont
     assert len(violations) == 0, f"Compliant template should have 0 violations, got: {violations}"
 
 
+def test_template_validator_catches_bare_hallucinated_property():
+    """Verify that bare identifiers like selectedUserIsExistingProjectMember
+    are caught and mapped to isExistingProjectMember on the controller.
+    """
+    ts_code = """
+    export class AddMembersComponent implements OnInit {
+      isExistingProjectMember: boolean = false;
+      existingOrganizationName: string;
+      onUserSelect(data) {}
+    }
+    """
+    contract = ComponentContract.extract_from_ts(ts_code, file_path="add-members.component.ts")
+
+    bad_template = """
+    <ng-container *ngIf="selectedUserIsExistingProjectMember; else orgDropdown">
+      <div class="readonly">{{ existingProjectMemberOrganizationName }}</div>
+    </ng-container>
+    <ng-template #orgDropdown></ng-template>
+    """
+
+    violations = TemplateContractValidator.validate(bad_template, contract)
+    assert len(violations) == 2, f"Expected 2 violations, got: {violations}"
+    assert any("selectedUserIsExistingProjectMember" in v and "isExistingProjectMember" in v for v in violations)
+    assert any("existingProjectMemberOrganizationName" in v and "existingOrganizationName" in v for v in violations)
+
+
+
 def test_component_contract_prompt_block_rendering(synthetic_add_members_controller):
     contract = ComponentContract.extract_from_ts(
         synthetic_add_members_controller,
@@ -124,7 +151,7 @@ def test_component_contract_prompt_block_rendering(synthetic_add_members_control
     assert "isExistingMember" in prompt
     assert "existingOrganizationName" in prompt
     assert "onUserSelect" in prompt
-    assert "selectedUser.isExistingProjectMember" in prompt  # In negative warning instructions
+    assert "Do NOT invent phantom sub-properties" in prompt  # Universal negative warning instructions
 
 
 def test_live_cc4e_add_members_component_contract():
@@ -258,6 +285,104 @@ def test_code_generator_path_scoping_no_unbound_local(tmp_path: Path, monkeypatc
     result = agent.generate_code(task=task, requirements=DummyReq(), context=[])
     assert result is not None
     assert result.file_path == "src/app/foo.component.ts"
+
+
+def test_template_validator_handles_advanced_syntax_and_locals():
+    """Verify that TemplateContractValidator recognizes two-way bindings, 'as' aliases,
+    multi-let loops, @for control flow, and global builtins without false positives.
+    """
+    ts_code = """
+    export class UserDashboardComponent {
+      users: any[] = [];
+      searchQuery: string = '';
+      score: number = 95.5;
+
+      saveUser(user: any): void {}
+    }
+    """
+    contract = ComponentContract.extract_from_ts(ts_code, file_path="dashboard.component.ts")
+
+    # Template using:
+    # - [(ngModel)]="searchQuery" (two-way binding)
+    # - *ngIf="users as userList" ('as' alias)
+    # - *ngFor="let u of userList; let idx = index; let isLast = last" (multi-let)
+    # - Math.round(score) (global builtin)
+    # - @for (u of users; track u.id; let i = $index) (Angular 17+ control flow)
+    # - @let total = users.length (Angular 18+ @let)
+    advanced_valid_template = """
+    <div>
+      <input [(ngModel)]="searchQuery" placeholder="Search..." />
+      <div *ngIf="users as userList">
+        <div *ngFor="let u of userList; let idx = index; let isLast = last">
+          <span>#{{ idx + 1 }}: {{ u.name }}</span>
+          <span *ngIf="isLast">Total: {{ Math.round(score) }}</span>
+          <button (click)="saveUser(u)">Save</button>
+        </div>
+      </div>
+      @for (u of users; track u.id; let i = $index) {
+        <span>{{ i }}: {{ u.title }}</span>
+      }
+      @let total = users.length;
+      <span>Count: {{ total }}</span>
+    </div>
+    """
+
+    violations = TemplateContractValidator.validate(advanced_valid_template, contract)
+    assert len(violations) == 0, f"Expected 0 violations for valid advanced template, got: {violations}"
+
+    # Invalid template: hallucinated property inside [(ngModel)]
+    invalid_template = """
+    <input [(ngModel)]="hallucinatedFilter" />
+    """
+    bad_violations = TemplateContractValidator.validate(invalid_template, contract)
+    assert len(bad_violations) == 1
+    assert "hallucinatedFilter" in bad_violations[0]
+
+
+def test_template_validator_baseline_immunity_and_object_fields():
+    """Verify that:
+    1. Pre-existing template bindings in original_content are granted baseline immunity.
+    2. Common object fields (.options, .placeholder, .length) on known controller objects
+       are not falsely flagged as hallucinations.
+    """
+    ts_code = """
+    export class AddMembersComponent {
+      organizationItemSelect: any = {};
+      displayedMembers: any[] = [];
+      isExistingMember: boolean = false;
+      existingOrganizationName: string = '';
+    }
+    """
+    contract = ComponentContract.extract_from_ts(ts_code, file_path="add-members.component.ts")
+
+    original_html = """
+    <ot-item-select
+      [placeholder]="organizationItemSelect.placeholder"
+      [options]="organizationItemSelect.options">
+    </ot-item-select>
+    <div *ngIf="displayedMembers.length > 0"></div>
+    """
+
+    # Newly edited template adds valid isExistingMember check and keeps existing bindings
+    new_html = """
+    <ot-item-select
+      *ngIf="!isExistingMember"
+      [placeholder]="organizationItemSelect.placeholder"
+      [options]="organizationItemSelect.options">
+    </ot-item-select>
+    <div *ngIf="isExistingMember">{{ existingOrganizationName }}</div>
+    <div *ngIf="displayedMembers.length > 0"></div>
+    """
+
+    # With baseline immunity, 0 violations
+    violations = TemplateContractValidator.validate(new_html, contract, original_content=original_html)
+    assert len(violations) == 0, f"Expected 0 violations with baseline immunity, got: {violations}"
+
+    # Even without original_content, common field builtins (.options, .placeholder, .length) on known objects are protected
+    violations_no_orig = TemplateContractValidator.validate(new_html, contract)
+    assert len(violations_no_orig) == 0, f"Expected 0 violations for protected object fields, got: {violations_no_orig}"
+
+
 
 
 

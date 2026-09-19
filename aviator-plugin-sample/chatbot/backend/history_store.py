@@ -154,6 +154,7 @@ def record_task(
     execution_mode: str = "pipeline",
     error: Optional[str] = None,
     token_usage: Optional[Dict[str, Any]] = None,
+    steps: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Persist a completed task/run so it shows up in history."""
     with _lock:
@@ -170,6 +171,7 @@ def record_task(
             "execution_mode": execution_mode,
             "error": error,
             "token_usage": token_usage if token_usage is not None else existing.get("token_usage"),
+            "steps": steps if steps is not None else existing.get("steps", []),
             "created_at": existing.get("created_at") or _now(),
             "completed_at": _now() if status in ("completed", "failed", "stopped") else existing.get("completed_at"),
         }

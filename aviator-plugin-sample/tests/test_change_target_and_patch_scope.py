@@ -135,7 +135,7 @@ export class MemberService {
     return y.toUpperCase();
   }
 }
-"""
+""" + "\n// PAD" * 5000
     task = DevelopmentTask(
         id="task-1",
         title="Check membership in onUserSelected",

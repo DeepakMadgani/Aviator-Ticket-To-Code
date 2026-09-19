@@ -440,10 +440,10 @@ def smart_extract(
     # ── Step 5: Build the extracted output ────────────────────────────────
     parts: List[str] = []
 
-    # 5a. Always include imports + class header
+    # 5a. Always include imports + class header (capped at 120 lines for safety)
     first_callable = next((mb for mb in boundaries if mb.kind in ("method", "constructor", "function")), None)
     if first_callable is not None:
-        header_end = first_callable.start_line
+        header_end = min(first_callable.start_line, 120)
     else:
         header_end = min(boundaries[0].start_line, 80) if boundaries else min(80, total_lines)
     parts.append(f"// === IMPORTS & CLASS HEADER (lines 1-{header_end}) ===")

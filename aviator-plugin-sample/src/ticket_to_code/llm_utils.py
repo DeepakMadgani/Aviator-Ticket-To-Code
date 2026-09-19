@@ -45,12 +45,17 @@ def llm_invoke(llm, messages, max_retries: int = 5, base_delay: float = 5.0):
             # Fallback for standard workflow (LangGraph threads where context var is lost)
             if run_ctx is None:
                 try:
-                    from ticket_to_code.workflow import _transient_store, _transient_lock
+                    from ticket_to_code.workflow import _transient_store, _transient_lock, get_active_ticket_id
+                    active_tid = get_active_ticket_id()
                     with _transient_lock:
-                        for tid, store in _transient_store.items():
-                            if "run_ctx" in store:
-                                run_ctx = store["run_ctx"]
-                                break
+                        if active_tid and active_tid in _transient_store and "run_ctx" in _transient_store[active_tid]:
+                            run_ctx = _transient_store[active_tid]["run_ctx"]
+                        else:
+                            # Fallback: take the most recent ticket from transient store
+                            for tid, store in reversed(list(_transient_store.items())):
+                                if "run_ctx" in store:
+                                    run_ctx = store["run_ctx"]
+                                    break
                 except Exception:
                     pass
 

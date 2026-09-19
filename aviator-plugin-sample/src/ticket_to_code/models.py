@@ -12,6 +12,7 @@ from enum import Enum
 from typing import List, Optional, Dict, Any, Set
 from datetime import datetime
 import time
+from dataclasses import dataclass, asdict
 
 # ============================================================================
 # TICKET MODELS
@@ -2864,3 +2865,25 @@ class GroundedImplementationDecision(BaseModel):
         default_factory=list,
         description="File paths of evidence items that informed this decision"
     )
+
+
+# ============================================================================
+# STRUCTURED OUTCOME FINDING MODEL
+# ============================================================================
+
+@dataclass
+class OutcomeFinding:
+    """Canonical structured outcome finding for requirements-verification."""
+    verdict: str                  # "CORRECT" | "PARTIAL" | "INCOMPLETE" | "UNCERTAIN"
+    requirement_id: str          # e.g., "REQ-1", "REQ-2"
+    requirement_text: str        # The requirement being evaluated
+    summary: str                 # Human-readable summary of the finding
+    offending_code: str          # Exact condition or snippet that failed (e.g. "searchData.length === 1")
+    affected_file: str           # Target file path (e.g. "add-members.component.ts")
+    affected_line: Optional[int] = None  # Line number if identifiable
+    missing_behavior: str = ""   # What must be added to satisfy the ticket
+    next_action: str = ""        # Recommended next step (e.g. "Re-evaluating existing evidence and re-planning")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+

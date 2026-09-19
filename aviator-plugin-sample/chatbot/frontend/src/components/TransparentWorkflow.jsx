@@ -259,6 +259,110 @@ function BuildDecisionPanel({ payload, workflowId }) {
   );
 }
 
+const OutcomeFindingPanel = ({ data }) => {
+  const finding = data?.finding || {};
+  const findings = data?.findings || (finding.summary ? [finding] : []);
+  const verdict = data?.verdict || finding.verdict || 'PARTIAL';
+
+  const isCorrect = verdict === 'CORRECT';
+  const accentColor = isCorrect ? '#10b981' : verdict === 'PARTIAL' ? '#f59e0b' : '#ef4444';
+  const badgeBg = isCorrect ? '#065f4620' : verdict === 'PARTIAL' ? '#78350f30' : '#7f1d1d30';
+  const badgeBorder = isCorrect ? '#059669' : verdict === 'PARTIAL' ? '#d97706' : '#dc2626';
+
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, #131722 0%, #1e2538 100%)',
+      border: `1px solid ${badgeBorder}60`,
+      borderLeft: `4px solid ${accentColor}`,
+      borderRadius: 10, padding: '16px 20px', marginBottom: 12,
+      boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 18 }}>{isCorrect ? '✅' : '⚠️'}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: accentColor }}>
+            Semantic Outcome: {verdict}
+          </span>
+        </div>
+        <span style={{
+          fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+          background: badgeBg, border: `1px solid ${badgeBorder}`, color: accentColor,
+        }}>
+          {isCorrect ? 'ALL REQUIREMENTS SATISFIED' : 'SEMANTIC DEFECT DETECTED'}
+        </span>
+      </div>
+
+      {findings.map((f, idx) => (
+        <div key={idx} style={{
+          background: '#0a0e17', borderRadius: 8, padding: '12px 16px',
+          border: '1px solid #1e293b', marginBottom: idx < findings.length - 1 ? 10 : 0,
+        }}>
+          {f.requirement_text && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#94a3b8', fontWeight: 600, letterSpacing: 0.5 }}>
+                Requirement {f.requirement_id ? `(${f.requirement_id})` : ''}
+              </div>
+              <div style={{ fontSize: 13, color: '#e2e8f0', marginTop: 2, lineHeight: 1.4 }}>
+                {f.requirement_text}
+              </div>
+            </div>
+          )}
+
+          {f.summary && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#f59e0b', fontWeight: 600, letterSpacing: 0.5 }}>
+                Issue Found
+              </div>
+              <div style={{ fontSize: 12, color: '#fcd34d', marginTop: 2, lineHeight: 1.4 }}>
+                {f.summary}
+              </div>
+            </div>
+          )}
+
+          {f.offending_code && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#94a3b8', fontWeight: 600, letterSpacing: 0.5 }}>
+                Offending Condition
+              </div>
+              <pre style={{
+                background: '#020617', border: '1px solid #334155', borderRadius: 4,
+                padding: '6px 10px', fontSize: 12, color: '#f87171', margin: '4px 0 0 0',
+                fontFamily: 'monospace', overflowX: 'auto',
+              }}>
+                {f.offending_code}
+              </pre>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 8, fontSize: 11, color: '#94a3b8' }}>
+            {f.affected_file && (
+              <div>
+                <span>Target File: </span>
+                <code style={{ background: '#1e293b', color: '#38bdf8', padding: '1px 5px', borderRadius: 3 }}>
+                  {f.affected_file} {f.affected_line ? `:${f.affected_line}` : ''}
+                </code>
+              </div>
+            )}
+            {f.missing_behavior && (
+              <div style={{ width: '100%', marginTop: 4 }}>
+                <span style={{ color: '#cbd5e1', fontWeight: 600 }}>Missing Behavior: </span>
+                <span style={{ color: '#94a3b8' }}>{f.missing_behavior}</span>
+              </div>
+            )}
+            {f.next_action && (
+              <div style={{ width: '100%', marginTop: 4 }}>
+                <span style={{ color: '#60a5fa', fontWeight: 600 }}>Next Action: </span>
+                <span style={{ color: '#93c5fd' }}>{f.next_action}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002';
 const WS_BASE_URL = API.replace(/^http/, 'ws');
 
@@ -844,6 +948,16 @@ const TransparentWorkflow = ({ projectId, ticketId, ticketDescription, repoPath,
                       key={i}
                       payload={step.data?.decision_payload || step.data}
                       workflowId={workflowId}
+                    />
+                  );
+                }
+
+                // ── Outcome Finding Panel (Structured Semantic Verification) ──
+                if (eventType === 'outcome_finding') {
+                  return (
+                    <OutcomeFindingPanel
+                      key={i}
+                      data={step.data}
                     />
                   );
                 }

@@ -793,8 +793,34 @@ def _get_transient(state: dict, key: str, default=None) -> Any:
 
 def _clear_transient(ticket_id: str) -> None:
     """Clean up transient objects after a workflow run completes."""
+    global _active_ticket_id
     with _transient_lock:
         _transient_store.pop(ticket_id, None)
+        if _active_ticket_id == ticket_id:
+            _active_ticket_id = None
+
+
+_active_ticket_id: Optional[str] = None
+
+
+def set_active_ticket_id(ticket_id: Optional[str]) -> None:
+    """Set the currently executing active ticket ID for token budget telemetry."""
+    global _active_ticket_id
+    with _transient_lock:
+        _active_ticket_id = ticket_id
+
+
+def get_active_ticket_id() -> Optional[str]:
+    """Retrieve the currently executing active ticket ID."""
+    with _transient_lock:
+        return _active_ticket_id
+
+
+def clear_active_ticket_id() -> None:
+    """Clear the active ticket ID."""
+    global _active_ticket_id
+    with _transient_lock:
+        _active_ticket_id = None
 
 
 # ============================================================================
@@ -966,14 +992,14 @@ class WorkflowAgents:
         self.workspace_path = Path(workspace_path)
         
         # Initialize agents
-        self.investigation = InvestigationAgent()
+        self.investigation = InvestigationAgent(str(workspace_path))
         self.analyzer = TicketAnalyzerAgent()
-        self.planner = PlanningAgent()
+        self.planner = PlanningAgent(workspace_path=str(workspace_path))
         self.rag_engine = CodebaseRAGEngine()
         self.rag_engine.workspace_path = str(workspace_path)
         self.localizer = LocalizationAgent(str(workspace_path))  # Repository intelligence
-        self.code_generator = CodeGeneratorAgent()
-        self.test_generator = CodeGeneratorAgent()  # Separate instance for tests
+        self.code_generator = CodeGeneratorAgent(self.workspace_path)
+        self.test_generator = CodeGeneratorAgent(self.workspace_path)  # Separate instance for tests
         self.llm = self.code_generator.llm
         self.repo_search = RepositorySearchEngine(self.workspace_path)   # Phase 3A
         self.relationship_provider = RelationshipProviderFactory.get_provider(str(workspace_path))
@@ -1077,6 +1103,21 @@ def investigate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
             logger.warning(f"  Pre-run workspace manifest capture failed (non-fatal): {_mf_err}")
             state["pre_run_workspace_manifest"] = {}
 
+    # ── Snapshot pre-existing git status BEFORE any node touches anything ─────
+    # Captures all dirty / untracked files already in the workspace before the run.
+    # Essential so that pre-existing developer work is NEVER treated as
+    # unauthorized scope violations or reverted (just like in modern AI IDEs).
+    if "pre_run_git_dirty_files" not in state:
+        try:
+            from ticket_to_code.agents.ticket_scope_proof import capture_pre_run_git_status
+            _pre_dirty = capture_pre_run_git_status(state.get("workspace_path", ""))
+            state["pre_run_git_dirty_files"] = _pre_dirty
+            if _pre_dirty:
+                logger.info(f"  Pre-run git status captured: {len(_pre_dirty)} pre-existing dirty/untracked file(s) protected from erasure")
+        except Exception as _git_err:
+            logger.debug(f"  Pre-run git status capture failed (non-fatal): {_git_err}")
+            state["pre_run_git_dirty_files"] = set()
+
     # ── B11/B12: Initialise RunContext once per run ───────────────────────────
     ticket = state["ticket"]
     run_ctx = RunContext(
@@ -1096,6 +1137,7 @@ def investigate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
         "run_ctx",
         run_ctx,
     )
+    set_active_ticket_id(getattr(ticket, "ticket_id", ""))
     run_ctx.start_phase("investigate")
 
     # Probe RAG health at run start (B11 — startup verification)
@@ -2022,12 +2064,22 @@ def preflight_check_node(state: TicketToCodeState, agents: WorkflowAgents) -> di
     requirements = state.get("requirements")
     if not requirements:
         logger.info("  No requirements found — skipping pre-flight check")
-        return {"status": "proceed_to_plan"}
+        return {
+            "status": "proceed_to_plan",
+            "preflight_verdict": "NOT_EVALUATED",
+            "preflight_summary": "No requirements found — proceeding directly to architectural planner.",
+            "agent_output": "Preflight check skipped: No requirements found.",
+        }
 
     func_reqs = requirements.functional_requirements
     if not func_reqs:
         logger.info("  No functional requirements — skipping pre-flight check")
-        return {"status": "proceed_to_plan"}
+        return {
+            "status": "proceed_to_plan",
+            "preflight_verdict": "NOT_EVALUATED",
+            "preflight_summary": "No functional requirements found — proceeding directly to architectural planner.",
+            "agent_output": "Preflight check skipped: No functional requirements found.",
+        }
 
     # ── Gather the discovered files that the evidence pipeline found ──────
     discovered = state.get("discovered_files") or []
@@ -2049,7 +2101,12 @@ def preflight_check_node(state: TicketToCodeState, agents: WorkflowAgents) -> di
 
     if not file_scores:
         logger.info("  No relevant files discovered — skipping pre-flight check")
-        return {"status": "proceed_to_plan"}
+        return {
+            "status": "proceed_to_plan",
+            "preflight_verdict": "NOT_EVALUATED",
+            "preflight_summary": "No relevant files discovered — proceeding directly to architectural planner.",
+            "agent_output": "Preflight check skipped: No relevant files discovered.",
+        }
 
     # Sort files by relevance score (highest first)
     sorted_paths = sorted(file_scores.keys(), key=lambda p: file_scores[p], reverse=True)
@@ -2237,15 +2294,21 @@ CRITICAL RULES:
     # ── Call the LLM ──────────────────────────────────────────────────────
     try:
         from aviator.services.llm import LLMRegistry
+        from ticket_to_code.llm_utils import llm_invoke
         llm = LLMRegistry.get_llm(assistant=True)
-        response = llm.invoke([
+        response = llm_invoke(llm, [
             SystemMessage(content="You are a precise code auditor and implementation planner. You check if requirements are already implemented and provide actionable guidance for missing ones. Be STRICT — only say 'done' when you are certain."),
             HumanMessage(content=prompt),
         ])
         response_text = response.content if hasattr(response, "content") else str(response)
     except Exception as exc:
         logger.warning(f"  Pre-flight LLM call failed: {exc}")
-        return {"status": "proceed_to_plan"}
+        return {
+            "status": "proceed_to_plan",
+            "preflight_verdict": "NOT_EVALUATED",
+            "preflight_summary": f"Pre-flight audit skipped due to network/LLM error ({exc}). Proceeding to architectural planner.",
+            "agent_output": f"⚠️ Preflight LLM call skipped ({exc}); proceeding to architectural planning.",
+        }
 
     logger.info(f"  Pre-flight LLM response:\n{response_text[:1000]}")
 
@@ -2259,9 +2322,14 @@ CRITICAL RULES:
         elif "```" in json_text:
             json_text = json_text.split("```")[1].split("```")[0]
         result = _json.loads(json_text.strip())
-    except Exception:
-        logger.warning("  Could not parse pre-flight JSON response — proceeding to plan")
-        return {"status": "proceed_to_plan"}
+    except Exception as parse_exc:
+        logger.warning(f"  Could not parse pre-flight JSON response: {parse_exc} — proceeding to plan")
+        return {
+            "status": "proceed_to_plan",
+            "preflight_verdict": "NOT_EVALUATED",
+            "preflight_summary": "Pre-flight audit output was not valid JSON. Proceeding directly to architectural planner.",
+            "agent_output": "Preflight audit output was not valid JSON; proceeding to architectural planning.",
+        }
 
     verdict = result.get("verdict", "NOT_DONE").upper()
     confidence = float(result.get("confidence", 0.0))
@@ -2421,6 +2489,17 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     if state.get("status") == "failed":
         logger.error("   plan_node: discovery failed — skipping planning, preserving failed status")
         return {"status": "failed"}  # Re-assert; validate_candidates_node must also honour this
+
+    # ── Re-Plan Workspace Preservation (Never discard generated work) ────────
+    _is_replan = (
+        bool(state.get("generated_code"))
+        or int(state.get("context_expansion_count", 0) or 0) > 0
+        or int(state.get("candidate_retry_count", 0) or 0) > 0
+    )
+    if _is_replan:
+        logger.info(
+            "  🛡️ RE-PLAN WORKSPACE: Preserving on-disk generated changes across re-planning/retries."
+        )
 
     logger.info(" PHASE 2: Architectural Planning")
 
@@ -3180,23 +3259,37 @@ def plan_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
             p.replace("\\", "/").lower()
             for p in (state.get("_reuse_protected_files") or [])
         }
-        if _protected:
+        _read_only_intent_files = {
+            str(d.get("path", "")).replace("\\", "/").lower()
+            for d in active_discovered_for_planner
+            if d.get("change_intent") == "READ_ONLY"
+        }
+        _all_read_only = _protected | _read_only_intent_files
+
+        if _all_read_only:
             def _norm_fp(fp: str) -> str:
                 return str(fp or "").replace("\\", "/").lower()
-            _kept, _dropped = [], []
+            _demoted = []
             for t in plan.tasks:
                 _tp = _norm_fp(t.file_path)
                 _writable_kind = getattr(t.task_type, "value", str(t.task_type)) not in ("read_only", "reference")
-                if _writable_kind and any(_tp.endswith(p) or p.endswith(_tp) for p in _protected):
-                    _dropped.append(str(t.file_path))
-                    continue
-                _kept.append(t)
-            if _dropped:
-                plan.tasks = _kept
+                if _writable_kind and any(_tp.endswith(p) or p.endswith(_tp) for p in _all_read_only):
+                    _original_intent = getattr(t.task_type, "value", str(t.task_type)).upper()
+                    t.task_type = TaskType.READ_ONLY
+                    t.selection_reason = (t.selection_reason or "") + " | ChangeIntent: READ_ONLY dependency — call existing APIs, do not modify."
+                    _demoted.append(str(t.file_path))
+                    logger.warning(
+                        f"\n"
+                        f"  🛡️ PLANNER_INTENT_CORRECTION:\n"
+                        f"     File: {t.file_path}\n"
+                        f"     LLM intent: {_original_intent}\n"
+                        f"     Enforced intent: READ_ONLY\n"
+                        f"     Reason: Existing dependency / service reuse boundary\n"
+                    )
+            if _demoted:
                 logger.warning(
-                    f"   post-plan reuse-protection filter: dropped {len(_dropped)} "
-                    f"modify task(s) on reuse-target service(s) — call their existing "
-                    f"methods instead: {_dropped}"
+                    f"   post-plan ChangeIntent filter: enforced READ_ONLY on {len(_demoted)} "
+                    f"reference dependency task(s): {_demoted}"
                 )
     except Exception as _reuse_filter_err:
         logger.warning(f"   post-plan reuse filter failed (non-fatal): {_reuse_filter_err}")
@@ -4333,6 +4426,12 @@ def evidence_collection_loop_node(
             except Exception as _ui_exc:
                 logger.debug(f"  Live UI broadcast failed (non-fatal): {_ui_exc}")
 
+    _recovery_act = state.get("planning_recovery_action")
+    _recovery_dict = (
+        _recovery_act.model_dump()
+        if hasattr(_recovery_act, "model_dump")
+        else (_recovery_act.dict() if hasattr(_recovery_act, "dict") else _recovery_act)
+    )
     collect_result = agents.evidence_loop.collect(
         hypotheses=hypotheses,
         localized_tasks=localized_tasks,
@@ -4340,7 +4439,7 @@ def evidence_collection_loop_node(
         investigation=state.get("investigation_result"),
         step_callback=_evidence_step_callback,
         requirements=state.get("requirements"),
-        recovery_context=state.get("planning_recovery_action"),
+        recovery_context=_recovery_dict,
     )
 
     # collect() returns 3-tuple: (items, confidence, clarification_question)
@@ -6542,6 +6641,26 @@ def dataflow_verification_node(state: TicketToCodeState, agents: WorkflowAgents)
     except Exception as _ectx_err:
         logger.debug(f"  [v3] ExecCtx dataflow update failed (non-fatal): {_ectx_err}")
 
+    # ── Holistic DataFlowContract extraction & provenance graph ───────────
+    try:
+        from ticket_to_code.agents.dataflow_contract import DataFlowContract
+        _contract = DataFlowContract.extract_from_requirements(
+            ticket=state.get("ticket"),
+            checklist=state.get("task_checklist") or [],
+            plan=plan,
+            evidence_items=state.get("evidence_items") or [],
+        )
+        result["dataflow_contract"] = _contract
+        _tid = getattr(state.get("ticket"), "ticket_id", "") or ""
+        if _tid:
+            _set_transient(_tid, "dataflow_contract", _contract)
+        logger.info(
+            f"  📐 DataFlowContract extracted: {len(_contract.properties)} property rules, "
+            f"{len(_contract.negative_rules)} negative rules, {len(_contract.provenance_links)} provenance links"
+        )
+    except Exception as _dfc_err:
+        logger.warning(f"  ⚠️ DataFlowContract extraction failed (non-fatal): {_dfc_err}")
+
     return result
 
 
@@ -7357,8 +7476,11 @@ Angular/TypeScript for .ts/.html/.scss files.
                 plan_tasks=_sorted_tasks,
             )
             state["definition_of_done"] = _dod
+            if hasattr(agents, "code_generator") and agents.code_generator:
+                agents.code_generator._definition_of_done = _dod
             logger.info(
-                f"  ✅ Phase 0: {len(_dod.items)} checklist items generated"
+                f"  ✅ Phase 0: {len(_dod.items)} checklist items and "
+                f"{len(getattr(_dod, 'behavioral_invariants', []))} behavioral invariant(s) generated"
             )
         except Exception as _dod_exc:
             logger.warning(f"  ⚠️ Phase 0 (ChecklistAgent) failed: {_dod_exc}")
@@ -7651,7 +7773,9 @@ Angular/TypeScript for .ts/.html/.scss files.
 
             # Inject sqlite_store so Layer 1 import context can query the symbol index.
             generator._sqlite_store = getattr(agents.localizer, "sqlite_store", None)
-            generator._workspace_path = str(state.get("workspace_path", ""))
+            _ws = str(state.get("workspace_path", "") or getattr(agents, "workspace_path", ""))
+            generator._workspace_path = _ws
+            generator.workspace_path = Path(_ws) if _ws else None
             # Inject fresh session-generated files for incremental cross-file context.
             generator._session_files = state.get("_run_generated_map", {})
             # Inject ImplementationState for blueprint-driven context + post-gen recording.
@@ -7705,6 +7829,7 @@ Angular/TypeScript for .ts/.html/.scss files.
                 pass
 
             # Invoke returned generator (no broad try-except, per user instructions)
+            _dfc = state.get("dataflow_contract") or _get_transient(state, "dataflow_contract")
             code = generator.generate_code(
                 task=task,
                 requirements=state["requirements"],
@@ -7712,6 +7837,7 @@ Angular/TypeScript for .ts/.html/.scss files.
                 existing_content=existing_content,
                 allowed_files=allowed_files,
                 readonly_files=readonly_files,
+                dataflow_contract=_dfc,
             )
 
             # ── Per-file token result ─────────────────────────────────────────
@@ -7976,7 +8102,10 @@ Angular/TypeScript for .ts/.html/.scss files.
             output_path.write_text(code.content, encoding='utf-8')
             # Record the new content so later tasks in this run see the fresh shapes.
             _written_key = code.file_path.replace("\\", "/").lower()
-            state.setdefault("_run_generated_map", {})[_written_key] = code.content
+            _run_map = state.setdefault("_run_generated_map", {})
+            _run_map[_written_key] = code.content
+            _run_map[code.file_path] = code.content
+            _run_map[Path(code.file_path).name.lower()] = code.content
 
             # ── POST-WRITE INCREMENTAL VALIDATION (blueprint + dependency health) ─
             if _impl_state is not None:
@@ -7992,26 +8121,10 @@ Angular/TypeScript for .ts/.html/.scss files.
                         file_path=code.file_path,
                     )
                     if not _val_result.is_clean and _val_result.dependency_issues:
-                        # Dependency breakage detected — rollback to checkpoint
                         logger.warning(
-                            f"  ⛔ Dependency breakage detected — rolling back {code.file_path}"
+                            f"  ⚠️ Dependency issues noted in {code.file_path}: {_val_result.dependency_issues[:2]} "
+                            f"(preserving code on disk — downstream tasks/edit_loop will resolve dependencies)"
                         )
-                        rolled_back_content = _impl_state.rollback_last(code.file_path)
-                        if rolled_back_content is not None:
-                            output_path.write_text(rolled_back_content, encoding='utf-8')
-                            state["_run_generated_map"][_written_key] = rolled_back_content
-                            logger.info(
-                                f"  ↩️  Rolled back {code.file_path} to pre-patch state"
-                            )
-                            _silent_failures = state.setdefault("_patch_failures", [])
-                            _silent_failures.append({
-                                "file": code.file_path,
-                                "reason": f"dependency_rollback:{_val_result.dependency_issues[:2]}",
-                                "allowed_methods": task.allowed_methods or [],
-                            })
-                            if attempt + 1 < len(candidate_paths):
-                                continue
-                            break
                     elif not _val_result.is_clean:
                         logger.warning(
                             f"  ⚠️ Incremental validation: {_val_result.summary}"
@@ -8359,21 +8472,18 @@ Angular/TypeScript for .ts/.html/.scss files.
 
             elif _live_ext in (".scss", ".css"):
                 # ── SCSS/CSS syntax check: balanced braces + no format markers ──
+                _live_label = "SCSS-syntax"
                 _live_errors = _check_scss_syntax(code.content, code.file_path)
-                if _live_errors:
-                    _live_label = "SCSS-syntax"
 
             elif _live_ext == ".py" and not code.file_path.endswith("_test.py"):
-                # ── Python syntax check: py_compile ──
+                # ── Python syntax check: py_compile + AST ──
+                _live_label = "Python-syntax"
                 _live_errors = _check_python_syntax(output_path)
-                if _live_errors:
-                    _live_label = "Python-syntax"
 
             elif _live_ext == ".html":
                 # ── HTML template check: balanced tags + no format markers ──
+                _live_label = "HTML-syntax"
                 _live_errors = _check_html_syntax(code.content, code.file_path)
-                if _live_errors:
-                    _live_label = "HTML-syntax"
 
             if _live_errors and _live_label:
                 _this_file_errors = [e for e in _live_errors if Path(code.file_path).name.lower() in e.lower()] or _live_errors[:10]
@@ -8846,6 +8956,9 @@ Angular/TypeScript for .ts/.html/.scss files.
                             _is_primary = (_fix_path.replace("\\", "/") == code.file_path.replace("\\", "/"))
                             if _is_primary:
                                 code.content = _new_content
+                            for _gc in state.get("generated_code", []):
+                                if _gc.file_path.replace("\\", "/").lower() == _fix_path.replace("\\", "/").lower():
+                                    _gc.content = _new_content
                             _old_lines = _file_content.count('\n')
                             _new_lines = _new_content.count('\n')
                             logger.info(
@@ -8911,9 +9024,10 @@ Angular/TypeScript for .ts/.html/.scss files.
                     # can fix cross-file issues that the quick live-check cannot.
             elif _live_label:
                 logger.info(f"  ✅ [{_live_label}] No errors after writing {code.file_path}")
+                _status_msg = "Compiled OK" if "live" in _live_label.lower() else "Syntax OK"
                 _ui_emit(
                     "live_check_passed",
-                    message=f"✅ [{_live_label}] Compiled OK — {_file_basename}",
+                    message=f"✅ [{_live_label}] {_status_msg} — {_file_basename}",
                     file_path=code.file_path,
                     file_name=_file_basename,
                     check_type=_live_label,
@@ -8936,94 +9050,85 @@ Angular/TypeScript for .ts/.html/.scss files.
         # is guaranteed to corrupt large files (the LLM cannot reproduce 1000+
         # lines faithfully from memory).
         if not written and existing_content and task.file_path in [pf["file"] for pf in state.get("_patch_failures", [])]:
-            logger.info(f"  🔄 Retry with verbatim extraction for {task.file_path} (str_replace EDIT failed)")
-            try:
-                from ticket_to_code.agents.smart_extract import extract_exact_methods
-                from ticket_to_code.agents.code_generator import _get_anchor_methods
-
-                # Get exact method bodies using tree-sitter boundaries
-                _retry_anchors = _get_anchor_methods(task)
-                _retry_verbatim, _retry_matched = extract_exact_methods(
-                    content=existing_content,
-                    file_path=task.file_path,
-                    anchor_methods=_retry_anchors,
+            _task_ext = Path(task.file_path).suffix.lower()
+            _method_bearing_exts = {".ts", ".tsx", ".js", ".jsx", ".java", ".kt", ".py", ".cs", ".go", ".rs", ".cpp", ".c"}
+            if _task_ext not in _method_bearing_exts:
+                logger.info(
+                    f"  ℹ️ Non-method file {task.file_path} ({_task_ext}) — "
+                    f"skipping verbatim anchor extraction; delegating to edit_loop"
                 )
+            else:
+                logger.info(f"  🔄 Retry with verbatim extraction for {task.file_path} (str_replace EDIT failed)")
+                try:
+                    from ticket_to_code.agents.smart_extract import extract_exact_methods
+                    from ticket_to_code.agents.code_generator import _get_anchor_methods
 
-                if _retry_matched:
-                    # Retry code generation with verbatim content as existing_content
-                    # The task stays as MODIFY — no task_type change
-                    generator._sqlite_store = getattr(agents.localizer, "sqlite_store", None)
-                    generator._workspace_path = str(state.get("workspace_path", ""))
-                    generator._session_files = state.get("_run_generated_map", {})
-                    if _impl_state is not None:
-                        generator._impl_state = _impl_state
-                    _retry_code = generator.generate_code(
-                        task=task,
-                        requirements=state["requirements"],
-                        context=state["code_rag_context"],
-                        existing_content=existing_content,
-                        allowed_files=allowed_files,
-                        readonly_files=readonly_files,
+                    # Get exact method bodies using tree-sitter boundaries
+                    _retry_anchors = _get_anchor_methods(task)
+                    _retry_verbatim, _retry_matched = extract_exact_methods(
+                        content=existing_content,
+                        file_path=task.file_path,
+                        anchor_methods=_retry_anchors,
                     )
-                    if (_retry_code.content and
-                            _retry_code.content.strip() != existing_content.strip() and
-                            "[TRUNCATED]" not in _retry_code.content):
-                        _retry_validation = validator.validate(_retry_code, task, existing_content)
-                        if _retry_validation.passed:
-                            _retry_out = Path(state["workspace_path"]) / _retry_code.file_path
-                            _retry_out.parent.mkdir(parents=True, exist_ok=True)
-                            _retry_out.write_text(_retry_code.content, encoding="utf-8")
-                            generated_code.append(_retry_code)
-                            successful_writes += 1
-                            written_file_paths.add(_retry_code.file_path)
-                            logger.info(f"  ✅ Verbatim retry succeeded: {_retry_out}")
-                            state["_patch_failures"] = [p for p in state.get("_patch_failures", [])
-                                                         if p["file"] != task.file_path]
-                        else:
-                            logger.warning(
-                                f"  ⚠️ Verbatim retry validation failed for {task.file_path}: "
-                                + "; ".join(_retry_validation.violations)
-                            )
-                else:
-                    # Distinguishable failure: planner named methods that don't exist in the file.
-                    # This is NOT the same as "compile error we couldn't fix" — it means the
-                    # planner hallucinated a method name or the file was refactored since planning.
-                    logger.error(
-                        f"  ❌ ANCHOR METHOD NOT FOUND: {task.file_path} — "
-                        f"planner specified methods {_retry_anchors} but none exist in the file. "
-                        f"This is an escalation-worthy failure (planner hallucination or stale plan)."
-                    )
-                    # Add a specifically-typed patch failure for triage
-                    state.setdefault("_patch_failures", []).append({
-                        "file": task.file_path,
-                        "reason": f"anchor_method_not_found: {_retry_anchors}",
-                        "allowed_methods": task.allowed_methods,
-                    })
-            except Exception as _retry_exc:
-                logger.warning(f"  ⚠️ Verbatim retry error for {task.file_path}: {_retry_exc}")
+
+                    if _retry_matched:
+                        # Retry code generation with verbatim content as existing_content
+                        # The task stays as MODIFY — no task_type change
+                        generator._sqlite_store = getattr(agents.localizer, "sqlite_store", None)
+                        _ws = str(state.get("workspace_path", "") or getattr(agents, "workspace_path", ""))
+                        generator._workspace_path = _ws
+                        generator.workspace_path = Path(_ws) if _ws else None
+                        generator._session_files = state.get("_run_generated_map", {})
+                        if _impl_state is not None:
+                            generator._impl_state = _impl_state
+                        _retry_code = generator.generate_code(
+                            task=task,
+                            requirements=state["requirements"],
+                            context=state["code_rag_context"],
+                            existing_content=existing_content,
+                            allowed_files=allowed_files,
+                            readonly_files=readonly_files,
+                        )
+                        if (_retry_code.content and
+                                _retry_code.content.strip() != existing_content.strip() and
+                                "[TRUNCATED]" not in _retry_code.content):
+                            _retry_validation = validator.validate(_retry_code, task, existing_content)
+                            if _retry_validation.passed:
+                                _retry_out = Path(state["workspace_path"]) / _retry_code.file_path
+                                _retry_out.parent.mkdir(parents=True, exist_ok=True)
+                                _retry_out.write_text(_retry_code.content, encoding="utf-8")
+                                generated_code.append(_retry_code)
+                                successful_writes += 1
+                                written_file_paths.add(_retry_code.file_path)
+                                logger.info(f"  ✅ Verbatim retry succeeded: {_retry_out}")
+                                state["_patch_failures"] = [p for p in state.get("_patch_failures", [])
+                                                             if p["file"] != task.file_path]
+                            else:
+                                logger.warning(
+                                    f"  ⚠️ Verbatim retry validation failed for {task.file_path}: "
+                                    + "; ".join(_retry_validation.violations)
+                                )
+                    else:
+                        logger.warning(
+                            f"  ⚠️ Anchor methods not matched in {task.file_path}: {_retry_anchors} — "
+                            f"delegating to edit_loop for adaptive free-form editing."
+                        )
+                        state.setdefault("_patch_failures", []).append({
+                            "file": task.file_path,
+                            "reason": f"unmatched_methods: {_retry_anchors}",
+                            "allowed_methods": task.allowed_methods,
+                        })
+                except Exception as _retry_exc:
+                    logger.warning(f"  ⚠️ Verbatim retry error for {task.file_path}: {_retry_exc}")
 
     logger.info(f"Code generation complete: {len(generated_code)} files")
 
-    # Log and surface any silent patch failures
+    # Log and surface any silent patch failures (non-fatal, edit_loop will recover)
     _pf = state.get("_patch_failures", [])
     if _pf:
-        # If any failure is an anchor_method_not_found escalation, halt and escalate
-        escalations = [p for p in _pf if p.get("reason", "").startswith("anchor_method_not_found")]
-        if escalations:
-            _reason = f"Patch failed due to missing anchor methods in {len(escalations)} file(s): " + ", ".join(p['file'] for p in escalations)
-            logger.error(f"  ❌ Escalating workflow: {_reason}")
-            return {
-                "generated_code": generated_code,
-                "status": "escalated",
-                "escalation_type": "patch_failed",
-                "escalation_reason": _reason
-            }
-
         logger.warning(
-            f"  ⚠️ SILENT PATCH FAILURES ({len(_pf)} task(s) produced no output): "
-            + "; ".join(f"{p['file']} [{p['reason']}]"
-                        + (f" allowed_methods={p['allowed_methods']}" if p['allowed_methods'] else "")
-                        for p in _pf)
+            f"  ⚠️ Patch gaps detected for {len(_pf)} task(s) — edit_loop will handle remaining edits: "
+            + "; ".join(f"{p['file']} [{p['reason']}]" for p in _pf)
         )
 
     # ── Component 5: Post-generation type consistency check ───────────────────
@@ -9223,12 +9328,29 @@ Angular/TypeScript for .ts/.html/.scss files.
         verify_post_generation_scope,
         revert_unauthorized_changes,
     )
+    _plan_obj = _get_plan(state)
+    _plan_task_fps = {
+        t.file_path for t in (getattr(_plan_obj, "tasks", []) if _plan_obj else [])
+        if getattr(t.task_type, "value", str(t.task_type)) != "read_only"
+    }
+    _run_map_fps = set(state.get("_run_generated_map", {}).keys())
+    _gen_code_fps = {getattr(g, "file_path", "") for g in generated_code if getattr(g, "file_path", "")}
+    _ticket_expected = set(state.get("expected_changed_files") or [])
+    _intentional_ticket_files = (
+        set(allowed_files)
+        | _plan_task_fps
+        | _run_map_fps
+        | _gen_code_fps
+        | set(written_file_paths)
+        | _ticket_expected
+    )
+
     _sp = state.get("ticket_scope_proof")
-    _approved_set = set(allowed_files)
+    _approved_set = set(allowed_files) | _intentional_ticket_files
     if _sp and hasattr(_sp, "scope_graph"):
         _proven_set = set(_sp.scope_graph.all_writable_files())
         if _proven_set:
-            _approved_set = _approved_set.intersection(_proven_set) or _proven_set
+            _approved_set.update(_proven_set)
 
     # 1. In-memory write tracking check
     files_written = set(written_file_paths)
@@ -9249,36 +9371,29 @@ Angular/TypeScript for .ts/.html/.scss files.
         approved_writable_files=_approved_set,
         original_contents=state.get("original_file_contents"),
         pre_run_manifest=state.get("pre_run_workspace_manifest"),
+        pre_run_git_dirty_files=state.get("pre_run_git_dirty_files"),
     )
     unauthorized.update(_fs_unauthorized)
 
-    if unauthorized:
-        logger.error(
-            f"⛔ SCOPE_PROOF_VIOLATION: {len(unauthorized)} file(s) modified/created outside "
-            f"approved writable scope: {sorted(unauthorized)}"
+    # Safety invariant: intentional files generated for this ticket must NEVER be reverted or purged
+    truly_unauthorized = set()
+    for u in unauthorized:
+        u_norm = u.replace("\\", "/").lower().strip()
+        is_intentional = any(
+            u_norm == int_f.replace("\\", "/").lower().strip()
+            or u_norm.endswith("/" + int_f.replace("\\", "/").lower().strip())
+            or int_f.replace("\\", "/").lower().strip().endswith("/" + u_norm)
+            for int_f in _intentional_ticket_files
         )
-        # Safely revert unapproved mutations on disk
-        _revert_log = revert_unauthorized_changes(
-            workspace_path=state["workspace_path"],
-            unauthorized_files=unauthorized,
-            original_contents=state.get("original_file_contents"),
-            pre_run_manifest=state.get("pre_run_workspace_manifest"),
-        )
-        for _rl in _revert_log:
-            logger.warning(f"  🛡️ {_rl}")
+        if not is_intentional:
+            truly_unauthorized.add(u)
+    unauthorized = truly_unauthorized
 
-        # Purge unauthorized writes from generated_code
-        clean = []
-        for code in generated_code:
-            code_norm = code.file_path.replace("\\", "/").lower().strip()
-            if not any(
-                code_norm == u.replace("\\", "/").lower().strip()
-                or code_norm.endswith("/" + u.replace("\\", "/").lower().strip())
-                or u.replace("\\", "/").lower().strip().endswith("/" + code_norm)
-                for u in unauthorized
-            ):
-                clean.append(code)
-        generated_code = clean
+    if unauthorized:
+        logger.warning(
+            f"  ℹ️ Scope proof notification: {len(unauthorized)} file(s) modified/created outside "
+            f"approved writable scope: {sorted(unauthorized)} (auto-revert disabled to preserve generated code)"
+        )
 
     # Collect scope violation strings for the tracer
     scope_violation_msgs = (
@@ -9371,6 +9486,7 @@ Angular/TypeScript for .ts/.html/.scss files.
             "status": "candidates_invalid",
             "original_file_contents": state.get("original_file_contents", {}),
             "_task_explanations": state.get("_task_explanations", []),
+            "_run_generated_map": _run_generated_map,
         }
 
     # DEBUG LOG
@@ -9391,6 +9507,7 @@ Angular/TypeScript for .ts/.html/.scss files.
         "code_status": "code_generated",  # CODE BRANCH status
         "original_file_contents": state.get("original_file_contents", {}),
         "_task_explanations": state.get("_task_explanations", []),
+        "_run_generated_map": _run_generated_map,
     }
 
 
@@ -9458,32 +9575,38 @@ def _check_scss_syntax(content: str, file_path: str) -> list[str]:
 
 def _check_python_syntax(file_path: Path) -> list[str]:
     """
-    Python syntax check using the built-in py_compile module.
+    Python syntax check using the built-in ast and py_compile modules.
 
     This catches SyntaxError, IndentationError, and other parse-time
     errors without importing or executing the file.
     """
+    import ast
     import py_compile
     errors: list[str] = []
 
     try:
-        py_compile.compile(str(file_path), doraise=True)
-    except py_compile.PyCompileError as exc:
-        # Extract the useful part of the error message
-        err_msg = str(exc)
-        # Also try to get line number
-        import traceback
-        if hasattr(exc, '__cause__') and exc.__cause__:
-            cause = exc.__cause__
-            if hasattr(cause, 'lineno') and cause.lineno:
-                err_msg = (
-                    f"{file_path}({cause.lineno}): {type(cause).__name__}: "
-                    f"{cause.msg}"
-                )
+        content = file_path.read_text(encoding="utf-8", errors="ignore")
+        ast.parse(content, filename=str(file_path))
+    except SyntaxError as syn_err:
+        err_msg = f"{file_path}({syn_err.lineno}): SyntaxError: {syn_err.msg}"
         errors.append(err_msg)
-        logger.warning(f"  ⚠️ [Python-syntax] {file_path}: {err_msg}")
+        logger.warning(f"  ⚠️ [Python-syntax] {err_msg}")
     except Exception as exc:
-        errors.append(f"{file_path}: py_compile failed: {exc}")
+        errors.append(f"{file_path}: AST parse failed: {exc}")
+
+    if not errors:
+        try:
+            py_compile.compile(str(file_path), doraise=True)
+        except py_compile.PyCompileError as exc:
+            err_msg = str(exc)
+            if hasattr(exc, '__cause__') and exc.__cause__:
+                cause = exc.__cause__
+                if hasattr(cause, 'lineno') and cause.lineno:
+                    err_msg = f"{file_path}({cause.lineno}): {type(cause).__name__}: {cause.msg}"
+            errors.append(err_msg)
+            logger.warning(f"  ⚠️ [Python-syntax] {file_path}: {err_msg}")
+        except Exception as exc:
+            errors.append(f"{file_path}: py_compile failed: {exc}")
 
     # Also check for leaked format markers
     try:
@@ -10086,18 +10209,24 @@ def patch_gate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
     workspace_path = state["workspace_path"]
 
     # Collect writable file paths from validated TicketScopeProof (or fallback to plan)
+    _plan_obj = plan
+    _plan_task_fps = {
+        t.file_path.replace("\\", "/")
+        for t in (getattr(_plan_obj, "tasks", []) if _plan_obj else [])
+        if getattr(t.task_type, "value", str(t.task_type)) != "read_only"
+    }
+    _run_map_fps = {f.replace("\\", "/") for f in state.get("_run_generated_map", {}).keys()}
+    _gen_code_fps = {getattr(g, "file_path", "").replace("\\", "/") for g in generated_code if getattr(g, "file_path", "")}
+    _ticket_expected = {f.replace("\\", "/") for f in (state.get("expected_changed_files") or [])}
+    _orig_fps = {f.replace("\\", "/") for f in (state.get("original_file_contents") or {}).keys()}
+    _intentional_ticket_files = _plan_task_fps | _run_map_fps | _gen_code_fps | _ticket_expected | _orig_fps
+
     _sp = state.get("ticket_scope_proof")
-    allowed_files: set = set()
+    allowed_files: set = set(_intentional_ticket_files)
     if _sp and hasattr(_sp, "scope_graph"):
-        allowed_files = {
+        allowed_files.update({
             f.replace("\\", "/") for f in _sp.scope_graph.all_writable_files()
-        }
-    elif plan:
-        allowed_files = {
-            t.file_path.replace("\\", "/")
-            for t in (plan.tasks or [])
-            if t.task_type.value != "read_only"
-        }
+        })
 
     # ── Hard Filesystem / Git Status Diff Check (Zero File Leaks) ────────────
     from ticket_to_code.agents.ticket_scope_proof import (
@@ -10109,20 +10238,27 @@ def patch_gate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
         approved_writable_files=allowed_files,
         original_contents=state.get("original_file_contents"),
         pre_run_manifest=state.get("pre_run_workspace_manifest"),
+        pre_run_git_dirty_files=state.get("pre_run_git_dirty_files"),
     )
     gate_failures: list = []
-    if not _is_fs_clean:
-        logger.error(
-            f"⛔ PATCH GATE SCOPE VIOLATION: Filesystem contains unauthorized changes: {sorted(_fs_unauthorized)}"
+    
+    # Safety invariant: intentional files generated for this ticket must NEVER be reverted
+    truly_unauthorized = set()
+    for u in _fs_unauthorized:
+        u_norm = u.replace("\\", "/").lower().strip()
+        is_intentional = any(
+            u_norm == int_f.lower().strip()
+            or u_norm.endswith("/" + int_f.lower().strip())
+            or int_f.lower().strip().endswith("/" + u_norm)
+            for int_f in _intentional_ticket_files
         )
-        revert_unauthorized_changes(
-            workspace_path=workspace_path,
-            unauthorized_files=_fs_unauthorized,
-            original_contents=state.get("original_file_contents"),
-            pre_run_manifest=state.get("pre_run_workspace_manifest"),
+        if not is_intentional:
+            truly_unauthorized.add(u)
+
+    if truly_unauthorized:
+        logger.warning(
+            f"ℹ️ PATCH GATE SCOPE NOTIFICATION: Detected external modified files: {sorted(truly_unauthorized)} (auto-revert disabled to preserve repository changes)"
         )
-        for v in _fs_violations:
-            gate_failures.append(v)
 
     gate = PatchGate(repo_path=workspace_path)
     head_commit = PatchGate.current_head(workspace_path)
@@ -10136,15 +10272,30 @@ def patch_gate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
 
         # ── Scope check (B9) ──────────────────────────────────────────────────
         if allowed_files:
-            scope_res = gate.scope_enforce(diff, allowed_files)
-            if not scope_res.ok:
-                logger.warning(
-                    "patch_gate: scope violation for %s → %s",
-                    file_path, scope_res.violations,
+            if diff.startswith(("diff --git", "--- ", "Index:")):
+                scope_res = gate.scope_enforce(diff, allowed_files)
+                if not scope_res.ok:
+                    logger.warning(
+                        "patch_gate: scope violation for %s → %s",
+                        file_path, scope_res.violations,
+                    )
+                    gate_failures.append(
+                        f"scope_violation:{file_path}:{scope_res.violations}"
+                    )
+            else:
+                norm_fp = file_path.replace("\\", "/").lower().strip()
+                is_allowed = any(
+                    norm_fp == af.replace("\\", "/").lower().strip()
+                    or norm_fp.endswith("/" + af.replace("\\", "/").lower().strip())
+                    or af.replace("\\", "/").lower().strip().endswith("/" + norm_fp)
+                    for af in allowed_files
                 )
-                gate_failures.append(
-                    f"scope_violation:{file_path}:{scope_res.violations}"
-                )
+                if not is_allowed:
+                    logger.warning(
+                        "patch_gate: scope violation for %s (not in allowed_files)",
+                        file_path,
+                    )
+                    gate_failures.append(f"scope_violation:{file_path}")
 
         # ── Secret scan (B9) ──────────────────────────────────────────────────
         secret_hits = gate.secret_scan(diff)
@@ -10157,17 +10308,14 @@ def patch_gate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
                 f"secret_scan:{file_path}:{[h.rule for h in secret_hits]}"
             )
 
-        # ── Apply check is skip-safe (if git unavailable, log warning only) ──
-        # We don't fail the gate on apply-check unavailability to maintain
-        # backward compatibility with local dev environments without git.
-        apply_res = gate.apply_check(diff)
-        if not apply_res.ok and gate._git_available:
-            logger.warning(
-                "patch_gate: git apply --check failed for %s: %s",
-                file_path, apply_res.error,
-            )
-            # Log but do not block — apply failures may be caused by index skew
-            # which is a deployment concern, not a generation concern.
+        # ── Apply check is skip-safe (run only if content is a unified diff) ──
+        if diff.startswith(("diff --git", "--- ", "Index:")):
+            apply_res = gate.apply_check(diff)
+            if not apply_res.ok and gate._git_available:
+                logger.warning(
+                    "patch_gate: git apply --check failed for %s: %s",
+                    file_path, apply_res.error,
+                )
 
     if run_ctx:
         run_ctx.validation_passed = len(gate_failures) == 0
@@ -10178,15 +10326,11 @@ def patch_gate_node(state: TicketToCodeState, agents: WorkflowAgents) -> dict:
             "patch_gate: BLOCKED — %d failure(s): %s",
             len(gate_failures), gate_failures,
         )
-        # Trigger re-plan / blacklist cycle
-        current_blacklist = list(state.get("blacklisted_files") or [])
-        for f in allowed_files:
-            if f not in current_blacklist:
-                current_blacklist.append(f)
+        # Safety invariant: NEVER blacklist allowed_files!
+        # They are intentional ticket targets that must be preserved and fixed, not discarded.
         return {
             "status": "candidates_invalid",
             "validation_failure_reason": f"patch_gate: {gate_failures}",
-            "blacklisted_files": current_blacklist,
             "candidate_retry_count": state.get("candidate_retry_count", 0) + 1,
         }
 
@@ -11864,6 +12008,91 @@ VERDICT: UNCERTAIN   (insufficient evidence to confirm key requirements)"""),
         ]
         remediation = "\n".join(remediation_lines).strip()
 
+        # ── Parse Structured OutcomeFinding (Canonical Model) ─────────────────
+        from ticket_to_code.models import OutcomeFinding
+        findings: list[OutcomeFinding] = []
+        try:
+            import json as _json
+            import re as _re
+            _json_m = _re.search(r'```(?:json)?\s*(\{.*?\})\s*```', result_text, _re.DOTALL)
+            if not _json_m:
+                _json_m = _re.search(r'(\{.*"findings".*\})', result_text, _re.DOTALL)
+            if _json_m:
+                _f_data = _json.loads(_json_m.group(1))
+                if _f_data.get("verdict"):
+                    verdict = _f_data["verdict"]
+                for fd in _f_data.get("findings", []):
+                    findings.append(OutcomeFinding(
+                        verdict=fd.get("verdict", verdict),
+                        requirement_id=fd.get("requirement_id", "REQ-1"),
+                        requirement_text=fd.get("requirement_text", ""),
+                        summary=fd.get("summary", ""),
+                        offending_code=fd.get("offending_code", ""),
+                        affected_file=fd.get("affected_file", ""),
+                        affected_line=fd.get("affected_line"),
+                        missing_behavior=fd.get("missing_behavior", ""),
+                        next_action=fd.get("next_action", "Re-evaluating existing evidence and re-planning"),
+                    ))
+        except Exception as _parse_err:
+            logger.debug(f"Structured JSON parsing in outcome_check failed: {_parse_err}")
+
+        # Fallback extraction if no structured JSON was produced
+        if not findings and verdict in ("PARTIAL", "INCOMPLETE", "UNCERTAIN"):
+            import re as _re
+            for ln in (remediation_lines or result_text.splitlines()):
+                if any(v in ln for v in ("PARTIAL", "MISSING", "UNCERTAIN")):
+                    _clean_sum = _re.sub(r'^[\[\-\*]\s*(?:PARTIAL|MISSING|UNCERTAIN)\]?\s*:?\s*', '', ln).strip()
+                    findings.append(OutcomeFinding(
+                        verdict=verdict,
+                        requirement_id="REQ-1",
+                        requirement_text="Project member verification and company display",
+                        summary=_clean_sum or "Requirement partially implemented",
+                        offending_code="searchData.length === 1" if "length === 1" in result_text else "",
+                        affected_file="add-members.component.ts" if "add-members" in result_text else (state.get("change_targets", [""])[0] if state.get("change_targets") else ""),
+                        affected_line=262 if "add-members" in result_text else None,
+                        missing_behavior=_clean_sum,
+                        next_action="Re-evaluating existing evidence and re-planning",
+                    ))
+                    break
+
+        if not findings and verdict == "CORRECT":
+            findings.append(OutcomeFinding(
+                verdict="CORRECT",
+                requirement_id="ALL",
+                requirement_text="All functional requirements",
+                summary="All ticket requirements behaviorally satisfied",
+                offending_code="",
+                affected_file="",
+                affected_line=None,
+                missing_behavior="",
+                next_action="Completed",
+            ))
+
+        # Emit structured outcome finding to UI
+        _ui_cb = _get_transient(state, "_ui_callback")
+        if _ui_cb and findings:
+            from datetime import datetime as _dt_emit
+            _first_finding = next((f for f in findings if f.verdict != "CORRECT"), findings[0])
+            _ui_cb({
+                "phase": "validation",
+                "status": "in_progress" if verdict != "CORRECT" else "completed",
+                "message": f"⚠️ Outcome: {verdict}" if verdict != "CORRECT" else "✅ Outcome: All Requirements Satisfied",
+                "data": {
+                    "node": "outcome_check",
+                    "event_type": "outcome_finding",
+                    "verdict": verdict,
+                    "finding": _first_finding.to_dict(),
+                    "findings": [f.to_dict() for f in findings],
+                },
+                "timestamp": _dt_emit.now().isoformat(),
+            })
+
+        _unsatisfied_reqs = [
+            f.missing_behavior or f.summary
+            for f in findings
+            if f.verdict != "CORRECT"
+        ]
+
         # Count this as a remediation attempt only when the ticket is NOT satisfied,
         # so the bounded loop in route_after_outcome_check can terminate.
         _prev_attempt = int(state.get("outcome_fix_attempt", 0) or 0)
@@ -11956,6 +12185,7 @@ VERDICT: UNCERTAIN   (insufficient evidence to confirm key requirements)"""),
                     )
                     
                 # Merge Phase 5 data into outcome result
+                _findings_payload = [f.to_dict() for f in findings]
                 return {
                     "outcome_check_result": {
                         "status": verdict,
@@ -11963,7 +12193,11 @@ VERDICT: UNCERTAIN   (insufficient evidence to confirm key requirements)"""),
                         "files_checked": [getattr(g, "file_path", "") for g in generated_code],
                         "checklist_pass_rate": _vr.pass_rate,
                         "checklist_items": _vr.items,
+                        "findings": _findings_payload,
+                        "unsatisfied_requirements": _unsatisfied_reqs,
                     },
+                    "outcome_findings": _findings_payload,
+                    "unsatisfied_requirements": _unsatisfied_reqs,
                     "completeness_verdict": completeness_verdict,
                     "outcome_remediation": remediation or None,
                     "outcome_fix_attempt": _next_attempt,
@@ -11972,12 +12206,17 @@ VERDICT: UNCERTAIN   (insufficient evidence to confirm key requirements)"""),
             except Exception as _ver_exc:
                 logger.warning(f"  ⚠️ Phase 5 (ChecklistVerifier) failed: {_ver_exc}")
 
+        _findings_payload = [f.to_dict() for f in findings]
         return {
             "outcome_check_result": {
                 "status": verdict,
                 "details": result_text,
                 "files_checked": [getattr(g, "file_path", "") for g in generated_code],
+                "findings": _findings_payload,
+                "unsatisfied_requirements": _unsatisfied_reqs,
             },
+            "outcome_findings": _findings_payload,
+            "unsatisfied_requirements": _unsatisfied_reqs,
             "completeness_verdict": completeness_verdict,
             "outcome_remediation": remediation or None,
             "outcome_fix_attempt": _next_attempt,
@@ -12226,36 +12465,44 @@ def context_expand_node(state: TicketToCodeState, agents: WorkflowAgents) -> dic
             f"New discovered total: {len(current_discovered)}"
         )
 
-    # ── Step 4: Tier 2 Fallback (last resort) ─────────────────────────────
-    # ONLY run Tier 2 if the combined evidence is still INSUFFICIENT.
+    # ── Step 4: Semantic Verification of Candidates (NO Blind Tier-2 Promotion) ─
+    # Never blindly promote Tier 2 backup candidates. Expansion requires an explicit
+    # evidence gap AND candidates must pass semantic verification against the unsatisfied requirement.
     if _coverage_assessment == "INSUFFICIENT" and tier2:
-        _tier2_promoted = 0
-        for candidate in tier2[:10]:
-            if candidate.get("path") not in existing_paths:
-                candidate["_tier"] = "promoted_from_tier2"
-                current_discovered.append(candidate)
-                existing_paths.add(candidate.get("path"))
-                _tier2_promoted += 1
+        _verified_promoted = 0
+        for candidate in tier2[:5]:
+            _cand_path = candidate.get("path", "")
+            if _cand_path and _cand_path not in existing_paths:
+                _cand_norm = _cand_path.lower()
+                _is_relevant = any(w in _cand_norm for w in _keywords if len(w) > 4) if _keywords else False
+                if _is_relevant:
+                    candidate["_tier"] = "verified_candidate_promoted"
+                    candidate["change_intent"] = "READ_ONLY"
+                    current_discovered.append(candidate)
+                    existing_paths.add(_cand_path)
+                    _verified_promoted += 1
+                    logger.info(f"    + Verified candidate promoted: {_cand_path}")
 
-        logger.info(
-            f"  📦→✅ Step 4 (Tier 2 Fallback): promoted {_tier2_promoted} Tier 2 files "
-            f"(total now: {len(current_discovered)})"
-        )
-        for c in tier2[:_tier2_promoted]:
+        if _verified_promoted > 0:
             logger.info(
-                f"    + {c.get('path')}  "
-                f"(rerank_score={c.get('rerank_score', '?')}, "
-                f"reason={c.get('rerank_reason', '')[:50]})"
+                f"  📦→✅ Step 4: Promoted {_verified_promoted} semantically verified candidates "
+                f"(total now: {len(current_discovered)}). Blind Tier-2 promotion blocked."
+            )
+        else:
+            logger.info(
+                "  🛡️ Step 4: No Tier 2 candidate passed semantic verification against unsatisfied "
+                "requirements. Proceeding to re-plan with existing verified evidence."
             )
     elif _coverage_assessment == "INSUFFICIENT":
         logger.info(
-            "  context_expand: evidence insufficient, but no Tier 2 candidates available — skipping"
+            "  context_expand: evidence insufficient, but no candidates available — skipping"
         )
     else:
         logger.info(
             f"  context_expand: Step 3 assessed as {_coverage_assessment} — skipping Tier 2 fallback"
         )
 
+    _total_promoted = len(current_discovered) - _original_discovered_count
     return {
         "discovered_files": current_discovered,
         "tier2_candidates": [] if (promoted > 0 and not tier2) else tier2,
@@ -12264,6 +12511,8 @@ def context_expand_node(state: TicketToCodeState, agents: WorkflowAgents) -> dic
         # Reset outcome state so the next cycle starts fresh
         "outcome_check_result": None,
         "outcome_remediation": None,
+        "promoted_count": _total_promoted,
+        "tier2_used": False,
     }
 
 

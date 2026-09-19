@@ -542,6 +542,14 @@ class EvidenceCollectionLoop:
                 except Exception as _cb_err:
                     logger.debug(f"step_callback error (non-fatal): {_cb_err}")
 
+        if recovery_context is not None and not isinstance(recovery_context, dict):
+            if hasattr(recovery_context, "model_dump"):
+                recovery_context = recovery_context.model_dump()
+            elif hasattr(recovery_context, "dict"):
+                recovery_context = recovery_context.dict()
+            elif hasattr(recovery_context, "__dict__"):
+                recovery_context = dict(recovery_context.__dict__)
+
         print("\n" + "=" * 80)
 
         print("[ENTER] EvidenceCollectionLoop.collect() [V3 Iterative Engine]")
@@ -2231,7 +2239,15 @@ class EvidenceCollectionLoop:
         # of why a previous planning attempt failed and what specific evidence
         # is needed to resolve the failure.
         recovery_text = ""
-        if recovery_context and recovery_context.get("recovery_type") in (
+        if recovery_context is not None and not isinstance(recovery_context, dict):
+            if hasattr(recovery_context, "model_dump"):
+                recovery_context = recovery_context.model_dump()
+            elif hasattr(recovery_context, "dict"):
+                recovery_context = recovery_context.dict()
+            elif hasattr(recovery_context, "__dict__"):
+                recovery_context = dict(recovery_context.__dict__)
+
+        if recovery_context and isinstance(recovery_context, dict) and recovery_context.get("recovery_type") in (
             "evidence_incomplete", "wrong_candidates"
         ):
             recovery_text = "\nRECOVERY CONTEXT (previous planning attempt failed — targeted investigation needed):\n"

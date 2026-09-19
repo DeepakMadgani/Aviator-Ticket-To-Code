@@ -14,7 +14,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 
 from ticket_to_code.llm_utils import llm_invoke
 
@@ -869,10 +869,20 @@ class CodeGeneratorAgent:
     - Idiomatic patterns
     """
     
-    def __init__(self):
+    def __init__(self, workspace_path: Optional[Union[str, Path]] = None):
         # Always use the smarter assistant model (gemini-1.5-pro / gemini-2.5-flash) for coding
         self.llm = LLMRegistry.get_llm(assistant=True)
+        self._workspace_path: Optional[str] = str(workspace_path) if workspace_path else None
         logger.info("Code Generator Agent initialized")
+
+    @property
+    def workspace_path(self) -> Optional[Path]:
+        ws = getattr(self, "_workspace_path", None)
+        return Path(ws) if ws else None
+
+    @workspace_path.setter
+    def workspace_path(self, val: Optional[Union[str, Path]]) -> None:
+        self._workspace_path = str(val) if val else None
 
     def _maybe_dump_llm_io(self, task: DevelopmentTask, messages, full_content: str, cont_attempt: int) -> None:
         """Best-effort debug dump for prompt/response text.
@@ -1024,48 +1034,43 @@ class CodeGeneratorAgent:
         # Before generating, query the TypeScript LSP for the sibling controller's
         # declared class members. This gives the HTML generator exact property names
         # instead of invented ones — the same capability that makes Cursor accurate.
+        # ── Polyglot Companion & Scope context injection ─────────────────────
+        # Before generating, query the companion provider for declared symbols.
+        # This gives the template/consumer generator exact property & method names
+        # instead of invented ones — the same capability that makes Cursor accurate.
         _lsp_context_block = ""
-        _task_ext = Path(task.file_path).suffix.lower()
-        if _task_ext in (".html", ".htm") and getattr(self, "_workspace_path", None):
-            try:
-                from ticket_to_code.agents.lsp_client import TypeScriptLSP
-                _ts_lsp = TypeScriptLSP(self._workspace_path)
-                _stem = task.file_path.rsplit(".", 1)[0]
-                for _ctrl_ext in (".ts", ".tsx"):
-                    _ctrl_path = _stem + _ctrl_ext
-                    # Check session map first (freshest content this run)
-                    _ctrl_key = _ctrl_path.replace("\\", "/").lower()
-                    _session = getattr(self, "_session_files", None) or {}
-                    if _ctrl_key in _session:
-                        # Parse the session content directly
-                        from pathlib import Path as _Path
-                        _tmp = _Path(self._workspace_path) / _ctrl_path
-                        _members = _ts_lsp._extract_via_regex(_tmp, _ctrl_path) if _tmp.exists() else None
-                        if not _members:
-                            # Parse from session map content
-                            import tempfile as _tf, os as _os
-                            _td = _tf.mkdtemp()
-                            try:
-                                _fake = _Path(_td) / _Path(_ctrl_path).name
-                                _fake.write_text(_session[_ctrl_key], encoding="utf-8")
-                                _members = _ts_lsp._extract_via_regex(_fake, _ctrl_path)
-                            finally:
-                                import shutil; shutil.rmtree(_td, ignore_errors=True)
-                    else:
-                        _members = _ts_lsp.get_class_members(_ctrl_path)
-                    if _members:
-                        _lsp_context_block = (
-                            f"\n\n=== LSP: SIBLING CONTROLLER MEMBERS (use EXACTLY these names) ===\n"
-                            f"{_members.to_prompt_block()}\n"
-                            f"=== END LSP CONTEXT ===\n"
-                        )
+        try:
+            from ticket_to_code.intelligence.contracts.companion_resolver import PolyglotCompanionResolver
+            from ticket_to_code.intelligence.contracts import ComponentContract
+            _session = getattr(self, "_session_files", None) or {}
+            _ws = getattr(self, "workspace_path", None) or getattr(self, "_workspace_path", None)
+            _companion = PolyglotCompanionResolver.resolve_companion(
+                task.file_path, session_files=_session, workspace_path=str(_ws) if _ws else None
+            )
+            if _companion:
+                _comp_path, _comp_text = _companion
+                _companion_sections = []
+                # 1. Structured AST/LSP Contract (properties, types, methods, binding invariants)
+                if _comp_path.endswith((".ts", ".js", ".tsx")):
+                    _c_contract = ComponentContract.extract_from_ts(_comp_text, file_path=_comp_path)
+                    if _c_contract and _c_contract.properties:
+                        _companion_sections.append(_c_contract.render_prompt_block())
                         logger.info(
-                            f"  [LSP] Injected {len(_members.properties)} properties + "
-                            f"{len(_members.methods)} methods from {_ctrl_path}"
+                            f"  [CrossFileCoherence] Injected AST contract ({len(_c_contract.properties)} properties + "
+                            f"{len(_c_contract.methods)} methods) from companion {_comp_path}"
                         )
-                        break
-            except Exception as _lsp_exc:
-                logger.debug(f"  [LSP] Context injection failed: {_lsp_exc}")
+                # 2. Verbatim companion source code (from active in-memory session or disk)
+                _comp_display = _comp_text if len(_comp_text) <= 30000 else _comp_text[:15000]
+                _companion_sections.append(
+                    f"════════════════════════════════════════════════════════════════\n"
+                    f"COMPANION SOURCE FILE (active session): {_comp_path}\n"
+                    f"════════════════════════════════════════════════════════════════\n"
+                    f"{_comp_display}\n"
+                    f"════════════════════════════════════════════════════════════════"
+                )
+                _lsp_context_block = "\n\n".join(_companion_sections) + "\n\n"
+        except Exception as _ctrl_exc:
+            logger.debug(f"  [CompanionContract] Context injection skipped: {_ctrl_exc}")
 
         max_retries = 2
         for attempt in range(max_retries):
@@ -1082,6 +1087,29 @@ class CodeGeneratorAgent:
                 # Append LSP context to user prompt for HTML tasks
                 if _lsp_context_block:
                     user_prompt = _lsp_context_block + user_prompt
+
+                # Append Behavioral Invariants with Provenance (P0 Pre-generation prevention)
+                _dod = getattr(self, "_definition_of_done", None)
+                if _dod and hasattr(_dod, "render_invariants_block"):
+                    _inv_block = _dod.render_invariants_block()
+                    if _inv_block:
+                        user_prompt = _inv_block + "\n" + user_prompt
+
+                # Append Pre-Generation DataFlow Contract (P0 Dataflow Mandate)
+                _df_contract = getattr(self, "_dataflow_contract", None)
+                if not _df_contract:
+                    try:
+                        from ticket_to_code.intelligence.contracts.dataflow_contract import DataFlowContract
+                        _ticket_desc = getattr(requirements, "ticket_description", "") if requirements else ""
+                        if not _ticket_desc and hasattr(task, "description"):
+                            _ticket_desc = task.description
+                        _df_contract = DataFlowContract.extract_from_requirements(requirements, _ticket_desc)
+                    except Exception:
+                        pass
+                if _df_contract:
+                    _df_block = _df_contract.render_pre_generation_prompt_block()
+                    if _df_block:
+                        user_prompt = _df_block + "\n" + user_prompt
                 
                 self.last_system_prompt = system_prompt
                 self.last_user_prompt = user_prompt
@@ -1166,22 +1194,21 @@ class CodeGeneratorAgent:
                             if _impl is not None:
                                 _tpl_contract = _impl.get_component_contract_for_template(task.file_path)
                             if _tpl_contract is None:
-                                for _ext in (".component.ts", ".ts"):
-                                    _ts_cand = task.file_path.replace(".component.html", _ext).replace(".html", _ext)
-                                    _session = getattr(self, "_session_files", {})
-                                    _ts_text = _session.get(_ts_cand)
-                                    if not _ts_text and hasattr(self, "workspace_path") and self.workspace_path:
-                                        _ts_p = Path(self.workspace_path) / _ts_cand
-                                        if _ts_p.exists():
-                                            _ts_text = _ts_p.read_text(encoding="utf-8", errors="ignore")
-                                    if _ts_text:
-                                        from ticket_to_code.intelligence.contracts import ComponentContract
-                                        _tpl_contract = ComponentContract.extract_from_ts(_ts_text, file_path=_ts_cand)
-                                        break
+                                from ticket_to_code.intelligence.contracts.companion_resolver import PolyglotCompanionResolver
+                                from ticket_to_code.intelligence.contracts import ComponentContract
+                                _session = getattr(self, "_session_files", {}) or {}
+                                _ws = getattr(self, "workspace_path", None) or getattr(self, "_workspace_path", None)
+                                _comp = PolyglotCompanionResolver.resolve_companion(
+                                    task.file_path, session_files=_session, workspace_path=str(_ws) if _ws else None
+                                )
+                                if _comp:
+                                    _comp_p, _comp_t = _comp
+                                    if _comp_p.endswith((".ts", ".js", ".tsx")):
+                                        _tpl_contract = ComponentContract.extract_from_ts(_comp_t, file_path=_comp_p)
 
                             if _tpl_contract is not None:
                                 from ticket_to_code.intelligence.contracts import TemplateContractValidator
-                                _tpl_violations = TemplateContractValidator.validate(generated.content, _tpl_contract)
+                                _tpl_violations = TemplateContractValidator.validate(generated.content, _tpl_contract, original_content=existing_content)
                                 if _tpl_violations:
                                     if cont_attempt < max_continuations - 1:
                                         logger.warning(
@@ -1239,6 +1266,14 @@ class CodeGeneratorAgent:
                                     )
 
 
+                        # ── Immediate in-memory session propagation ──
+                        if self._session_files is None:
+                            self._session_files = {}
+                        _norm_fp = task.file_path.replace("\\", "/").lower()
+                        self._session_files[_norm_fp] = generated.content
+                        self._session_files[task.file_path] = generated.content
+                        self._session_files[Path(task.file_path).name.lower()] = generated.content
+
                         # ── Post-generation: record in ImplementationState ──
                         _impl = getattr(self, "_impl_state", None)
                         if _impl is not None:
@@ -1271,7 +1306,8 @@ class CodeGeneratorAgent:
                     # If the error message contains actual file context, the LLM saw the real code.
                     # But in case other tasks modified the file, re-read it now.
                     if "SEARCH block not found" in _err_msg and task.task_type.value == "modify":
-                        _retry_path = Path(self.workspace_path or ".") / task.file_path
+                        _ws = getattr(self, "workspace_path", None) or getattr(self, "_workspace_path", None)
+                        _retry_path = (Path(_ws) if _ws else Path(".")) / task.file_path
                         if _retry_path.exists():
                             try:
                                 _fresh_content = _retry_path.read_text(encoding='utf-8')
@@ -1476,6 +1512,18 @@ import {{ NewService }} from './new.service';
   }}
 >>>>>>> REPLACE
 
+For HTML / Template / Markup files:
+<<<<<<< SEARCH
+        <div class="field-container">
+          <input type="text" [value]="item.name" />
+        </div>
+=======
+        <div class="field-container">
+          <input *ngIf="!item.isReadOnly" type="text" [value]="item.name" />
+          <span *ngIf="item.isReadOnly" class="static-label">{{ item.name }}</span>
+        </div>
+>>>>>>> REPLACE
+
 RULES FOR SEARCH/REPLACE EDITS:
 - The SEARCH block must be an EXACT substring of the EXISTING FILE shown below — copy it character-for-character including indentation
 - The SEARCH block must match EXACTLY ONCE in the file. If it could match multiple places, include more surrounding lines to make it unique
@@ -1549,6 +1597,11 @@ TYPESCRIPT GUIDELINES:
 - Use TypeScript generics where appropriate
 - Export types and interfaces
 - Use const for immutable values
+
+CROSS-FILE DATAFLOW & VIEWMODEL INTEGRITY (CRITICAL):
+- Evidence Before Fallback: Before referencing properties from an API or service response (e.g. member.company?.name), verify what fields the service method actually requests/returns. Do NOT invent or assume optional interface properties exist without proof.
+- Full ViewModel Assignment: When adding items to collections consumed by templates (e.g. displayedMembers.push(displayedMember)), you MUST explicitly assign all properties that the template binds to (e.g. displayedMember.organization = resolvedOrg).
+- Never leave a computed value stranded on a temporary variable (e.g. user.existingOrganizationName) while leaving the staged collection item's property empty or unassigned.
 """
     
     def _python_guidelines(self) -> str:
@@ -1570,7 +1623,11 @@ PYTHON GUIDELINES:
 HTML / TEMPLATE GUIDELINES:
 - This is a markup template, not a script. Preserve existing indentation and tag structure exactly.
 - Respect the framework already in use (detect from surrounding syntax): Angular ([disabled], *ngIf, {{ 'key' | translate }}), Vue (:disabled, v-if), or JSX (disabled={...}).
-- To disable/lock a control, bind the framework's disabled/readonly attribute to the component flag rather than removing the element.
+- UI COMPONENT PRESERVATION MANDATE (CRITICAL):
+  Existing UI component tags (e.g. <ot-dropdown>, <ot-item-select>, <select>) are IMMUTABLE unless the plan explicitly authorizes a component migration.
+  Never replace an existing <ot-dropdown> with <ot-item-select> or vice versa. Preserve the exact component type and its existing binding syntax ([options], [value], (change)).
+- To disable/lock a control or show static text:
+  If a ticket requires static text for existing entities, render a static text span/div conditioned with *ngIf="condition", and render the existing control with *ngIf="!condition".
 - For localized text, reference the existing i18n key via the framework's translate mechanism; do not hardcode user-facing strings.
 - Keep attribute ordering and quoting style consistent with the surrounding markup.
 - Never convert template syntax into script; do not add <script> blocks.
@@ -1800,20 +1857,43 @@ Do NOT scan the entire file for other locations to change.
             #   - edit format (SEARCH/REPLACE) = operates on verbatim file content
 
             display_content = existing_content
-            # Target-First Generation: When modifying, drive prompt content by ChangeTarget / anchor_methods
-            # rather than arbitrary file size thresholds.
+            # Target-First Generation: For large files (> 30,000 chars, e.g. 2k-20k+ lines),
+            # never send the full 500KB-1MB file into LLM prompt (which causes attention degradation
+            # or context overflow). Instead, use the 3-phase AI-IDE architecture:
+            #   1. Structural Outline (Tree-Sitter signatures + line numbers) for awareness.
+            #   2. Verbatim Target Window / Exact Methods for surgical SEARCH/REPLACE editing.
+            #   3. Apply edits in-place to the full file on disk via _apply_str_replace_edits.
             anchor_methods = _get_anchor_methods(task)
+            _task_ext = Path(task.file_path).suffix.lower()
+            _method_exts = {".ts", ".tsx", ".js", ".jsx", ".java", ".kt", ".py", ".cs", ".go", ".rs", ".cpp", ".c"}
             should_target_extract = (
                 task.task_type.value == "modify"
-                and (bool(anchor_methods) or len(existing_content) > 1000)
+                and len(existing_content) > 30000
+                and _task_ext in _method_exts
             )
             if should_target_extract:
                 try:
                     from ticket_to_code.agents.smart_extract import (
-                        smart_extract, extract_exact_methods
+                        smart_extract, extract_exact_methods, _get_reliable_boundaries
                     )
 
-                    # Section 1: SKELETON — structural outline (awareness only)
+                    # Automatic Anchor Recovery: If planner did not populate explicit anchor_methods,
+                    # recover them dynamically from task description, title, and AST method boundaries.
+                    if not anchor_methods:
+                        desc_words = set(re.findall(r'[a-zA-Z]\w{3,}', f"{task.description or ''} {task.title or ''}".lower()))
+                        desc_words -= {"this", "that", "with", "from", "have", "been", "should", "update", "modify", "implement", "check", "need", "test", "file", "method"}
+                        try:
+                            _lines_temp = existing_content.split('\n')
+                            _boundaries = _get_reliable_boundaries(existing_content, task.file_path, _lines_temp)
+                            for mb in _boundaries:
+                                if mb.kind != "class" and (mb.name.lower() in desc_words or any(w in mb.name.lower() for w in desc_words)):
+                                    anchor_methods.append(mb.name)
+                                    if len(anchor_methods) >= 4:
+                                        break
+                        except Exception as _b_err:
+                            logger.debug(f"Anchor recovery boundary scan skipped: {_b_err}")
+
+                    # Section 1: SKELETON — structural outline of entire 20k+ lines (awareness only)
                     skeleton_content = smart_extract(
                         content=existing_content,
                         file_path=task.file_path,
@@ -1823,13 +1903,15 @@ Do NOT scan the entire file for other locations to change.
                     )
 
                     # Section 2: VERBATIM — exact method bodies (edit source)
-                    verbatim_content, matched_boundaries = extract_exact_methods(
-                        content=existing_content,
-                        file_path=task.file_path,
-                        anchor_methods=anchor_methods,
-                    )
+                    verbatim_content, matched_boundaries = "", []
+                    if anchor_methods:
+                        verbatim_content, matched_boundaries = extract_exact_methods(
+                            content=existing_content,
+                            file_path=task.file_path,
+                            anchor_methods=anchor_methods,
+                        )
 
-                    if matched_boundaries:
+                    if matched_boundaries and verbatim_content:
                         # Two-section prompt: skeleton for awareness, verbatim for editing
                         display_content = (
                             f"=== FILE STRUCTURE (context only — DO NOT copy text from this section) ===\n"
@@ -1843,20 +1925,40 @@ Do NOT scan the entire file for other locations to change.
                             f"verbatim={len(verbatim_content):,} chars, "
                             f"{len(matched_boundaries)} methods matched)"
                         )
-                    elif skeleton_content and len(skeleton_content) < len(existing_content):
-                        # Anchor methods not matched directly — use structural skeleton outline
+                    else:
+                        # Fallback Locality Window: If method boundaries weren't matched directly,
+                        # find the highest-density match of keywords from the task description
+                        # and extract a 200-line verbatim window around that location.
+                        _kw = set(re.findall(r'[a-zA-Z]\w{3,}', f"{task.description or ''} {task.title or ''}".lower()))
+                        _kw -= {"this", "that", "with", "from", "have", "been", "should", "update", "modify", "file"}
+                        _lines = existing_content.split('\n')
+                        _best_line = 0
+                        _max_score = 0
+                        for _idx, _l in enumerate(_lines):
+                            _score = sum(1 for w in _kw if w in _l.lower())
+                            if _score > _max_score:
+                                _max_score = _score
+                                _best_line = _idx
+
+                        _win_start = max(0, _best_line - 50)
+                        _win_end = min(len(_lines), _best_line + 150)
+                        _window_content = '\n'.join(_lines[_win_start:_win_end])
+
                         display_content = (
                             f"=== FILE STRUCTURE (context only — DO NOT copy text from this section) ===\n"
                             f"{skeleton_content}\n\n"
-                            f"=== FILE CONTENT ===\n"
-                            f"{existing_content[:2500]}"
+                            f"=== EXACT SOURCE (lines {_win_start+1}-{_win_end} — SEARCH block must match this verbatim) ===\n"
+                            f"{_window_content}"
                         )
                         logger.info(
-                            f"Target-First Skeleton outline for {task.file_path}: "
-                            f"{len(existing_content):,} → {len(skeleton_content):,} chars"
+                            f"Target-First Sliding Window for {task.file_path}: "
+                            f"lines {_win_start+1}-{_win_end} ({len(_window_content):,} chars) around line {_best_line+1}"
                         )
                 except Exception as e:
-                    logger.warning(f"Target-First extraction failed for {task.file_path}, using full content: {e}")
+                    logger.warning(f"Target-First extraction failed for {task.file_path}, using safe budget: {e}")
+                    # Hard safety budget: never send > 30k chars blindly
+                    if len(existing_content) > 30000:
+                        display_content = existing_content[:30000]
 
             # ── Unified MODIFY path: show existing file for str_replace edits ──
             existing_section = f"""
@@ -2410,45 +2512,33 @@ DEPENDENCIES (from other tasks):
         # ── For HTML templates: inject sibling .ts and extract EXACT property list ──
         # This mirrors Cursor's LSP approach: give the HTML generator the exact declared
         # property names so it cannot invent names like `dmember.organizationName`.
+        # ── For HTML templates: inject sibling companion from session_files ──
         if ext in (".html", ".htm"):
-            _stem = task.file_path.rsplit(".", 1)[0].replace("\\", "/").lower()
-            for _ctrl_ext in (".ts", ".tsx"):
-                _ctrl_key = _stem + _ctrl_ext
-                if _ctrl_key in session_files:
-                    seen.add(_ctrl_key)
-                    _ctrl_content = session_files[_ctrl_key]
-
-                    # Extract class-level property declarations (2-4 space indent, not inside methods)
-                    _props: list[str] = []
-                    for _pm in re.finditer(
-                        r'^  (\w+)(?:\s*:\s*\S|\s*=\s*\S)',
-                        _ctrl_content, re.MULTILINE
-                    ):
-                        _pname = _pm.group(1)
-                        # Skip keywords and very short names
-                        if _pname not in ('if', 'for', 'return', 'const', 'let', 'var', 'new') and len(_pname) > 1:
-                            _props.append(_pname)
-                    _props_unique = list(dict.fromkeys(_props))
-
-                    _allowed_block = ""
-                    if _props_unique:
-                        _allowed_block = (
-                            f"\n\n⚡ ALLOWED ANGULAR BINDINGS (from TypeScript LSP — use ONLY these names):\n"
-                            f"  {', '.join(_props_unique[:40])}\n"
-                            f"FORBIDDEN: any property name NOT in this list.\n"
-                            f"FORBIDDEN: sub-object paths like `dmember.organizationName` when the property "
-                            f"lives on the component class (e.g. `isExistingMemberInProject`).\n"
-                        )
-
-                    blocks.append(
-                        f"SIBLING CONTROLLER — your template MUST use these EXACT property names:\n"
-                        f"{_ctrl_key}\n{_ctrl_content}"
-                        + _allowed_block
+            from ticket_to_code.intelligence.contracts.companion_resolver import PolyglotCompanionResolver
+            from ticket_to_code.intelligence.contracts import ComponentContract
+            _ws = getattr(self, "workspace_path", None) or getattr(self, "_workspace_path", None)
+            _comp = PolyglotCompanionResolver.resolve_companion(
+                task.file_path, session_files=session_files, workspace_path=str(_ws) if _ws else ""
+            )
+            if _comp:
+                _ctrl_key, _ctrl_content = _comp
+                seen.add(_ctrl_key)
+                _contract = ComponentContract.extract_from_ts(_ctrl_content, file_path=_ctrl_key)
+                _allowed_block = ""
+                if _contract and _contract.properties:
+                    _props_unique = list(_contract.properties.keys())
+                    _allowed_block = (
+                        f"\n\n⚡ ALLOWED CONTROLLER BINDINGS (from TypeScript LSP — use ONLY these names):\n"
+                        f"  {', '.join(_props_unique[:40])}\n"
+                        f"FORBIDDEN: any property name NOT in this list.\n"
+                        f"FORBIDDEN: sub-object paths or invented nested fields when the property lives on the component class.\n"
                     )
-                    break
 
-        # existing_content may be None for HTML tasks (template) — guard it
-        if not existing_content:
+                blocks.append(
+                    f"SIBLING CONTROLLER (just modified this run — use these exact properties and methods):\n"
+                    f"{_ctrl_key}\n{_ctrl_content}"
+                    + _allowed_block
+                )
             if blocks:
                 return (
                     "\n\nRELATED FILES MODIFIED EARLIER IN THIS RUN:\n```\n"
@@ -2759,10 +2849,10 @@ Namespace: {getattr(chunk, 'namespace', 'N/A') or 'N/A'}
             # ── str_replace EDIT dispatch for MODIFY tasks ─────────────────────
             if task.task_type.value == "modify" and _existing:
                 # Parse SEARCH/REPLACE blocks from the LLM output
-                # Primary: Aider-style git-merge-conflict delimiters (7 chars + keyword)
+                # Primary: Aider-style git-merge-conflict delimiters (7+ chars + keyword)
                 #   <<<<<<< SEARCH\n...\n=======\n...\n>>>>>>> REPLACE
                 _edit_pattern = re.compile(
-                    r'<{7} SEARCH\n(.*?)\n={7}\n(.*?)\n>{7} REPLACE',
+                    r'<{7,}\s*SEARCH\s*\r?\n(.*?)\r?\n={7,}\s*\r?\n(.*?)\r?\n>{7,}\s*REPLACE',
                     re.DOTALL
                 )
                 _edit_matches = list(_edit_pattern.finditer(code_content))
@@ -2770,9 +2860,9 @@ Namespace: {getattr(chunk, 'namespace', 'N/A') or 'N/A'}
                 # Fallback: legacy <<</ >>> format for backward compatibility
                 if not _edit_matches:
                     _legacy_pattern = re.compile(
-                        r'EDIT:\s*\n'
-                        r'old_str:\s*\n<<<\n(.*?)\n>>>\s*\n'
-                        r'new_str:\s*\n<<<\n(.*?)\n>>>',
+                        r'EDIT:\s*\r?\n'
+                        r'old_str:\s*\r?\n<<<\r?\n(.*?)\r?\n>>>\s*\r?\n'
+                        r'new_str:\s*\r?\n<<<\r?\n(.*?)\r?\n>>>',
                         re.DOTALL
                     )
                     _edit_matches = list(_legacy_pattern.finditer(code_content))
@@ -2798,7 +2888,7 @@ Namespace: {getattr(chunk, 'namespace', 'N/A') or 'N/A'}
                         # Guard: if new_str contains another SEARCH/REPLACE block,
                         # the regex captured across block boundaries due to
                         # malformed LLM output.  Reject immediately so retry fires.
-                        if re.search(r'<{7} SEARCH|>{7} REPLACE', _new_s):
+                        if re.search(r'<{7,}\s*SEARCH|>{7,}\s*REPLACE', _new_s):
                             raise ValueError(
                                 f"Edit {_idx+1}: REPLACE block contains nested SEARCH/REPLACE markers. "
                                 f"The LLM produced malformed output — retrying."
@@ -2837,24 +2927,18 @@ Namespace: {getattr(chunk, 'namespace', 'N/A') or 'N/A'}
                             from ticket_to_code.agents.patch_gate import PatchGate
                             _auth_files = getattr(self, "_current_allowed_files", None) or set()
                             
-                            # Gather sibling controller content for cross-artifact validation if HTML
+                            # Gather sibling companion content for cross-artifact validation
                             _sibling_c = None
                             _sibling_p = None
-                            if Path(task.file_path).suffix.lower() in (".html", ".htm"):
+                            if Path(task.file_path).suffix.lower() in (".html", ".htm", ".razor"):
+                                from ticket_to_code.intelligence.contracts.companion_resolver import PolyglotCompanionResolver
                                 _session = getattr(self, "_session_files", None) or {}
-                                _stem = task.file_path.rsplit(".", 1)[0]
-                                for _ctrl_ext in (".ts", ".tsx"):
-                                    _cand_p = _stem + _ctrl_ext
-                                    _ck = _cand_p.replace("\\", "/").lower()
-                                    if _ck in _session:
-                                        _sibling_c = _session[_ck]
-                                        _sibling_p = _cand_p
-                                        break
-                                if not _sibling_c and getattr(self, "_workspace_path", None):
-                                    _f_abs = Path(self._workspace_path) / (_stem + ".ts")
-                                    if _f_abs.exists():
-                                        _sibling_c = _f_abs.read_text(encoding="utf-8", errors="ignore")
-                                        _sibling_p = str(_f_abs)
+                                _ws = getattr(self, "workspace_path", None) or getattr(self, "_workspace_path", None)
+                                _comp = PolyglotCompanionResolver.resolve_companion(
+                                    task.file_path, session_files=_session, workspace_path=str(_ws) if _ws else None
+                                )
+                                if _comp:
+                                    _sibling_p, _sibling_c = _comp
 
                             _gate_ok, _gate_reason = PatchGate.validate_patch(
                                 file_path=task.file_path,
@@ -2919,18 +3003,55 @@ Namespace: {getattr(chunk, 'namespace', 'N/A') or 'N/A'}
                             _is_full_file = len(code_content.splitlines()) > 40
 
                         if _is_full_file:
-                            logger.warning(
-                                f"MODIFY task {task.file_path}: LLM output detected as "
-                                f"full-file rewrite (ext={_ext}, no EDIT blocks). "
-                                f"Raising error to trigger retry with SEARCH/REPLACE instruction."
-                            )
-                            raise ValueError(
-                                f"SEARCH block not found: LLM output a full-file rewrite "
-                                f"instead of SEARCH/REPLACE edit blocks for MODIFY task "
-                                f"on {task.file_path}. The LLM must use "
-                                f"<<<<<<< SEARCH / ======= / >>>>>>> REPLACE format. "
-                                f"Do NOT output the entire file."
-                            )
+                            # ── Resilient Diff Recovery (Cursor/Devin style) ───────
+                            # If the model output a full-file rewrite that is mostly identical
+                            # to the existing file (e.g. >=50% similarity), synthesize the
+                            # surgical edits using difflib SequenceMatcher. This avoids
+                            # wasting a 60-90s LLM round-trip and thousands of tokens.
+                            _recovered = False
+                            if _existing:
+                                import difflib
+                                _orig_lines = _existing.splitlines(keepends=True)
+                                _gen_lines = code_content.splitlines(keepends=True)
+                                _matcher = difflib.SequenceMatcher(None, _orig_lines, _gen_lines)
+                                _sim_ratio = _matcher.ratio()
+                                if _sim_ratio >= 0.50:
+                                    _synthetic_edits = []
+                                    for _tag, _i1, _i2, _j1, _j2 in _matcher.get_opcodes():
+                                        if _tag != "equal":
+                                            _s_chunk = "".join(_orig_lines[_i1:_i2])
+                                            _r_chunk = "".join(_gen_lines[_j1:_j2])
+                                            if _s_chunk or _r_chunk:
+                                                _synthetic_edits.append((_s_chunk, _r_chunk))
+                                    if _synthetic_edits:
+                                        try:
+                                            _patched, _tier_counts = self._apply_str_replace_edits(
+                                                _existing, _synthetic_edits, task.file_path
+                                            )
+                                            if _patched and _patched != _existing:
+                                                code_content = _patched
+                                                _recovered = True
+                                                logger.info(
+                                                    f"  🪄 Resilient Diff Recovery: Synthesized {len(_synthetic_edits)} "
+                                                    f"surgical edit(s) from full-file output for {task.file_path} "
+                                                    f"(similarity={_sim_ratio:.1%}, tiers={_tier_counts}). Zero retry needed!"
+                                                )
+                                        except Exception as _rec_err:
+                                            logger.debug(f"Resilient diff recovery failed: {_rec_err}")
+
+                            if not _recovered:
+                                logger.warning(
+                                    f"MODIFY task {task.file_path}: LLM output detected as "
+                                    f"full-file rewrite (ext={_ext}, no EDIT blocks). "
+                                    f"Raising error to trigger retry with SEARCH/REPLACE instruction."
+                                )
+                                raise ValueError(
+                                    f"SEARCH block not found: LLM output a full-file rewrite "
+                                    f"instead of SEARCH/REPLACE edit blocks for MODIFY task "
+                                    f"on {task.file_path}. The LLM must use "
+                                    f"<<<<<<< SEARCH / ======= / >>>>>>> REPLACE format. "
+                                    f"Do NOT output the entire file."
+                                )
                         # else: small snippet (property, annotation) — let it through
 
             documentation = "Generated code (delimiter format)"
@@ -3377,23 +3498,23 @@ class PatchValidator:
                 )
         metrics["ownership_type"] = ownership_type
 
-        # ── CHECK 6: Angular Template Controller Contract Validation ────────
+        # ── CHECK 6: Template / Consumer Contract Validation ────────────────
         if normalized_gen.endswith((".component.html", ".html")):
             try:
+                from ticket_to_code.intelligence.contracts.companion_resolver import PolyglotCompanionResolver
                 from ticket_to_code.intelligence.contracts import ComponentContract, TemplateContractValidator
-                gen_p = Path(generated.file_path)
-                ts_companion = None
-                for ext in (".component.ts", ".ts"):
-                    cand = gen_p.with_name(gen_p.name.replace(".component.html", ext).replace(".html", ext))
-                    if cand.exists():
-                        ts_companion = cand
-                        break
-                if ts_companion:
-                    ts_text = ts_companion.read_text(encoding="utf-8", errors="ignore")
-                    c_contract = ComponentContract.extract_from_ts(ts_text, file_path=str(ts_companion))
-                    t_violations = TemplateContractValidator.validate(generated.content, c_contract)
-                    if t_violations:
-                        violations.extend([f"TEMPLATE CONTRACT VIOLATION: {tv}" for tv in t_violations])
+                _session = getattr(self, "_session_files", None) or {}
+                _ws = getattr(self, "workspace_path", None) or getattr(self, "_workspace_path", None)
+                _companion = PolyglotCompanionResolver.resolve_companion(
+                    generated.file_path, session_files=_session, workspace_path=str(_ws) if _ws else None
+                )
+                if _companion:
+                    _comp_path, _comp_text = _companion
+                    if _comp_path.endswith((".ts", ".tsx")):
+                        c_contract = ComponentContract.extract_from_ts(_comp_text, file_path=_comp_path)
+                        t_violations = TemplateContractValidator.validate(generated.content, c_contract, original_content=existing_content)
+                        if t_violations:
+                            violations.extend([f"TEMPLATE CONTRACT VIOLATION: {tv}" for tv in t_violations])
             except Exception as _tc_err:
                 logger.debug(f"Template contract validation in PatchValidator failed: {_tc_err}")
 

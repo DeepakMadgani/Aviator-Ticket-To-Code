@@ -504,25 +504,41 @@ def resolve_structural_companions(
     return companions
 
 
-def verify_post_generation_scope(
-    workspace_path: Union[str, Path],
-    approved_writable_files: Set[str],
-    original_contents: Optional[Dict[str, str]] = None,
-) -> Tuple[bool, List[str], Set[str]]:
-    """
-    Inspect the actual filesystem/git status after code generation.
-    Enforces the invariant:
-        ACTUAL_MODIFIED_FILES ⊆ APPROVED_WRITABLE_FILES
-    
-    Detects:
-    - Modified existing files
-    - Newly created files
-    - Deleted files
-    - Renamed files
-    
-    Returns:
-        (is_clean, violations_list, unauthorized_files_set)
-    """
+def capture_pre_run_git_status(workspace_path: Union[str, Path]) -> Set[str]:
+    """Capture relative paths of all currently dirty or untracked files across git repos.
+    Used as baseline so pre-existing user edits are NEVER treated as unauthorized scope violations."""
+    ws = Path(workspace_path)
+    dirty_files: Set[str] = set()
+    git_repos = _find_git_repos(ws)
+    for repo_path, rel_prefix in git_repos:
+        try:
+            res = subprocess.run(
+                ["git", "status", "--porcelain", "-uall"],
+                cwd=str(repo_path),
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if res.returncode == 0:
+                for line in (res.stdout or "").splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split(maxsplit=1)
+                    if len(parts) >= 2:
+                        raw_path = parts[1].strip()
+                        if "->" in raw_path:
+                            p2 = raw_path.split("->")[1].strip().strip('"')
+                            p = f"{rel_prefix}/{p2}" if rel_prefix else p2
+                        else:
+                            p2 = raw_path.strip('"')
+                            p = f"{rel_prefix}/{p2}" if rel_prefix else p2
+                        dirty_files.add(p.replace("\\", "/").lower().strip())
+        except Exception:
+            pass
+    return dirty_files
+
+
 def _find_git_repos(ws: Path) -> List[Tuple[Path, str]]:
     """Return list of (repo_path, rel_prefix) for git repos at ws or up to 2 levels
     of subdirectories (bounded scan so poly-repo parents are always recognized)."""
@@ -595,6 +611,7 @@ def verify_post_generation_scope(
     approved_writable_files: Set[str],
     original_contents: Optional[Dict[str, str]] = None,
     pre_run_manifest: Optional[Dict[str, int]] = None,
+    pre_run_git_dirty_files: Optional[Set[str]] = None,
 ) -> Tuple[bool, List[str], Set[str]]:
     """
     Inspect the actual filesystem/git status after code generation.
@@ -612,6 +629,9 @@ def verify_post_generation_scope(
             (build_workspace_manifest). When git detection fails, the gate
             diffs against this real pre-run state instead of assuming every
             file absent from original_contents is "new".
+        pre_run_git_dirty_files: Set of relative paths that were ALREADY dirty/untracked
+            before this workflow run started. These are developer baseline and will
+            NEVER be flagged as unauthorized changes or violations.
 
     Returns:
         (is_clean, violations_list, unauthorized_files_set)
@@ -625,6 +645,7 @@ def verify_post_generation_scope(
         )
 
     approved_norm: Set[str] = {f.replace("\\", "/").lower().strip() for f in approved_writable_files if f}
+    pre_dirty_norm: Set[str] = {p.replace("\\", "/").lower().strip() for p in (pre_run_git_dirty_files or set()) if p}
 
     def _is_approved(path_str: str) -> bool:
         np = path_str.replace("\\", "/").lower().strip()
@@ -664,13 +685,16 @@ def verify_post_generation_scope(
                                 if rel_prefix:
                                     p1 = f"{rel_prefix}/{p1}"
                                     p2 = f"{rel_prefix}/{p2}"
-                                actual_modified.add(p1)
-                                actual_modified.add(p2)
+                                if p1.replace("\\", "/").lower().strip() not in pre_dirty_norm:
+                                    actual_modified.add(p1)
+                                if p2.replace("\\", "/").lower().strip() not in pre_dirty_norm:
+                                    actual_modified.add(p2)
                             else:
                                 p = raw_path.strip('"')
                                 if rel_prefix:
                                     p = f"{rel_prefix}/{p}"
-                                actual_modified.add(p)
+                                if p.replace("\\", "/").lower().strip() not in pre_dirty_norm:
+                                    actual_modified.add(p)
                 else:
                     git_failures += 1
             except Exception:
@@ -751,98 +775,17 @@ def revert_unauthorized_changes(
     unauthorized_files: Set[str],
     original_contents: Optional[Dict[str, str]] = None,
     pre_run_manifest: Optional[Dict[str, int]] = None,
+    protected_files: Optional[Set[str]] = None,
 ) -> List[str]:
     """
-    Safely reverts unauthorized disk mutations.
-    - If file was pre-existing / git-tracked: checkout from git or restore from original_contents.
-    - If file was newly created untracked: delete from disk.
-    - NEVER delete git-tracked files under any circumstances.
-    - NEVER delete files present in pre_run_manifest unless original content is
-      available (without a manifest, deletion only happens for files absent from
-      original_contents AND outside any detected git repo — the legacy test path).
+    Safely handles unauthorized disk mutations.
+    NOTE: Destructive auto-revert, git checkout, and file deletion have been DISABLED
+    to protect user code and prevent accidental rollback of intentional changes
+    (such as SCSS, HTML, TypeScript, or other project files).
     """
-    ws = Path(workspace_path)
-    reverted: List[str] = []
-    original_contents = original_contents or {}
-    pre_run_manifest = pre_run_manifest or {}
-    manifest_norm = {k.replace("\\", "/").lower() for k in pre_run_manifest}
-    git_repos = _find_git_repos(ws)
-
-    for f in unauthorized_files:
-        full_path = ws / f
-        norm_f = f.replace("\\", "/").lower()
-
-        # 1. Try restoring from original_contents if available
-        matched_orig = None
-        for k, v in original_contents.items():
-            if k.replace("\\", "/").lower() == norm_f:
-                matched_orig = v
-                break
-
-        if matched_orig is not None:
-            try:
-                full_path.parent.mkdir(parents=True, exist_ok=True)
-                full_path.write_text(matched_orig, encoding="utf-8")
-                reverted.append(f"Restored original content: {f}")
-                continue
-            except Exception:
-                pass
-
-        # 2. Check if file belongs to a detected git repository
-        target_repo = None
-        rel_in_repo = f
-        for repo_path, rel_prefix in git_repos:
-            if rel_prefix and (f == rel_prefix or f.startswith(rel_prefix + "/") or f.startswith(rel_prefix + "\\")):
-                target_repo = repo_path
-                rel_in_repo = f[len(rel_prefix) + 1:].replace("\\", "/")
-                break
-            elif not rel_prefix and repo_path == ws:
-                target_repo = ws
-                rel_in_repo = f.replace("\\", "/")
-                break
-
-        if target_repo is not None:
-            # Check if tracked in git
-            res_tracked = subprocess.run(
-                ["git", "ls-files", "--error-unmatch", rel_in_repo],
-                cwd=str(target_repo),
-                capture_output=True,
-                text=True,
-            )
-            is_tracked = (res_tracked.returncode == 0)
-            if is_tracked:
-                # File is TRACKED in git! NEVER DELETE IT! Restore via git checkout:
-                subprocess.run(
-                    ["git", "checkout", "--", rel_in_repo],
-                    cwd=str(target_repo),
-                    capture_output=True,
-                    text=True,
-                )
-                reverted.append(f"Restored tracked file via git checkout: {f}")
-                continue
-            else:
-                # File is UNTRACKED in git: safe to delete this unauthorized file
-                if full_path.is_file():
-                    try:
-                        full_path.unlink()
-                        reverted.append(f"Deleted unauthorized untracked file: {f}")
-                    except Exception:
-                        pass
-                continue
-
-        # 3. No git repo for this file: only delete when we have positive
-        # evidence the file is NOT pre-existing (absent from the manifest).
-        if pre_run_manifest and norm_f in manifest_norm:
-            reverted.append(
-                f"SKIPPED deletion of pre-existing file (no original content captured): {f}"
-            )
-            continue
-        if full_path.is_file():
-            try:
-                full_path.unlink()
-                reverted.append(f"Deleted unauthorized untracked file: {f}")
-            except Exception:
-                pass
-
-    return reverted
+    logger.info(
+        "revert_unauthorized_changes: auto-revert disabled to preserve generated code "
+        f"({len(unauthorized_files)} file(s) tracked: {sorted(unauthorized_files)})"
+    )
+    return [f"Preserved file (auto-revert disabled): {f}" for f in unauthorized_files]
 

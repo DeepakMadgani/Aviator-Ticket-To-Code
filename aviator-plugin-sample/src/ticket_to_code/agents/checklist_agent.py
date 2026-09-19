@@ -21,6 +21,16 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class BehavioralInvariant:
+    """A behavioral/cardinality invariant derived from requirements with explicit provenance."""
+    source_requirement_id: str  # e.g., "REQ-1" or "REQ-2"
+    source_text: str            # Exact ticket phrase, e.g., "When a user is selected..."
+    cardinality: str            # "COLLECTION_AT_LEAST_ONE" | "SINGLETON" | "UNCONSTRAINED"
+    rule: str                   # Invariant instruction for generator/reviewer
+    confidence: str = "HIGH"    # "HIGH" | "MEDIUM"
+
+
+@dataclass
 class ChecklistItem:
     """A single verifiable requirement derived from the ticket."""
     id: int
@@ -37,6 +47,7 @@ class DefinitionOfDone:
     """Complete definition-of-done for a ticket."""
     items: List[ChecklistItem] = field(default_factory=list)
     ticket_title: str = ""
+    behavioral_invariants: List[BehavioralInvariant] = field(default_factory=list)
     
     def pending_items(self) -> List[ChecklistItem]:
         return [item for item in self.items if item.status == "pending"]
@@ -50,51 +61,72 @@ class DefinitionOfDone:
         passed = sum(1 for item in self.items if item.status == "pass")
         return passed / len(self.items)
 
+    def render_invariants_block(self) -> str:
+        """Render behavioral invariants block for pre-injection into code generation prompts."""
+        if not self.behavioral_invariants:
+            return ""
+        lines = [
+            "════════════════════════════════════════════════════════════════",
+            "BEHAVIORAL INVARIANTS & CARDINALITY RULES (DERIVED FROM REQUIREMENTS):",
+            "════════════════════════════════════════════════════════════════",
+        ]
+        for inv in self.behavioral_invariants:
+            lines.append(f"• [{inv.source_requirement_id}] Invariant ({inv.cardinality}, confidence: {inv.confidence}):")
+            lines.append(f"  Source: \"{inv.source_text}\"")
+            lines.append(f"  Rule: {inv.rule}")
+        lines.append("Do NOT write overly-narrow conditions (e.g., length === 1 or single-item only)")
+        lines.append("when the invariant demands collection-wide or plural coverage.")
+        lines.append("════════════════════════════════════════════════════════════════\n")
+        return "\n".join(lines)
+
 
 class ChecklistAgent:
     """
-    Phase 0: Convert ticket + requirements into a numbered definition-of-done.
+    Phase 0: Convert ticket + requirements into a numbered definition-of-done
+    and explicit behavioral invariants with provenance.
     
     Runs BEFORE code generation. The output is consumed by:
+    - CodeGenerator: pre-injects invariants to prevent cardinality defects before writing code
     - Phase 5 (ChecklistVerifier): checks each item against generated code
     - Phase 6 (Escalation): unresolved items trigger escalation instead of silent ship
     """
 
-    SYSTEM_PROMPT = """You are a QA lead converting a development ticket into a testable checklist.
+    SYSTEM_PROMPT = """You are a QA lead converting a development ticket into:
+1. Verifiable checklist items (concrete code assertions).
+2. Behavioral Invariants with exact provenance (cardinality, collection vs singleton, condition rules).
 
-For each requirement in the ticket, produce a numbered checklist item that:
-1. Describes a SPECIFIC, OBSERVABLE behavior or code artifact
-2. Names the expected FILE where this should appear (if knowable)
-3. Names the expected SYMBOL (method, property, class) if applicable
-4. Can be verified by reading the code — not by running the app
+For behavioral invariants:
+- Examine requirements for cardinality: does an action apply to EACH/EVERY/ALL selected items (COLLECTION_AT_LEAST_ONE), or strictly to exactly one item (SINGLETON)?
+- If user selection allows multi-select (e.g. dropdown, search items, checkboxes), infer COLLECTION_AT_LEAST_ONE and state that the behavior must apply to all selected items, not only singleton selection.
+- Record the exact source requirement text as evidence.
 
-RULES:
+RULES FOR CHECKLIST ITEMS:
 - Each item must be independently verifiable by reading ONE file
-- "Logic that calls an API" is verifiable (grep for service call). "Works correctly" is NOT.
 - If an item verifies a property declaration, use `"verification_type": "declaration"`
 - If an item verifies logic that SETS/ASSIGNS a property, use `"verification_type": "assignment"`
 - If an item verifies a function call, use `"verification_type": "call"`
 - For other logic, use `"verification_type": "logic"`
-- Separate "declares X" from "sets X" — declaring a property and writing logic to SET it are different verifiable steps
-- Include both the POSITIVE case (shows read-only) and NEGATIVE case (shows dropdown) as separate items
+- Include both the POSITIVE case and NEGATIVE case as separate items
 - Maximum 12 items. Minimum 3 items.
 
 Respond with JSON ONLY:
 {
+  "behavioral_invariants": [
+    {
+      "source_requirement_id": "REQ-1",
+      "source_text": "When a user is selected in the Add Members modal...",
+      "cardinality": "COLLECTION_AT_LEAST_ONE",
+      "rule": "Must handle any non-empty selection (e.g. searchData.length > 0 or iteration); do NOT restrict logic to singleton length === 1.",
+      "confidence": "HIGH"
+    }
+  ],
   "items": [
     {
-      "description": "add-members.component.ts declares allProjectMembers property",
+      "description": "add-members.component.ts declares isExistingProjectMember property",
       "file_hint": "add-members.component.ts",
-      "symbol_hint": "allProjectMembers",
+      "symbol_hint": "isExistingProjectMember",
       "verification_type": "declaration"
-    },
-    {
-      "description": "add-members.component.ts logic sets allProjectMembers property",
-      "file_hint": "add-members.component.ts",
-      "symbol_hint": "allProjectMembers",
-      "verification_type": "assignment"
-    },
-    ...
+    }
   ]
 }
 
@@ -191,12 +223,22 @@ No markdown, no explanations, ONLY valid JSON."""
                 verification_type=item_data.get("verification_type", "semantic"),
             ))
 
+        invariants = []
+        for inv_data in data.get("behavioral_invariants", []):
+            invariants.append(BehavioralInvariant(
+                source_requirement_id=inv_data.get("source_requirement_id", "REQ-?"),
+                source_text=inv_data.get("source_text", ""),
+                cardinality=inv_data.get("cardinality", "COLLECTION_AT_LEAST_ONE"),
+                rule=inv_data.get("rule", ""),
+                confidence=inv_data.get("confidence", "HIGH"),
+            ))
+
         if not items:
             logger.warning("ChecklistAgent: response had zero items")
 
-        dod = DefinitionOfDone(items=items, ticket_title=ticket_title)
+        dod = DefinitionOfDone(items=items, ticket_title=ticket_title, behavioral_invariants=invariants)
         logger.info(
-            f"  ✅ ChecklistAgent: generated {len(items)} checklist items "
-            f"for '{ticket_title[:60]}'"
+            f"  ✅ ChecklistAgent: generated {len(items)} checklist items and "
+            f"{len(invariants)} behavioral invariant(s) for '{ticket_title[:60]}'"
         )
         return dod

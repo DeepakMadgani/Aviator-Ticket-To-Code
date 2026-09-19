@@ -568,7 +568,14 @@ COMMON TYPESCRIPT ERROR QUICK-FIXES:
 - TS2322 'Type "String" is not assignable to type "string"': Change uppercase `String` to lowercase `string`. Same for `Number`→`number`, `Boolean`→`boolean`, `Object`→`object`.
 - TS2554 'Expected N arguments, but got M': Check if a function parameter was added/removed by our edits. Either add the missing parameter to the function signature or remove the extra argument from the call site.
 - TS2304 'Cannot find name X': Add the missing import statement.
-- TS2339 'Property X does not exist on type Y': Use READ_COMPONENT first! Check if the property belongs on a different interface (e.g., DisplayedMember vs Member). Don't just add it blindly.
+- TS2339 'Property X does not exist on type Y':
+  * If the error is reported in an HTML template (*.component.html):
+    DO NOT ADD THE PROPERTY TO THE CONTROLLER (.ts) CLASS!
+    Check the sibling .ts controller first — it almost certainly already declares a property representing this state under a slightly different name (e.g. `isExistingProjectMember` vs `selectedUserIsExistingProjectMember`).
+    FIX THE HTML TEMPLATE to bind to the existing controller property! Blindly declaring new properties on the .ts controller causes duplicate identifier (TS2300) errors and breaks logic.
+  * If the error is in a TypeScript file (.ts):
+    Use READ_COMPONENT first! Check if the property belongs on a different interface (e.g., DisplayedMember vs Member). Don't just add it blindly.
+- TS2300 'Duplicate identifier X': Remove the redundant duplicate declaration of X. Keep only the canonical declaration with proper type and initialization.
 - TS2345 'Argument of type X is not assignable to parameter of type Y': Check if the function expects a different type. Fix the caller or add proper type conversion.
 
 CRITICAL: For simple type errors (TS2322, TS2554), fix them IMMEDIATELY with REPLACE_CONTENT — do NOT waste iterations reading files or searching. You already have the file content and error line number."""
